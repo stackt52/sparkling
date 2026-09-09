@@ -1,0 +1,54 @@
+# Dependencies / build output
+node_modules/
+backend/functions/lib/
+dist/
+coverage/
+.next/
+out/
+
+# Environment & secrets (never commit)
+.env
+.env.*
+!.env.example
+*.local
+.secret.local
+serviceAccountKey*.json
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+ui-debug.log
+firestore-debug.log
+database-debug.log
+pubsub-debug.log
+.firebaserc.local
+
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/pubspec_overrides.yaml
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/android/.gradle/
+**/android/local.properties
+**/macos/Flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+npm-debug.log*
+yarn-error.log
+.tmp/

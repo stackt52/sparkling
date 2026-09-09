@@ -1,0 +1,30 @@
+name: sparkling_core
+description: "Sparkling shared domain: models, REST client, Supabase realtime, offline queue, PDF417 disc parser, repositories (SRS ARC-002/004, DAT-005, BAR-*)."
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.2
+  flutter: ">=3.47.0"
+
+dependencies:
+  connectivity_plus: ^7.3.1
+  crypto: ^3.0.7
+  dio: ^5.11.1
+  equatable: ^2.1.0
+  firebase_auth: ^6.6.1
+  firebase_core: ^4.14.0
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^11.0.0
+  hive_ce: ^2.19.3
+  hive_ce_flutter: ^2.3.4
+  intl: ^0.20.3
+  meta: ^1.19.0
+  supabase_flutter: ^2.17.2
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

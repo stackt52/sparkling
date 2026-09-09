@@ -1,0 +1,17 @@
+rules_version = '2';
+// Cloud Storage for Firebase (DAT-006). Objects are namespaced by uid; the API
+// writes `attachments` rows after upload. Staff (custom claim role) may read.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() { return request.auth != null; }
+    function isStaff() { return isSignedIn() && request.auth.token.role in ['technician','supervisor','manager','admin','finance']; }
+    match /users/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
+      allow write: if isSignedIn() && request.auth.uid == uid && request.resource.size < 15 * 1024 * 1024;
+    }
+    match /outlets/{outletId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow write: if isStaff() && request.resource.size < 15 * 1024 * 1024;
+    }
+  }
+}

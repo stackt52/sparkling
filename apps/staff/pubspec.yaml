@@ -1,0 +1,30 @@
+name: sparkling_staff
+description: "Sparkling Outlet Staff app — tasks, checklists, disc scanning, supervisor ops, leaderboard and inventory (SRS STF-*)."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sparkling_ui:
+    path: ../../packages/sparkling_ui
+  sparkling_core:
+    path: ../../packages/sparkling_core
+  go_router: ^18.0.1
+  mobile_scanner: ^7.4.0
+  image_picker: ^1.2.3
+  firebase_core: ^4.14.0
+  firebase_auth: ^6.6.1
+  firebase_messaging: ^16.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  hive_ce_flutter: ^2.3.4
+
+flutter:
+  uses-material-design: true

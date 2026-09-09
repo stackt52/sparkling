@@ -1,0 +1,29 @@
+# Firebase App Hosting configuration for the Sparkling Admin dashboard (Next.js).
+# Deploy: firebase apphosting:backends:create --project sparkling-4e89d  (see README.md)
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  # Public runtime config — available at build AND runtime (NEXT_PUBLIC_* is inlined at build).
+  - variable: NEXT_PUBLIC_DEMO_MODE
+    value: "false"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_API_BASE_URL
+    value: https://europe-west1-sparkling-4e89d.cloudfunctions.net/api
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_SUPABASE_URL
+    value: https://uicqczgpiqkczwyssdft.supabase.co
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_SUPABASE_ANON_KEY
+    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3FjemdwaXFrY3p3eXNzZGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA1OTIzMTYsImV4cCI6MjA2NjE2ODMxNn0.DKyzN_ZlwAVMIdES2FlUcw4yH6SR0v9CUnSwtc4KWpI"
+    availability: [BUILD, RUNTIME]
+
+  # Secrets (Cloud Secret Manager) — none are needed by the browser bundle today.
+  # If server-side routes are added, reference them like this:
+  # - variable: SUPABASE_SERVICE_ROLE_KEY
+  #   secret: SUPABASE_SERVICE_ROLE_KEY
+  #   availability: [RUNTIME]

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "700174326619",
+    "project_id": "sparkling-4e89d",
+    "storage_bucket": "sparkling-4e89d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:700174326619:android:1f0f2249eaf9bda8c5587e",
+        "android_client_info": {
+          "package_name": "za.co.sparkling.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAkIqe0P1ZS7NORDaXaib0pjtBFmXUsSmM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:700174326619:android:4809392b3286413dc5587e",
+        "android_client_info": {
+          "package_name": "za.co.sparkling.staff"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAkIqe0P1ZS7NORDaXaib0pjtBFmXUsSmM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

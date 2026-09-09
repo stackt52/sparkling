@@ -1,0 +1,25 @@
+name: sparkling_ui
+description: "Sparkling platform design system: Material 3 Expressive tokens, theme and shared widgets (SRS UX-001..004)."
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.2
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_animate: ^4.5.2
+  google_fonts: ^8.2.1
+  material_symbols_icons: ^4.2960.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  assets:
+    - assets/logo-light.png
+    - assets/logo-dark.png

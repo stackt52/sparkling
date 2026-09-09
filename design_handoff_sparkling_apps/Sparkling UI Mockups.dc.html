@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300..800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..700,0..1,0&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e7edf4;font-family:Outfit,system-ui,sans-serif;color:#16212b}
+a{color:#006398}a:hover{color:#00476e}
+.mi{font-family:'Material Symbols Rounded';font-weight:400;font-variation-settings:'FILL' 1;line-height:1;display:inline-block;font-style:normal}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(16,42,67,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#203060;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 16px/1.2 Outfit,sans-serif;color:#16212b}
+.dv-tsub{font:400 12.5px/1.5 Outfit,sans-serif;color:#51606f;margin:0 0 22px;max-width:760px}
+.dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(32,48,96,.1);color:#203060;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 Outfit,sans-serif;color:#51606f}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(16,42,67,.1);border-radius:10px;box-shadow:0 2px 6px rgba(16,42,67,.08);overflow:hidden}
+.dv-opt:target .dv-oid{background:#00a0e0;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.5 Outfit,sans-serif;color:rgba(22,33,43,.55)}
+</style>
+</helmet>
+
+<div style="padding:36px 44px 8px;display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start">
+  <div style="flex:none;width:400px">
+    <img src="uploads/logo-light.png" alt="Sparkling" style="height:44px;margin:0 0 14px">
+    <h1 style="font:700 26px/1.15 Outfit;margin:0 0 10px;color:#16212b">Dashboard &amp; App UI Mockups</h1>
+    <p style="font:400 13px/1.6 Outfit;color:#51606f;margin:0 0 12px">Static hi-fi mockups per SRS v1.0 — Customer App (<a href="#t1">t1</a>), Outlet Staff App (<a href="#t2">t2</a>), Admin Dashboard (<a href="#t3">t3</a>). Google M3 Expressive: tonal surfaces, large shape radii, pill actions, expressive type. Both light &amp; dark per app. South African sample data (ZAR, SA plates, PDF417 licence discs).</p>
+    <p style="font:400 12px/1.6 Outfit;color:#51606f;margin:0">Assumptions: Outfit stands in for the final M3 type ramp; charts are indicative; payment provider unbranded per SRS open decisions.</p>
+  </div>
+  <div style="flex:none;background:#fff;border:1px solid rgba(16,42,67,.1);border-radius:16px;padding:18px 20px">
+    <div style="font:600 11px Outfit;letter-spacing:.08em;text-transform:uppercase;color:#51606f;margin-bottom:12px">Brand-derived M3 tokens</div>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="width:84px"><div style="height:44px;border-radius:12px;background:#203060"></div><div style="font:500 10.5px Outfit;margin-top:5px">Navy #203060</div></div>
+      <div style="width:84px"><div style="height:44px;border-radius:12px;background:linear-gradient(135deg,#00a0e0,#0074b8)"></div><div style="font:500 10.5px Outfit;margin-top:5px">Azure #00A0E0</div></div>
+      <div style="width:84px"><div style="height:44px;border-radius:12px;background:#006398"></div><div style="font:500 10.5px Outfit;margin-top:5px">Primary L</div></div>
+      <div style="width:84px"><div style="height:44px;border-radius:12px;background:#8bd2ff"></div><div style="font:500 10.5px Outfit;margin-top:5px">Primary D</div></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="width:84px"><div style="height:28px;border-radius:9px;background:#cbe6ff;border:1px solid rgba(16,42,67,.08)"></div><div style="font:500 10.5px Outfit;margin-top:5px">Primary cont.</div></div>
+      <div style="width:84px"><div style="height:28px;border-radius:9px;background:#d7e3f9;border:1px solid rgba(16,42,67,.08)"></div><div style="font:500 10.5px Outfit;margin-top:5px">Secondary cont.</div></div>
+      <div style="width:84px"><div style="height:28px;border-radius:9px;background:#f6fafd;border:1px solid rgba(16,42,67,.12)"></div><div style="font:500 10.5px Outfit;margin-top:5px">Surface L</div></div>
+      <div style="width:84px"><div style="height:28px;border-radius:9px;background:#0d1524"></div><div style="font:500 10.5px Outfit;margin-top:5px">Surface D</div></div>
+    </div>
+  </div>
+</div>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">t1</a><span class="dv-tname">Customer App — Android &amp; iOS phone</span></div>
+<p class="dv-tsub">Full booking flow (<a class="dv-oid" href="#1a">1a</a>→<a class="dv-oid" href="#1g">1g</a>), PDF417 disc scan (<a class="dv-oid" href="#1d">1d</a>, <a class="dv-oid" href="#1e">1e</a>), live tracking (<a class="dv-oid" href="#1h">1h</a>), loyalty (<a class="dv-oid" href="#1i">1i</a>), repair quote (<a class="dv-oid" href="#1j">1j</a>), dark scheme (<a class="dv-oid" href="#1k">1k</a>, <a class="dv-oid" href="#1l">1l</a>).</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Home — light</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#16212b"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <img src="uploads/logo-light.png" alt="Sparkling" style="height:26px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="position:relative;width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:21px;color:#16212b;font-variation-settings:'FILL' 0">notifications</span><span style="position:absolute;top:9px;right:9px;width:8px;height:8px;border-radius:50%;background:#00a0e0"></span></div>
+      <div style="width:44px;height:44px;border-radius:16px;background:#203060;color:#fff;display:grid;place-items:center;font:600 15px Outfit">TN</div>
+    </div>
+  </div>
+  <div style="padding:14px 20px 4px">
+    <div style="font:300 15px Outfit;color:#51606f">Good morning</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font:600 28px/1.15 Outfit;color:#16212b">Thandi</div>
+      <div style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#f3dda4,#e2ba5f);border-radius:100px;padding:7px 14px 7px 10px"><span class="mi" style="font-size:16px;color:#5c4200">loyalty</span><span style="font:600 12.5px Outfit;color:#5c4200">Gold · 2 450 pts</span></div>
+    </div>
+  </div>
+  <div style="margin:16px 20px 0;border-radius:28px;background:linear-gradient(130deg,#203060 30%,#0a5f96 80%,#00a0e0);padding:20px;color:#fff;position:relative;overflow:hidden">
+    <div style="position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.07)"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font:600 11px Outfit;letter-spacing:.1em;text-transform:uppercase;color:#9ed7f5">Next booking</span>
+      <span style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.16);border-radius:100px;padding:4px 11px;font:500 11.5px Outfit"><span style="width:7px;height:7px;border-radius:50%;background:#6ee7a0"></span>Confirmed</span>
+    </div>
+    <div style="font:600 20px Outfit;margin:10px 0 2px">Full Valet — Corolla Cross</div>
+    <div style="font:400 13px Outfit;color:#bcd9ec">Glen Village Elite Centre · Today 10:30</div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <div style="flex:1;background:#fff;color:#203060;border-radius:100px;padding:11px 0;text-align:center;font:600 13.5px Outfit">Track service</div>
+      <div style="width:46px;height:42px;border-radius:100px;background:rgba(255,255,255,.16);display:grid;place-items:center"><span class="mi" style="font-size:19px">more_horiz</span></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px;margin:14px 20px 0">
+    <div style="flex:1;background:#cbe6ff;border-radius:24px;padding:16px 16px 14px">
+      <div style="width:42px;height:42px;border-radius:14px;background:#006398;display:grid;place-items:center;margin-bottom:22px"><span class="mi" style="font-size:21px;color:#fff">local_car_wash</span></div>
+      <div style="font:600 15px Outfit;color:#001d31">Book a wash</div>
+      <div style="font:400 11.5px Outfit;color:#33526b">From R120</div>
+    </div>
+    <div style="flex:1;background:#d7e3f9;border-radius:24px;padding:16px 16px 14px">
+      <div style="width:42px;height:42px;border-radius:14px;background:#203060;display:grid;place-items:center;margin-bottom:22px"><span class="mi" style="font-size:21px;color:#fff">car_crash</span></div>
+      <div style="font:600 15px Outfit;color:#14243d">Repair quote</div>
+      <div style="font:400 11.5px Outfit;color:#43536d">Body &amp; paint</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 20px 10px"><span style="font:600 16px Outfit">Your vehicles</span><span style="font:500 12.5px Outfit;color:#006398">Manage</span></div>
+  <div style="display:flex;gap:10px;margin:0 0 0 20px;overflow:hidden">
+    <div style="flex:none;width:200px;background:#ebf1f7;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="mi" style="font-size:20px;color:#006398">directions_car</span><span style="font:600 10px Outfit;background:#c9f0d8;color:#0d5c32;border-radius:100px;padding:3px 9px">Disc verified</span></div>
+      <div style="font:600 15px Outfit;margin-top:12px">Corolla Cross</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#51606f;margin-top:2px">HX 42 KL GP</div>
+    </div>
+    <div style="flex:none;width:200px;background:#ebf1f7;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="mi" style="font-size:20px;color:#006398">directions_car</span><span style="font:600 10px Outfit;background:#e1eaf2;color:#51606f;border-radius:100px;padding:3px 9px">Manual entry</span></div>
+      <div style="font:600 15px Outfit;margin-top:12px">Ford Ranger</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#51606f;margin-top:2px">CJ 118-334</div>
+    </div>
+  </div>
+  <div style="display:flex;background:#ebf1f7;padding:12px 10px 6px;justify-content:space-around;margin-top:20px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;border-radius:100px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#001d31">home</span></div><span style="font:600 11px Outfit;color:#16212b">Home</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">calendar_month</span></div><span style="font:500 11px Outfit;color:#51606f">Bookings</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">loyalty</span></div><span style="font:500 11px Outfit;color:#51606f">Rewards</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">person</span></div><span style="font:500 11px Outfit;color:#51606f">Profile</span></div>
+  </div>
+  <div style="background:#ebf1f7;padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Booking · service select</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div><div style="font:600 19px Outfit">Book a wash</div><div style="font:400 12px Outfit;color:#51606f">Step 1 of 3 · Choose service</div></div>
+  </div>
+  <div style="display:flex;gap:5px;margin:8px 20px 0">
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#dbe5ee"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#dbe5ee"></div>
+  </div>
+  <div style="margin:16px 20px 0;background:#203060;border-radius:24px;padding:15px 18px;display:flex;align-items:center;gap:13px;color:#fff">
+    <div style="width:44px;height:44px;border-radius:15px;background:rgba(255,255,255,.14);display:grid;place-items:center"><span class="mi" style="font-size:21px;color:#8bd2ff">storefront</span></div>
+    <div style="flex:1"><div style="font:600 14.5px Outfit">Glen Village Elite Centre</div><div style="font:400 11.5px Outfit;color:#a9c3d8;display:flex;align-items:center;gap:4px"><span class="mi" style="font-size:13px;color:#e2ba5f">star</span>4.8 · 2.1 km · Open until 18:00</div></div>
+    <span class="mi" style="font-size:20px;color:#a9c3d8">unfold_more</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 20px 10px"><span style="font:600 16px Outfit">Wash services</span><span style="font:500 12px Outfit;color:#51606f;display:flex;align-items:center;gap:4px"><span class="mi" style="font-size:15px;font-variation-settings:'FILL' 0">directions_car</span>HX 42 KL GP</span></div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin:0 20px">
+    <div style="background:#ebf1f7;border-radius:22px;padding:15px 17px;display:flex;align-items:center;gap:13px">
+      <span class="mi" style="font-size:23px;color:#0074b8">bolt</span>
+      <div style="flex:1"><div style="font:600 14.5px Outfit">Express Wash</div><div style="font:400 11.5px Outfit;color:#51606f">Exterior rinse, foam &amp; dry · 25 min</div></div>
+      <div style="text-align:right"><div style="font:600 15px Outfit">R 120</div><div style="width:22px;height:22px;border-radius:50%;border:2px solid #9db1c2;margin:5px 0 0 auto"></div></div>
+    </div>
+    <div style="background:#cbe6ff;border:2px solid #006398;border-radius:22px;padding:15px 17px;display:flex;align-items:center;gap:13px">
+      <span class="mi" style="font-size:23px;color:#006398">water_drop</span>
+      <div style="flex:1"><div style="font:600 14.5px Outfit;color:#001d31">Wash &amp; Wax</div><div style="font:400 11.5px Outfit;color:#33526b">Hand wash, wax seal &amp; tyre shine · 45 min</div><div style="display:inline-flex;align-items:center;gap:4px;background:#fff;border-radius:100px;padding:3px 10px;margin-top:7px;font:600 10.5px Outfit;color:#5c4200"><span class="mi" style="font-size:13px;color:#c9962e">loyalty</span>Earn 22 pts</div></div>
+      <div style="text-align:right"><div style="font:600 15px Outfit;color:#001d31">R 220</div><div style="width:22px;height:22px;border-radius:50%;background:#006398;display:grid;place-items:center;margin:5px 0 0 auto"><span class="mi" style="font-size:14px;color:#fff">check</span></div></div>
+    </div>
+    <div style="background:#ebf1f7;border-radius:22px;padding:15px 17px;display:flex;align-items:center;gap:13px">
+      <span class="mi" style="font-size:23px;color:#0074b8">cleaning_services</span>
+      <div style="flex:1"><div style="font:600 14.5px Outfit">Interior Deep Clean</div><div style="font:400 11.5px Outfit;color:#51606f">Vacuum, upholstery &amp; trim detail · 75 min</div></div>
+      <div style="text-align:right"><div style="font:600 15px Outfit">R 380</div><div style="width:22px;height:22px;border-radius:50%;border:2px solid #9db1c2;margin:5px 0 0 auto"></div></div>
+    </div>
+    <div style="background:#ebf1f7;border-radius:22px;padding:15px 17px;display:flex;align-items:center;gap:13px">
+      <span class="mi" style="font-size:23px;color:#0074b8">auto_awesome</span>
+      <div style="flex:1"><div style="font:600 14.5px Outfit">Full Valet</div><div style="font:400 11.5px Outfit;color:#51606f">Complete inside-out detail · 90 min</div></div>
+      <div style="text-align:right"><div style="font:600 15px Outfit">R 450</div><div style="width:22px;height:22px;border-radius:50%;border:2px solid #9db1c2;margin:5px 0 0 auto"></div></div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;padding:14px 20px 12px;background:#f6fafd">
+    <div><div style="font:400 11px Outfit;color:#51606f">Selected</div><div style="font:600 17px Outfit">R 220</div></div>
+    <div style="flex:1;background:#006398;color:#fff;border-radius:100px;padding:15px 0;text-align:center;font:600 14.5px Outfit;display:flex;align-items:center;justify-content:center;gap:7px">Choose date &amp; time<span class="mi" style="font-size:17px">arrow_forward</span></div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Booking · slot picker</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div><div style="font:600 19px Outfit">Date &amp; time</div><div style="font:400 12px Outfit;color:#51606f">Step 2 of 3 · Wash &amp; Wax</div></div>
+  </div>
+  <div style="display:flex;gap:5px;margin:8px 20px 0">
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#dbe5ee"></div>
+  </div>
+  <div style="font:600 15px Outfit;margin:18px 20px 10px">August 2026</div>
+  <div style="display:flex;gap:8px;margin:0 20px">
+    <div style="flex:1;background:#ebf1f7;border-radius:18px;padding:12px 0;text-align:center;color:#9db1c2"><div style="font:500 11px Outfit">Wed</div><div style="font:600 18px Outfit">26</div></div>
+    <div style="flex:1;background:#ebf1f7;border-radius:18px;padding:12px 0;text-align:center;color:#9db1c2"><div style="font:500 11px Outfit">Thu</div><div style="font:600 18px Outfit">27</div></div>
+    <div style="flex:1;background:#203060;border-radius:18px;padding:12px 0;text-align:center;color:#fff"><div style="font:500 11px Outfit;color:#8bd2ff">Fri</div><div style="font:600 18px Outfit">28</div></div>
+    <div style="flex:1;background:#ebf1f7;border-radius:18px;padding:12px 0;text-align:center"><div style="font:500 11px Outfit;color:#51606f">Sat</div><div style="font:600 18px Outfit">29</div></div>
+    <div style="flex:1;background:#ebf1f7;border-radius:18px;padding:12px 0;text-align:center"><div style="font:500 11px Outfit;color:#51606f">Sun</div><div style="font:600 18px Outfit">30</div></div>
+  </div>
+  <div style="font:600 15px Outfit;margin:20px 20px 10px">Available slots <span style="font:400 12px Outfit;color:#51606f">· revalidated on submit</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin:0 20px">
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#e1eaf2;color:#9db1c2;font:500 13px Outfit;text-decoration:line-through">08:30</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">09:15</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">10:00</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#006398;color:#fff;font:600 13px Outfit">10:30</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">11:15</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#e1eaf2;color:#9db1c2;font:500 13px Outfit;text-decoration:line-through">12:00</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">13:30</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">14:15</div>
+    <div style="border-radius:100px;padding:11px 0;text-align:center;background:#ebf1f7;font:500 13px Outfit">15:00</div>
+  </div>
+  <div style="margin:16px 20px 0;background:#d7e3f9;border-radius:20px;padding:13px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:19px;color:#203060">event_available</span>
+    <div style="font:400 12.5px/1.5 Outfit;color:#14243d"><b style="font-weight:600">Fri 28 Aug, 10:30</b> at Glen Village · Wash &amp; Wax, ±45 min. Free cancellation until 2 h before.</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;padding:16px 20px 12px">
+    <div><div style="font:400 11px Outfit;color:#51606f">Total</div><div style="font:600 17px Outfit">R 220</div></div>
+    <div style="flex:1;background:#006398;color:#fff;border-radius:100px;padding:15px 0;text-align:center;font:600 14.5px Outfit;display:flex;align-items:center;justify-content:center;gap:7px">Review &amp; pay<span class="mi" style="font-size:17px">arrow_forward</span></div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1d"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>PDF417 licence-disc scan</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0b1018">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#fff"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px 6px;color:#fff">
+    <div style="width:44px;height:44px;border-radius:16px;background:rgba(255,255,255,.1);display:grid;place-items:center"><span class="mi" style="font-size:20px">close</span></div>
+    <div style="font:600 16px Outfit">Scan licence disc</div>
+    <div style="width:44px;height:44px;border-radius:16px;background:rgba(255,255,255,.1);display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#8bd2ff">flashlight_on</span></div>
+  </div>
+  <div style="margin:18px 24px 0;position:relative;height:420px;border-radius:28px;background:linear-gradient(160deg,#1a2634,#101a26 60%,#0c141d);overflow:hidden">
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 7px,rgba(255,255,255,.015) 7px,rgba(255,255,255,.015) 8px)"></div>
+    <div style="position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:290px;height:170px">
+      <div style="position:absolute;left:-3px;top:-3px;width:42px;height:42px;border-left:4px solid #00a0e0;border-top:4px solid #00a0e0;border-top-left-radius:18px"></div>
+      <div style="position:absolute;right:-3px;top:-3px;width:42px;height:42px;border-right:4px solid #00a0e0;border-top:4px solid #00a0e0;border-top-right-radius:18px"></div>
+      <div style="position:absolute;left:-3px;bottom:-3px;width:42px;height:42px;border-left:4px solid #00a0e0;border-bottom:4px solid #00a0e0;border-bottom-left-radius:18px"></div>
+      <div style="position:absolute;right:-3px;bottom:-3px;width:42px;height:42px;border-right:4px solid #00a0e0;border-bottom:4px solid #00a0e0;border-bottom-right-radius:18px"></div>
+      <div style="position:absolute;inset:14px;border-radius:10px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.22) 0 3px,transparent 3px 5px,rgba(255,255,255,.12) 5px 7px,transparent 7px 11px);opacity:.5"></div>
+      <div style="position:absolute;left:8px;right:8px;top:78px;height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,#00a0e0 30%,#7fdcff 50%,#00a0e0 70%,transparent);box-shadow:0 0 14px #00a0e0"></div>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:18px;text-align:center;color:#c7d6e4;font:400 12.5px Outfit">Align the PDF417 barcode on the licence disc<br>inside the frame</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin:16px 24px 0;background:rgba(139,210,255,.1);border-radius:18px;padding:12px 15px">
+    <span class="mi" style="font-size:18px;color:#8bd2ff">center_focus_strong</span>
+    <span style="font:400 12px/1.5 Outfit;color:#c7d6e4">Hold steady — decoding happens on your phone, even offline.</span>
+  </div>
+  <div style="display:flex;gap:10px;padding:16px 24px 14px">
+    <div style="flex:1;border:1.5px solid rgba(255,255,255,.25);color:#fff;border-radius:100px;padding:13px 0;text-align:center;font:600 13.5px Outfit">Enter manually</div>
+    <div style="flex:1;background:#8bd2ff;color:#00344f;border-radius:100px;padding:13px 0;text-align:center;font:600 13.5px Outfit">Retry scan</div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1e"><div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Scan review — confirm before save</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div><div style="font:600 19px Outfit">Confirm vehicle</div><div style="font:400 12px Outfit;color:#51606f">Scanned from licence disc</div></div>
+  </div>
+  <div style="margin:12px 20px 0;background:#c9f0d8;border-radius:20px;padding:13px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:20px;color:#0d5c32">task_alt</span>
+    <span style="font:400 12.5px/1.5 Outfit;color:#0d5c32">Barcode decoded and validated. Review before saving — nothing is committed silently.</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin:14px 20px 0">
+    <div style="background:#ebf1f7;border-radius:20px;padding:13px 17px;display:flex;align-items:center"><div style="flex:1"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#51606f">Registration</div><div style="font:600 16px ui-monospace,monospace">HX 42 KL GP</div></div><span class="mi" style="font-size:18px;color:#006398;font-variation-settings:'FILL' 0">edit</span></div>
+    <div style="background:#ebf1f7;border-radius:20px;padding:13px 17px;display:flex;align-items:center"><div style="flex:1"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#51606f">VIN</div><div style="font:600 14px ui-monospace,monospace">AHTBB3CD•••••8244</div></div><span class="mi" style="font-size:18px;color:#9db1c2">lock</span></div>
+    <div style="display:flex;gap:9px">
+      <div style="flex:1;background:#ebf1f7;border-radius:20px;padding:13px 17px"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#51606f">Make</div><div style="font:600 14.5px Outfit">Toyota</div></div>
+      <div style="flex:1;background:#ebf1f7;border-radius:20px;padding:13px 17px"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#51606f">Model</div><div style="font:600 14.5px Outfit">Corolla Cross</div></div>
+    </div>
+    <div style="display:flex;gap:9px">
+      <div style="flex:1;background:#ebf1f7;border-radius:20px;padding:13px 17px"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#51606f">Colour</div><div style="font:600 14.5px Outfit">White</div></div>
+      <div style="flex:1;background:#fff;border:2px solid #e2ba5f;border-radius:20px;padding:13px 17px"><div style="font:500 10.5px Outfit;letter-spacing:.06em;text-transform:uppercase;color:#a86b00">Disc expiry</div><div style="font:600 14.5px Outfit;color:#a86b00">30 Sep 2026 · soon</div></div>
+    </div>
+  </div>
+  <div style="margin:14px 20px 0;background:#d7e3f9;border-radius:20px;padding:12px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:18px;color:#203060">info</span>
+    <span style="font:400 12px/1.5 Outfit;color:#14243d">Looks like <b style="font-weight:600">Corolla Cross · HX 42 KL GP</b> already exists. Saving will update that record instead of duplicating it.</span>
+  </div>
+  <div style="display:flex;gap:10px;padding:16px 20px 12px">
+    <div style="flex:1;border:1.5px solid #c3cfda;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit;color:#16212b">Rescan</div>
+    <div style="flex:1.6;background:#006398;color:#fff;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit">Save vehicle</div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1f"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Payment — provider-hosted, PCI-scoped</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div><div style="font:600 19px Outfit">Review &amp; pay</div><div style="font:400 12px Outfit;color:#51606f">Step 3 of 3</div></div>
+  </div>
+  <div style="display:flex;gap:5px;margin:8px 20px 0">
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+    <div style="flex:1;height:5px;border-radius:3px;background:#006398"></div>
+  </div>
+  <div style="margin:16px 20px 0;background:#ebf1f7;border-radius:24px;padding:16px 18px">
+    <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid #dbe5ee">
+      <div style="width:42px;height:42px;border-radius:14px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#006398">water_drop</span></div>
+      <div style="flex:1"><div style="font:600 14.5px Outfit">Wash &amp; Wax · Corolla Cross</div><div style="font:400 12px Outfit;color:#51606f">Glen Village · Fri 28 Aug, 10:30</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font:400 13px Outfit;color:#51606f;padding:11px 0 3px"><span>Wash &amp; Wax</span><span style="color:#16212b;font-weight:500">R 220.00</span></div>
+    <div style="display:flex;justify-content:space-between;font:400 13px Outfit;padding:3px 0"><span style="color:#0d5c32;display:flex;align-items:center;gap:5px"><span class="mi" style="font-size:15px">loyalty</span>Gold reward · 10% off</span><span style="color:#0d5c32;font-weight:500">− R 22.00</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:7px;border-top:1px dashed #c3cfda"><span style="font:600 14px Outfit">Total due</span><span style="font:700 22px Outfit;color:#006398">R 198.00</span></div>
+  </div>
+  <div style="font:600 15px Outfit;margin:18px 20px 10px">Payment method</div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin:0 20px">
+    <div style="background:#cbe6ff;border:2px solid #006398;border-radius:20px;padding:14px 16px;display:flex;align-items:center;gap:13px">
+      <div style="width:44px;height:32px;border-radius:8px;background:#203060;display:grid;place-items:center;font:700 10px Outfit;color:#fff;letter-spacing:.05em">VISA</div>
+      <div style="flex:1"><div style="font:600 13.5px Outfit;color:#001d31">Visa •••• 4021</div><div style="font:400 11.5px Outfit;color:#33526b">Expires 08/28</div></div>
+      <div style="width:22px;height:22px;border-radius:50%;background:#006398;display:grid;place-items:center"><span class="mi" style="font-size:14px;color:#fff">check</span></div>
+    </div>
+    <div style="background:#ebf1f7;border-radius:20px;padding:14px 16px;display:flex;align-items:center;gap:13px">
+      <div style="width:44px;height:32px;border-radius:8px;background:#e1eaf2;display:grid;place-items:center"><span class="mi" style="font-size:18px;color:#51606f">add_card</span></div>
+      <div style="flex:1;font:600 13.5px Outfit;color:#51606f">Add card or instant EFT</div>
+      <span class="mi" style="font-size:18px;color:#9db1c2">chevron_right</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:9px;margin:14px 24px 0;color:#51606f"><span class="mi" style="font-size:16px">verified_user</span><span style="font:400 11.5px/1.5 Outfit">Card details are handled by our approved payment provider. Sparkling never stores your card number.</span></div>
+  <div style="padding:14px 20px 12px">
+    <div style="background:#006398;color:#fff;border-radius:100px;padding:16px 0;text-align:center;font:600 15px Outfit;display:flex;align-items:center;justify-content:center;gap:8px"><span class="mi" style="font-size:18px">lock</span>Pay R 198.00 securely</div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1g"><div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Booking confirmed — expressive success</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="text-align:center;padding:34px 20px 0">
+    <div style="position:relative;width:150px;height:150px;margin:0 auto">
+      <div style="position:absolute;inset:0;border-radius:44% 56% 52% 48%/54% 46% 54% 46%;background:#cbe6ff"></div>
+      <div style="position:absolute;inset:16px;border-radius:52% 48% 44% 56%/46% 54% 46% 54%;background:#006398;display:grid;place-items:center"><span class="mi" style="font-size:56px;color:#fff">check</span></div>
+      <div style="position:absolute;top:-4px;right:6px;width:16px;height:16px;border-radius:50%;background:#00a0e0"></div>
+      <div style="position:absolute;bottom:8px;left:-6px;width:10px;height:10px;border-radius:50%;background:#e2ba5f"></div>
+    </div>
+    <div style="font:700 24px Outfit;margin-top:20px">Booking confirmed</div>
+    <div style="font:400 13px/1.6 Outfit;color:#51606f;margin-top:6px">Glen Village is expecting your Corolla Cross.<br>Reference <b style="font-weight:600;color:#16212b;font-family:ui-monospace,monospace">SPK-8042</b></div>
+  </div>
+  <div style="margin:22px 20px 0;background:#ebf1f7;border-radius:24px;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px"><span class="mi" style="font-size:19px;color:#006398">event</span><div style="flex:1;font:500 13.5px Outfit">Fri 28 Aug 2026 · 10:30</div><span style="font:600 12px Outfit;color:#006398">Add to calendar</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span class="mi" style="font-size:19px;color:#006398">water_drop</span><div style="flex:1;font:500 13.5px Outfit">Wash &amp; Wax · paid R 198.00</div><span style="font:600 12px Outfit;color:#006398">Receipt</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span class="mi" style="font-size:19px;color:#c9962e">loyalty</span><div style="flex:1;font:500 13.5px Outfit">+20 pts pending completion</div></div>
+  </div>
+  <div style="margin:12px 20px 0;background:#d7e3f9;border-radius:20px;padding:12px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:18px;color:#203060">notifications_active</span>
+    <span style="font:400 12px/1.5 Outfit;color:#14243d">We'll notify you on WhatsApp and push when your wash starts and when it's ready.</span>
+  </div>
+  <div style="display:flex;gap:10px;padding:18px 20px 12px">
+    <div style="flex:1;border:1.5px solid #c3cfda;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit">Done</div>
+    <div style="flex:1.4;background:#203060;color:#fff;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit">Track service</div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1h"><div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>Live tracking timeline</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>10:02</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div style="flex:1"><div style="font:600 19px Outfit">SPK-8042</div><div style="font:400 12px Outfit;color:#51606f">Corolla Cross · HX 42 KL GP</div></div>
+    <div style="display:flex;align-items:center;gap:6px;background:#c9f0d8;border-radius:100px;padding:6px 12px"><span style="width:7px;height:7px;border-radius:50%;background:#1d8a4e"></span><span style="font:600 11.5px Outfit;color:#0d5c32">Live · 2 min ago</span></div>
+  </div>
+  <div style="margin:12px 20px 0;background:#203060;border-radius:26px;padding:17px 19px;color:#fff;display:flex;align-items:center;gap:14px">
+    <div style="position:relative;width:58px;height:58px;flex:none">
+      <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(#00a0e0 0 58%,rgba(255,255,255,.14) 58% 100%)"></div>
+      <div style="position:absolute;inset:5px;border-radius:50%;background:#203060;display:grid;place-items:center;font:700 14px Outfit">58%</div>
+    </div>
+    <div style="flex:1"><div style="font:600 16px Outfit">Foam &amp; hand wash</div><div style="font:400 12px Outfit;color:#a9c3d8">Stage 3 of 6 · Sipho is on your vehicle</div></div>
+    <div style="text-align:right"><div style="font:500 10.5px Outfit;color:#8bd2ff;text-transform:uppercase;letter-spacing:.07em">Ready by</div><div style="font:700 18px Outfit">±10:25</div></div>
+  </div>
+  <div style="margin:16px 20px 0;display:flex;flex-direction:column">
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#006398;display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#fff">check</span></div><div style="width:3px;flex:1;background:#006398;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit">Checked in</div><div style="font:400 11.5px Outfit;color:#51606f">09:12 · disc scanned at bay 2</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#006398;display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#fff">check</span></div><div style="width:3px;flex:1;background:#006398;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit">Pre-wash rinse</div><div style="font:400 11.5px Outfit;color:#51606f">09:20 · completed</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#cbe6ff;border:3px solid #006398;box-sizing:border-box;display:grid;place-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#006398"></span></div><div style="width:3px;flex:1;background:#dbe5ee;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit;color:#006398">Foam &amp; hand wash</div><div style="font:400 11.5px Outfit;color:#51606f">In progress · started 09:48</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#e1eaf2"></div><div style="width:3px;flex:1;background:#dbe5ee;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit;color:#9db1c2">Wax &amp; tyre shine</div><div style="font:400 11.5px Outfit;color:#9db1c2">Pending</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#e1eaf2"></div><div style="width:3px;flex:1;background:#dbe5ee;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit;color:#9db1c2">Final inspection</div><div style="font:400 11.5px Outfit;color:#9db1c2">Supervisor sign-off</div></div></div>
+    <div style="display:flex;gap:14px"><div style="width:26px;height:26px;border-radius:50%;background:#e1eaf2;display:grid;place-items:center"><span class="mi" style="font-size:14px;color:#9db1c2">flag</span></div><div><div style="font:600 13.5px Outfit;color:#9db1c2">Ready for collection</div></div></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:11px;margin:6px 20px 0;background:#ebf1f7;border-radius:20px;padding:12px 16px">
+    <span class="mi" style="font-size:18px;color:#006398">notifications_active</span>
+    <span style="flex:1;font:500 12.5px Outfit">Notify me when ready</span>
+    <div style="width:46px;height:26px;border-radius:100px;background:#006398;position:relative"><span style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff"></span></div>
+  </div>
+  <div style="padding:14px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1i"><div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Loyalty — tiers, rewards, ledger</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="padding:12px 20px 0;font:600 22px Outfit">Rewards</div>
+  <div style="margin:12px 20px 0;border-radius:28px;background:linear-gradient(135deg,#203060 15%,#3a4f86 55%,#8a6d2f 130%);padding:20px;color:#fff;position:relative;overflow:hidden">
+    <div style="position:absolute;right:-30px;bottom:-60px;width:180px;height:180px;border-radius:50%;background:rgba(226,186,95,.14)"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#f3dda4,#e2ba5f);color:#5c4200;border-radius:100px;padding:5px 13px;font:700 12px Outfit;letter-spacing:.04em">GOLD MEMBER</span>
+      <img src="uploads/logo-dark.png" alt="Sparkling" style="height:18px;opacity:.9">
+    </div>
+    <div style="font:300 13px Outfit;color:#bcd9ec;margin-top:18px">Points balance</div>
+    <div style="font:700 40px/1 Outfit">2 450</div>
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;font:500 11px Outfit;color:#bcd9ec;margin-bottom:6px"><span>Gold</span><span>550 pts to Platinum</span></div>
+      <div style="height:8px;border-radius:100px;background:rgba(255,255,255,.16)"><div style="width:82%;height:8px;border-radius:100px;background:linear-gradient(90deg,#00a0e0,#8bd2ff)"></div></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin:14px 20px 0">
+    <div style="flex:1;text-align:center;background:#ebf1f7;border-radius:100px;padding:9px 0;font:500 12.5px Outfit;color:#51606f">Silver</div>
+    <div style="flex:1;text-align:center;background:#203060;color:#fff;border-radius:100px;padding:9px 0;font:600 12.5px Outfit">Gold</div>
+    <div style="flex:1;text-align:center;background:#ebf1f7;border-radius:100px;padding:9px 0;font:500 12.5px Outfit;color:#51606f">Platinum</div>
+  </div>
+  <div style="font:600 16px Outfit;margin:20px 20px 10px">Redeem points</div>
+  <div style="display:flex;gap:10px;margin:0 20px">
+    <div style="flex:1;background:#cbe6ff;border-radius:22px;padding:15px 15px 13px">
+      <span class="mi" style="font-size:24px;color:#006398">bolt</span>
+      <div style="font:600 13.5px/1.25 Outfit;color:#001d31;margin-top:10px">Free Express Wash</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px"><span style="font:700 13px Outfit;color:#006398">1 500 pts</span><span style="background:#006398;color:#fff;border-radius:100px;padding:6px 13px;font:600 11px Outfit">Redeem</span></div>
+    </div>
+    <div style="flex:1;background:#d7e3f9;border-radius:22px;padding:15px 15px 13px">
+      <span class="mi" style="font-size:24px;color:#203060">percent</span>
+      <div style="font:600 13.5px/1.25 Outfit;color:#14243d;margin-top:10px">R50 off Full Valet</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px"><span style="font:700 13px Outfit;color:#203060">800 pts</span><span style="background:#203060;color:#fff;border-radius:100px;padding:6px 13px;font:600 11px Outfit">Redeem</span></div>
+    </div>
+  </div>
+  <div style="font:600 16px Outfit;margin:20px 20px 8px">Points activity</div>
+  <div style="margin:0 20px 6px;background:#ebf1f7;border-radius:22px;padding:6px 16px">
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #dbe5ee"><span class="mi" style="font-size:18px;color:#1d8a4e">add_circle</span><div style="flex:1"><div style="font:500 13px Outfit">Wash &amp; Wax · SPK-8042</div><div style="font:400 11px Outfit;color:#51606f">28 Aug · earn</div></div><span style="font:600 13px Outfit;color:#1d8a4e">+20</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #dbe5ee"><span class="mi" style="font-size:18px;color:#ba1a1a">do_not_disturb_on</span><div style="flex:1"><div style="font:500 13px Outfit">Redeemed · R50 off valet</div><div style="font:400 11px Outfit;color:#51606f">14 Aug · redemption</div></div><span style="font:600 13px Outfit;color:#ba1a1a">−800</span></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0"><span class="mi" style="font-size:18px;color:#1d8a4e">add_circle</span><div style="flex:1"><div style="font:500 13px Outfit">Full Valet · SPK-7911</div><div style="font:400 11px Outfit;color:#51606f">9 Aug · earn</div></div><span style="font:600 13px Outfit;color:#1d8a4e">+45</span></div>
+  </div>
+  <div style="padding:10px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1j"><div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a>Auto-body repair quote request</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px">
+    <div style="width:44px;height:44px;border-radius:16px;background:#ebf1f7;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div><div style="font:600 19px Outfit">Repair quote</div><div style="font:400 12px Outfit;color:#51606f">Auto body · an estimator replies within 24 h</div></div>
+  </div>
+  <div style="margin:12px 20px 0;background:#ebf1f7;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px">
+    <span class="mi" style="font-size:20px;color:#006398">directions_car</span>
+    <div style="flex:1"><div style="font:600 13.5px Outfit">Ford Ranger · CJ 118-334</div><div style="font:400 11.5px Outfit;color:#51606f">Glen Village Elite Centre</div></div>
+    <span class="mi" style="font-size:18px;color:#9db1c2">unfold_more</span>
+  </div>
+  <div style="font:600 14px Outfit;margin:16px 20px 9px">What needs attention?</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 20px">
+    <span style="background:#203060;color:#fff;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit;display:flex;align-items:center;gap:6px"><span class="mi" style="font-size:15px">check</span>Dent &amp; scratch</span>
+    <span style="background:#ebf1f7;border-radius:100px;padding:9px 16px;font:500 12.5px Outfit;color:#51606f">Bumper</span>
+    <span style="background:#203060;color:#fff;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit;display:flex;align-items:center;gap:6px"><span class="mi" style="font-size:15px">check</span>Spray paint</span>
+    <span style="background:#ebf1f7;border-radius:100px;padding:9px 16px;font:500 12.5px Outfit;color:#51606f">Panel beating</span>
+    <span style="background:#ebf1f7;border-radius:100px;padding:9px 16px;font:500 12.5px Outfit;color:#51606f">Glass</span>
+  </div>
+  <div style="font:600 14px Outfit;margin:16px 20px 9px">Describe the damage</div>
+  <div style="margin:0 20px;background:#ebf1f7;border-radius:20px;padding:14px 16px;min-height:74px;font:400 13px/1.6 Outfit;color:#16212b">Deep scratch and small dent on the left rear door, about 20 cm. Paint chipped through to metal in one spot.<span style="display:inline-block;width:2px;height:15px;background:#006398;vertical-align:-2px;margin-left:1px"></span></div>
+  <div style="font:600 14px Outfit;margin:16px 20px 9px">Damage photos <span style="font:400 12px Outfit;color:#51606f">· 2 of 6</span></div>
+  <div style="display:flex;gap:10px;margin:0 20px">
+    <div style="width:88px;height:88px;border-radius:18px;background:repeating-linear-gradient(45deg,#dde7ef 0 8px,#e9f0f6 8px 16px);position:relative;display:grid;place-items:center"><span style="font:500 9px ui-monospace,monospace;color:#51606f;text-align:center">rear door<br>photo</span><span style="position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;background:rgba(22,33,43,.55);display:grid;place-items:center"><span class="mi" style="font-size:11px;color:#fff">close</span></span></div>
+    <div style="width:88px;height:88px;border-radius:18px;background:repeating-linear-gradient(45deg,#dde7ef 0 8px,#e9f0f6 8px 16px);position:relative;display:grid;place-items:center"><span style="font:500 9px ui-monospace,monospace;color:#51606f;text-align:center">scratch<br>close-up</span><span style="position:absolute;top:5px;right:5px;width:18px;height:18px;border-radius:50%;background:rgba(22,33,43,.55);display:grid;place-items:center"><span class="mi" style="font-size:11px;color:#fff">close</span></span></div>
+    <div style="width:88px;height:88px;border-radius:18px;border:2px dashed #9db1c2;display:grid;place-items:center"><span class="mi" style="font-size:24px;color:#006398">add_a_photo</span></div>
+  </div>
+  <div style="margin:16px 20px 0;background:#d7e3f9;border-radius:20px;padding:12px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:18px;color:#203060">schedule</span>
+    <span style="font:400 12px/1.5 Outfit;color:#14243d">You'll get the quote in-app and on WhatsApp. Accept or decline — nothing is booked until you approve.</span>
+  </div>
+  <div style="padding:16px 20px 12px">
+    <div style="background:#006398;color:#fff;border-radius:100px;padding:16px 0;text-align:center;font:600 15px Outfit">Request quote</div>
+  </div>
+  <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1k"><div class="dv-olabel"><a class="dv-oid" href="#1k">1k</a>Home — dark scheme</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>21:14</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <img src="uploads/logo-dark.png" alt="Sparkling" style="height:26px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="position:relative;width:44px;height:44px;border-radius:16px;background:#151f33;display:grid;place-items:center"><span class="mi" style="font-size:21px;color:#e3e9f4;font-variation-settings:'FILL' 0">notifications</span><span style="position:absolute;top:9px;right:9px;width:8px;height:8px;border-radius:50%;background:#00a0e0"></span></div>
+      <div style="width:44px;height:44px;border-radius:16px;background:#8bd2ff;color:#00344f;display:grid;place-items:center;font:600 15px Outfit">TN</div>
+    </div>
+  </div>
+  <div style="padding:14px 20px 4px">
+    <div style="font:300 15px Outfit;color:#98a6bb">Good evening</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font:600 28px/1.15 Outfit;color:#e3e9f4">Thandi</div>
+      <div style="display:flex;align-items:center;gap:6px;background:rgba(226,186,95,.16);border:1px solid rgba(226,186,95,.4);border-radius:100px;padding:7px 14px 7px 10px"><span class="mi" style="font-size:16px;color:#e2ba5f">loyalty</span><span style="font:600 12.5px Outfit;color:#f3dda4">Gold · 2 450 pts</span></div>
+    </div>
+  </div>
+  <div style="margin:16px 20px 0;border-radius:28px;background:linear-gradient(130deg,#1b2942 20%,#0a4f7d 75%,#0083c4);padding:20px;color:#fff;position:relative;overflow:hidden">
+    <div style="position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(139,210,255,.08)"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font:600 11px Outfit;letter-spacing:.1em;text-transform:uppercase;color:#8bd2ff">In service now</span>
+      <span style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.14);border-radius:100px;padding:4px 11px;font:500 11.5px Outfit"><span style="width:7px;height:7px;border-radius:50%;background:#6ee7a0"></span>Stage 3 of 6</span>
+    </div>
+    <div style="font:600 20px Outfit;margin:10px 0 2px">Foam &amp; hand wash</div>
+    <div style="font:400 13px Outfit;color:#bcd9ec">Corolla Cross · ready by ±10:25</div>
+    <div style="height:8px;border-radius:100px;background:rgba(255,255,255,.15);margin-top:14px"><div style="width:58%;height:8px;border-radius:100px;background:linear-gradient(90deg,#00a0e0,#8bd2ff)"></div></div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <div style="flex:1;background:#8bd2ff;color:#00344f;border-radius:100px;padding:11px 0;text-align:center;font:600 13.5px Outfit">Open timeline</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px;margin:14px 20px 0">
+    <div style="flex:1;background:#0f3550;border-radius:24px;padding:16px 16px 14px">
+      <div style="width:42px;height:42px;border-radius:14px;background:#8bd2ff;display:grid;place-items:center;margin-bottom:22px"><span class="mi" style="font-size:21px;color:#00344f">local_car_wash</span></div>
+      <div style="font:600 15px Outfit;color:#cbe8ff">Book a wash</div>
+      <div style="font:400 11.5px Outfit;color:#7da5bd">From R120</div>
+    </div>
+    <div style="flex:1;background:#1d2942;border-radius:24px;padding:16px 16px 14px">
+      <div style="width:42px;height:42px;border-radius:14px;background:#aac4e8;display:grid;place-items:center;margin-bottom:22px"><span class="mi" style="font-size:21px;color:#14243d">car_crash</span></div>
+      <div style="font:600 15px Outfit;color:#d5e2f9">Repair quote</div>
+      <div style="font:400 11.5px Outfit;color:#8b9cb8">Body &amp; paint</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 20px 10px"><span style="font:600 16px Outfit;color:#e3e9f4">Your vehicles</span><span style="font:500 12.5px Outfit;color:#8bd2ff">Manage</span></div>
+  <div style="display:flex;gap:10px;margin:0 0 0 20px;overflow:hidden">
+    <div style="flex:none;width:200px;background:#151f33;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="mi" style="font-size:20px;color:#8bd2ff">directions_car</span><span style="font:600 10px Outfit;background:rgba(110,231,160,.14);color:#6ee7a0;border-radius:100px;padding:3px 9px">Disc verified</span></div>
+      <div style="font:600 15px Outfit;margin-top:12px;color:#e3e9f4">Corolla Cross</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#98a6bb;margin-top:2px">HX 42 KL GP</div>
+    </div>
+    <div style="flex:none;width:200px;background:#151f33;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="mi" style="font-size:20px;color:#8bd2ff">directions_car</span><span style="font:600 10px Outfit;background:rgba(255,255,255,.08);color:#98a6bb;border-radius:100px;padding:3px 9px">Manual entry</span></div>
+      <div style="font:600 15px Outfit;margin-top:12px;color:#e3e9f4">Ford Ranger</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#98a6bb;margin-top:2px">CJ 118-334</div>
+    </div>
+  </div>
+  <div style="display:flex;background:#151f33;padding:12px 10px 6px;justify-content:space-around;margin-top:20px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;border-radius:100px;background:#0f3550;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#8bd2ff">home</span></div><span style="font:600 11px Outfit;color:#e3e9f4">Home</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">calendar_month</span></div><span style="font:500 11px Outfit;color:#98a6bb">Bookings</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">loyalty</span></div><span style="font:500 11px Outfit;color:#98a6bb">Rewards</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:64px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">person</span></div><span style="font:500 11px Outfit;color:#98a6bb">Profile</span></div>
+  </div>
+  <div style="background:#151f33;padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="1l"><div class="dv-olabel"><a class="dv-oid" href="#1l">1l</a>Offline state — last-sync clarity</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>21:14</span><span style="display:flex;gap:5px;align-items:center"><span class="mi" style="font-size:15px;color:#98a6bb">signal_cellular_off</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="margin:12px 20px 0;background:rgba(226,186,95,.12);border:1px solid rgba(226,186,95,.35);border-radius:18px;padding:11px 15px;display:flex;align-items:center;gap:10px">
+    <span class="mi" style="font-size:18px;color:#e2ba5f">cloud_off</span>
+    <span style="flex:1;font:500 12px Outfit;color:#f3dda4">You're offline — showing status from 20:47</span>
+    <span style="font:600 11.5px Outfit;color:#e2ba5f">Retry</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;padding:14px 20px 6px;color:#e3e9f4">
+    <div style="width:44px;height:44px;border-radius:16px;background:#151f33;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div style="flex:1"><div style="font:600 19px Outfit">SPK-8042</div><div style="font:400 12px Outfit;color:#98a6bb">Corolla Cross · HX 42 KL GP</div></div>
+    <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border-radius:100px;padding:6px 12px"><span class="mi" style="font-size:13px;color:#98a6bb">history</span><span style="font:600 11.5px Outfit;color:#98a6bb">Last sync 20:47</span></div>
+  </div>
+  <div style="margin:12px 20px 0;background:#151f33;border-radius:26px;padding:17px 19px;color:#e3e9f4;display:flex;align-items:center;gap:14px;opacity:.92">
+    <div style="position:relative;width:58px;height:58px;flex:none">
+      <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(#5a7a94 0 58%,rgba(255,255,255,.1) 58% 100%)"></div>
+      <div style="position:absolute;inset:5px;border-radius:50%;background:#151f33;display:grid;place-items:center;font:700 14px Outfit">58%</div>
+    </div>
+    <div style="flex:1"><div style="font:600 16px Outfit">Foam &amp; hand wash</div><div style="font:400 12px Outfit;color:#98a6bb">Stage 3 of 6 · as of last sync</div></div>
+  </div>
+  <div style="margin:16px 20px 0;display:flex;flex-direction:column;color:#e3e9f4">
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#8bd2ff;display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#00344f">check</span></div><div style="width:3px;flex:1;background:#2b3c58;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit">Checked in</div><div style="font:400 11.5px Outfit;color:#98a6bb">09:12</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:#8bd2ff;display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#00344f">check</span></div><div style="width:3px;flex:1;background:#2b3c58;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit">Pre-wash rinse</div><div style="font:400 11.5px Outfit;color:#98a6bb">09:20</div></div></div>
+    <div style="display:flex;gap:14px"><div style="display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;border:3px solid #5a7a94;box-sizing:border-box"></div><div style="width:3px;flex:1;background:#2b3c58;border-radius:2px"></div></div><div style="padding-bottom:16px"><div style="font:600 13.5px Outfit;color:#8bd2ff">Foam &amp; hand wash</div><div style="font:400 11.5px Outfit;color:#98a6bb">In progress at last sync</div></div></div>
+    <div style="display:flex;gap:14px"><div style="width:26px;height:26px;border-radius:50%;background:#1d2942"></div><div><div style="font:600 13.5px Outfit;color:#5a6b85">Wax &amp; tyre shine</div><div style="font:400 11.5px Outfit;color:#5a6b85">Pending</div></div></div>
+  </div>
+  <div style="margin:18px 20px 0;background:#151f33;border-radius:20px;padding:13px 16px;display:flex;gap:11px;align-items:center">
+    <span class="mi" style="font-size:18px;color:#8bd2ff">sync</span>
+    <span style="font:400 12px/1.5 Outfit;color:#98a6bb">Your "notify me" change is queued and will sync automatically when you're back online.</span>
+  </div>
+  <div style="padding:16px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+</div>
+<p class="dv-next">Try: "make the confirmation more playful" · "show the quote-received screen" · "swap bottom nav order".</p>
+</section>
+
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">t2</a><span class="dv-tname">Outlet Staff App — Android phone, dark-first for wet/gloved bays</span></div>
+<p class="dv-tsub">Task list (<a class="dv-oid" href="#2a">2a</a>), checklist execution (<a class="dv-oid" href="#2b">2b</a>), supervisor ops (<a class="dv-oid" href="#2c">2c</a>), assign sheet (<a class="dv-oid" href="#2d">2d</a>), leaderboard (<a class="dv-oid" href="#2e">2e</a>), inventory (<a class="dv-oid" href="#2f">2f</a>), light variant (<a class="dv-oid" href="#2g">2g</a>). Large touch targets, persistent sync state, offline queueing.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a"><div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Technician task list</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <div><div style="font:300 13px Outfit;color:#98a6bb">Glen Village · Bay team</div><div style="font:600 22px Outfit;color:#e3e9f4">My tasks</div></div>
+    <div style="display:flex;align-items:center;gap:6px;background:rgba(110,231,160,.12);border-radius:100px;padding:6px 12px"><span class="mi" style="font-size:14px;color:#6ee7a0">cloud_done</span><span style="font:600 11.5px Outfit;color:#6ee7a0">Synced 09:41</span></div>
+  </div>
+  <div style="display:flex;gap:8px;margin:12px 20px 0">
+    <div style="flex:1;text-align:center;background:#8bd2ff;color:#00344f;border-radius:100px;padding:10px 0;font:600 13px Outfit">Mine · 4</div>
+    <div style="flex:1;text-align:center;background:#151f33;color:#98a6bb;border-radius:100px;padding:10px 0;font:500 13px Outfit">Queue · 5</div>
+    <div style="flex:1;text-align:center;background:#151f33;color:#98a6bb;border-radius:100px;padding:10px 0;font:500 13px Outfit">Done · 6</div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin:14px 20px 0">
+    <div style="background:#151f33;border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font:700 10.5px Outfit;background:#ffb59f;color:#5c1900;border-radius:100px;padding:4px 10px">P1</span>
+        <span style="font:600 12px ui-monospace,monospace;color:#98a6bb">WO-2214</span>
+        <span style="flex:1"></span>
+        <span style="display:flex;align-items:center;gap:5px;background:rgba(139,210,255,.14);border-radius:100px;padding:4px 11px;font:600 11px Outfit;color:#8bd2ff"><span style="width:6px;height:6px;border-radius:50%;background:#8bd2ff"></span>In progress</span>
+      </div>
+      <div style="font:600 16px Outfit;color:#e3e9f4;margin-top:10px">Wash &amp; Wax — Toyota Corolla Cross</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#98a6bb;margin-top:2px">HX 42 KL GP · Bay 2</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:13px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#2b3c58"><div style="width:57%;height:8px;border-radius:100px;background:linear-gradient(90deg,#00a0e0,#8bd2ff)"></div></div>
+        <span style="font:600 12px Outfit;color:#8bd2ff">4/7 steps</span>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:13px">
+        <div style="flex:1;background:#8bd2ff;color:#00344f;border-radius:100px;padding:12px 0;text-align:center;font:600 13px Outfit">Continue checklist</div>
+        <div style="width:48px;height:44px;border-radius:100px;background:rgba(255,255,255,.08);display:grid;place-items:center"><span class="mi" style="font-size:19px;color:#e3e9f4">timer</span></div>
+      </div>
+    </div>
+    <div style="background:#151f33;border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font:700 10.5px Outfit;background:#f3dda4;color:#5c4200;border-radius:100px;padding:4px 10px">P2</span>
+        <span style="font:600 12px ui-monospace,monospace;color:#98a6bb">WO-2216</span>
+        <span style="flex:1"></span>
+        <span style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.08);border-radius:100px;padding:4px 11px;font:600 11px Outfit;color:#98a6bb">Queued · 10:30</span>
+      </div>
+      <div style="font:600 16px Outfit;color:#e3e9f4;margin-top:10px">Express Wash — VW Polo Vivo</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#98a6bb;margin-top:2px">DR 88 SN GP · awaiting arrival</div>
+    </div>
+    <div style="background:#151f33;border:1px solid rgba(255,181,159,.35);border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font:700 10.5px Outfit;background:#ffb59f;color:#5c1900;border-radius:100px;padding:4px 10px">P1</span>
+        <span style="font:600 12px ui-monospace,monospace;color:#98a6bb">WO-2209</span>
+        <span style="flex:1"></span>
+        <span style="display:flex;align-items:center;gap:5px;background:rgba(255,181,159,.16);border-radius:100px;padding:4px 11px;font:600 11px Outfit;color:#ffb59f"><span class="mi" style="font-size:12px">block</span>Blocked</span>
+      </div>
+      <div style="font:600 16px Outfit;color:#e3e9f4;margin-top:10px">Interior Deep Clean — BMW 320i</div>
+      <div style="font:400 12px Outfit;color:#ffb59f;margin-top:4px">Waiting: upholstery shampoo out of stock — supervisor notified</div>
+    </div>
+  </div>
+  <div style="position:relative;margin:16px 20px 0;display:flex;justify-content:flex-end">
+    <div style="display:flex;align-items:center;gap:9px;background:#8bd2ff;color:#00344f;border-radius:20px;padding:15px 20px;font:600 14px Outfit;box-shadow:0 8px 20px rgba(0,160,224,.35)"><span class="mi" style="font-size:20px">qr_code_scanner</span>Scan disc</div>
+  </div>
+  <div style="display:flex;background:#151f33;padding:12px 10px 6px;justify-content:space-around;margin-top:14px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;border-radius:100px;background:#0f3550;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#8bd2ff">checklist</span></div><span style="font:600 11px Outfit;color:#e3e9f4">Tasks</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">qr_code_scanner</span></div><span style="font:500 11px Outfit;color:#98a6bb">Scan</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">inventory_2</span></div><span style="font:500 11px Outfit;color:#98a6bb">Stock</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">social_leaderboard</span></div><span style="font:500 11px Outfit;color:#98a6bb">Rank</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#98a6bb;font-variation-settings:'FILL' 0">menu</span></div><span style="font:500 11px Outfit;color:#98a6bb">More</span></div>
+  </div>
+  <div style="background:#151f33;padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="2b"><div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Checklist execution — required steps, photo proof</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:52</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 20px 6px;color:#e3e9f4">
+    <div style="width:44px;height:44px;border-radius:16px;background:#151f33;display:grid;place-items:center"><span class="mi" style="font-size:20px">arrow_back</span></div>
+    <div style="flex:1"><div style="font:600 18px Outfit">Wash &amp; Wax checklist</div><div style="font:500 12px ui-monospace,monospace;color:#98a6bb">WO-2214 · HX 42 KL GP · Bay 2</div></div>
+    <div style="position:relative;width:48px;height:48px;flex:none">
+      <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(#8bd2ff 0 57%,rgba(255,255,255,.12) 57% 100%)"></div>
+      <div style="position:absolute;inset:4px;border-radius:50%;background:#0d1524;display:grid;place-items:center;font:700 12px Outfit;color:#8bd2ff">4/7</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin:12px 20px 0">
+    <div style="background:#151f33;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px;opacity:.65">
+      <div style="width:28px;height:28px;border-radius:50%;background:#6ee7a0;display:grid;place-items:center;flex:none"><span class="mi" style="font-size:16px;color:#0d3320">check</span></div>
+      <div style="flex:1"><div style="font:500 13.5px Outfit;color:#e3e9f4;text-decoration:line-through">Pre-rinse &amp; wheel arches</div><div style="font:400 11px Outfit;color:#98a6bb">09:20 · Sipho D.</div></div>
+    </div>
+    <div style="background:#151f33;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px;opacity:.65">
+      <div style="width:28px;height:28px;border-radius:50%;background:#6ee7a0;display:grid;place-items:center;flex:none"><span class="mi" style="font-size:16px;color:#0d3320">check</span></div>
+      <div style="flex:1"><div style="font:500 13.5px Outfit;color:#e3e9f4;text-decoration:line-through">Foam application</div><div style="font:400 11px Outfit;color:#98a6bb">09:31 · Sipho D.</div></div>
+    </div>
+    <div style="background:#0f3550;border:2px solid #8bd2ff;border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:28px;height:28px;border-radius:50%;border:3px solid #8bd2ff;box-sizing:border-box;flex:none"></div>
+        <div style="flex:1"><div style="font:600 15px Outfit;color:#cbe8ff">Hand wash &amp; dry</div><div style="font:400 11.5px Outfit;color:#7da5bd">Required · photo proof of finished exterior</div></div>
+        <span style="font:700 10px Outfit;background:#8bd2ff;color:#00344f;border-radius:100px;padding:4px 9px">REQUIRED</span>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <div style="width:80px;height:80px;border-radius:16px;background:repeating-linear-gradient(45deg,#1d3a52 0 8px,#254662 8px 16px);display:grid;place-items:center"><span style="font:500 8.5px ui-monospace,monospace;color:#7da5bd;text-align:center">exterior<br>photo</span></div>
+        <div style="width:80px;height:80px;border-radius:16px;border:2px dashed #3d6a8c;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#8bd2ff">photo_camera</span></div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
+          <div style="background:#8bd2ff;color:#00344f;border-radius:100px;padding:12px 0;text-align:center;font:600 13px Outfit">Complete step</div>
+          <div style="border:1.5px solid rgba(255,181,159,.5);color:#ffb59f;border-radius:100px;padding:9px 0;text-align:center;font:600 12px Outfit">Mark blocked</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#151f33;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px">
+      <div style="width:28px;height:28px;border-radius:50%;border:2px solid #3d4a5c;box-sizing:border-box;flex:none"></div>
+      <div style="flex:1"><div style="font:500 13.5px Outfit;color:#98a6bb">Wax seal — dilution check</div><div style="font:400 11px Outfit;color:#5a6b85">Numeric input · 1:10 target ratio</div></div>
+      <span style="font:600 12px ui-monospace,monospace;background:rgba(255,255,255,.06);color:#98a6bb;border-radius:10px;padding:7px 12px">__ : 10</span>
+    </div>
+    <div style="background:#151f33;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px">
+      <div style="width:28px;height:28px;border-radius:50%;border:2px solid #3d4a5c;box-sizing:border-box;flex:none"></div>
+      <div style="flex:1"><div style="font:500 13.5px Outfit;color:#98a6bb">Tyre shine &amp; trim</div><div style="font:400 11px Outfit;color:#5a6b85">Confirmation</div></div>
+    </div>
+    <div style="background:#151f33;border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:12px">
+      <div style="width:28px;height:28px;border-radius:50%;border:2px solid #3d4a5c;box-sizing:border-box;flex:none"></div>
+      <div style="flex:1"><div style="font:500 13.5px Outfit;color:#98a6bb">Supervisor verification</div><div style="font:400 11px Outfit;color:#5a6b85">Locked until all required steps pass</div></div>
+      <span class="mi" style="font-size:17px;color:#5a6b85">lock</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin:14px 24px 0;color:#98a6bb"><span class="mi" style="font-size:16px;color:#8bd2ff">offline_bolt</span><span style="font:400 11.5px/1.5 Outfit">Works offline — steps queue with your ID and timestamps, then sync in order.</span></div>
+  <div style="padding:16px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="2c"><div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Supervisor ops dashboard</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <div><div style="font:300 13px Outfit;color:#98a6bb">Supervisor · Glen Village</div><div style="font:600 22px Outfit;color:#e3e9f4">Today's floor</div></div>
+    <div style="width:44px;height:44px;border-radius:16px;background:#151f33;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#e3e9f4;font-variation-settings:'FILL' 0">tune</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:12px 20px 0">
+    <div style="background:#0f3550;border-radius:20px;padding:12px 6px;text-align:center"><div style="font:700 24px Outfit;color:#8bd2ff">8</div><div style="font:500 10.5px Outfit;color:#7da5bd">In progress</div></div>
+    <div style="background:#151f33;border-radius:20px;padding:12px 6px;text-align:center"><div style="font:700 24px Outfit;color:#e3e9f4">5</div><div style="font:500 10.5px Outfit;color:#98a6bb">Queued</div></div>
+    <div style="background:rgba(255,181,159,.12);border-radius:20px;padding:12px 6px;text-align:center"><div style="font:700 24px Outfit;color:#ffb59f">2</div><div style="font:500 10.5px Outfit;color:#ffb59f">Blocked</div></div>
+    <div style="background:rgba(110,231,160,.1);border-radius:20px;padding:12px 6px;text-align:center"><div style="font:700 24px Outfit;color:#6ee7a0">23</div><div style="font:500 10.5px Outfit;color:#6ee7a0">Done</div></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 20px 9px"><span style="font:600 15px Outfit;color:#e3e9f4">Needs attention</span><span style="font:500 12px Outfit;color:#8bd2ff">View all</span></div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin:0 20px">
+    <div style="background:#151f33;border:1px solid rgba(255,181,159,.35);border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:9px"><span class="mi" style="font-size:17px;color:#ffb59f">block</span><span style="flex:1;font:600 13.5px Outfit;color:#e3e9f4">WO-2209 blocked · 24 min</span><span style="font:600 11px Outfit;color:#98a6bb">Bay 4</span></div>
+      <div style="font:400 12px Outfit;color:#98a6bb;margin:5px 0 11px">Upholstery shampoo out of stock · BMW 320i interior clean</div>
+      <div style="display:flex;gap:8px">
+        <span style="background:#8bd2ff;color:#00344f;border-radius:100px;padding:9px 16px;font:600 12px Outfit">Reassign</span>
+        <span style="border:1.5px solid rgba(255,255,255,.2);color:#e3e9f4;border-radius:100px;padding:9px 16px;font:600 12px Outfit">Substitute stock</span>
+      </div>
+    </div>
+    <div style="background:#151f33;border:1px solid rgba(226,186,95,.3);border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:9px"><span class="mi" style="font-size:17px;color:#e2ba5f">schedule</span><span style="flex:1;font:600 13.5px Outfit;color:#e3e9f4">WO-2201 overdue · SLA +12 min</span><span style="font:600 11px Outfit;color:#98a6bb">Bay 1</span></div>
+      <div style="font:400 12px Outfit;color:#98a6bb;margin:5px 0">Full Valet · final inspection pending your sign-off</div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 20px 9px"><span style="font:600 15px Outfit;color:#e3e9f4">Team load</span><span style="font:500 12px Outfit;color:#98a6bb">6 on shift</span></div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin:0 20px 4px">
+    <div style="display:flex;align-items:center;gap:11px;background:#151f33;border-radius:18px;padding:10px 14px">
+      <div style="width:34px;height:34px;border-radius:12px;background:#8bd2ff;color:#00344f;display:grid;place-items:center;font:700 12px Outfit">SD</div>
+      <div style="flex:1"><div style="font:600 12.5px Outfit;color:#e3e9f4">Sipho Dlamini</div><div style="height:6px;border-radius:100px;background:#2b3c58;margin-top:5px"><div style="width:75%;height:6px;border-radius:100px;background:#8bd2ff"></div></div></div>
+      <span style="font:600 11.5px Outfit;color:#98a6bb">3 tasks</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:11px;background:#151f33;border-radius:18px;padding:10px 14px">
+      <div style="width:34px;height:34px;border-radius:12px;background:#e2ba5f;color:#5c4200;display:grid;place-items:center;font:700 12px Outfit">LM</div>
+      <div style="flex:1"><div style="font:600 12.5px Outfit;color:#e3e9f4">Lerato Mokoena</div><div style="height:6px;border-radius:100px;background:#2b3c58;margin-top:5px"><div style="width:50%;height:6px;border-radius:100px;background:#8bd2ff"></div></div></div>
+      <span style="font:600 11.5px Outfit;color:#98a6bb">2 tasks</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:11px;background:#151f33;border-radius:18px;padding:10px 14px">
+      <div style="width:34px;height:34px;border-radius:12px;background:#aac4e8;color:#14243d;display:grid;place-items:center;font:700 12px Outfit">PW</div>
+      <div style="flex:1"><div style="font:600 12.5px Outfit;color:#e3e9f4">Pieter van Wyk</div><div style="height:6px;border-radius:100px;background:#2b3c58;margin-top:5px"><div style="width:25%;height:6px;border-radius:100px;background:#6ee7a0"></div></div></div>
+      <span style="font:600 11.5px Outfit;color:#6ee7a0">Available</span>
+    </div>
+  </div>
+  <div style="padding:12px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="2d"><div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a>Assign task — availability &amp; skill match</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="height:130px;background:linear-gradient(180deg,#0d1524,#0a111d);opacity:.55;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+    <div style="padding:12px 20px;font:600 22px Outfit;color:#e3e9f4">Today's floor</div>
+  </div>
+  <div style="background:#151f33;border-radius:32px 32px 36px 36px;margin-top:-24px;padding:10px 0 0;box-shadow:0 -12px 32px rgba(0,0,0,.4)">
+    <div style="width:44px;height:5px;border-radius:3px;background:#3d4a5c;margin:0 auto 14px"></div>
+    <div style="padding:0 22px"><div style="font:600 18px Outfit;color:#e3e9f4">Reassign WO-2209</div><div style="font:400 12px Outfit;color:#98a6bb;margin-top:3px">Interior Deep Clean · BMW 320i · needs interior-detail skill</div></div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin:14px 22px 0">
+      <div style="background:#0f3550;border:2px solid #8bd2ff;border-radius:22px;padding:13px 15px;display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:14px;background:#aac4e8;color:#14243d;display:grid;place-items:center;font:700 13px Outfit">PW</div>
+        <div style="flex:1"><div style="font:600 14px Outfit;color:#cbe8ff">Pieter van Wyk</div><div style="display:flex;gap:5px;margin-top:5px"><span style="font:600 9.5px Outfit;background:rgba(110,231,160,.15);color:#6ee7a0;border-radius:100px;padding:3px 8px">Available now</span><span style="font:600 9.5px Outfit;background:rgba(139,210,255,.14);color:#8bd2ff;border-radius:100px;padding:3px 8px">Interior detail</span></div></div>
+        <div style="width:24px;height:24px;border-radius:50%;background:#8bd2ff;display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#00344f">check</span></div>
+      </div>
+      <div style="background:#1b2740;border-radius:22px;padding:13px 15px;display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:14px;background:#e2ba5f;color:#5c4200;display:grid;place-items:center;font:700 13px Outfit">LM</div>
+        <div style="flex:1"><div style="font:600 14px Outfit;color:#e3e9f4">Lerato Mokoena</div><div style="display:flex;gap:5px;margin-top:5px"><span style="font:600 9.5px Outfit;background:rgba(226,186,95,.15);color:#e2ba5f;border-radius:100px;padding:3px 8px">Free at ±10:10</span><span style="font:600 9.5px Outfit;background:rgba(139,210,255,.14);color:#8bd2ff;border-radius:100px;padding:3px 8px">Interior detail</span></div></div>
+        <div style="width:24px;height:24px;border-radius:50%;border:2px solid #3d4a5c"></div>
+      </div>
+      <div style="background:#1b2740;border-radius:22px;padding:13px 15px;display:flex;align-items:center;gap:12px;opacity:.55">
+        <div style="width:40px;height:40px;border-radius:14px;background:#8bd2ff;color:#00344f;display:grid;place-items:center;font:700 13px Outfit">SD</div>
+        <div style="flex:1"><div style="font:600 14px Outfit;color:#e3e9f4">Sipho Dlamini</div><div style="display:flex;gap:5px;margin-top:5px"><span style="font:600 9.5px Outfit;background:rgba(255,181,159,.15);color:#ffb59f;border-radius:100px;padding:3px 8px">At capacity · 3 tasks</span></div></div>
+        <div style="width:24px;height:24px;border-radius:50%;border:2px solid #3d4a5c"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;margin:13px 26px 0;color:#98a6bb"><span class="mi" style="font-size:15px;color:#8bd2ff">history</span><span style="font:400 11.5px Outfit">Assignment is audited — actor, time and reason are recorded.</span></div>
+    <div style="display:flex;gap:10px;padding:16px 22px 14px">
+      <div style="flex:1;border:1.5px solid rgba(255,255,255,.2);color:#e3e9f4;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit">Cancel</div>
+      <div style="flex:1.5;background:#8bd2ff;color:#00344f;border-radius:100px;padding:14px 0;text-align:center;font:600 13.5px Outfit">Assign to Pieter</div>
+    </div>
+    <div style="padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="2e"><div class="dv-olabel"><a class="dv-oid" href="#2e">2e</a>Gamification — leaderboard &amp; badges</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 0">
+    <div style="font:600 22px Outfit;color:#e3e9f4">Leaderboard</div>
+    <div style="display:flex;gap:6px;background:#151f33;border-radius:100px;padding:4px">
+      <span style="background:#8bd2ff;color:#00344f;border-radius:100px;padding:7px 15px;font:600 12px Outfit">Week</span>
+      <span style="color:#98a6bb;border-radius:100px;padding:7px 15px;font:500 12px Outfit">Month</span>
+    </div>
+  </div>
+  <div style="font:400 12px Outfit;color:#98a6bb;padding:4px 20px 0">Glen Village bay team · resets Monday 00:00</div>
+  <div style="display:flex;align-items:flex-end;gap:10px;margin:20px 20px 0">
+    <div style="flex:1;text-align:center">
+      <div style="width:56px;height:56px;border-radius:20px;background:#aac4e8;color:#14243d;display:grid;place-items:center;font:700 17px Outfit;margin:0 auto">LM</div>
+      <div style="font:600 12.5px Outfit;color:#e3e9f4;margin-top:7px">Lerato</div>
+      <div style="font:500 11px Outfit;color:#98a6bb">1 180 pts</div>
+      <div style="height:64px;border-radius:18px 18px 0 0;background:#1d2942;margin-top:9px;display:grid;place-items:center;font:700 20px Outfit;color:#98a6bb">2</div>
+    </div>
+    <div style="flex:1.1;text-align:center">
+      <span class="mi" style="font-size:26px;color:#e2ba5f">crown</span>
+      <div style="width:64px;height:64px;border-radius:22px;background:linear-gradient(135deg,#f3dda4,#e2ba5f);color:#5c4200;display:grid;place-items:center;font:700 19px Outfit;margin:2px auto 0;box-shadow:0 6px 18px rgba(226,186,95,.3)">SD</div>
+      <div style="font:600 13px Outfit;color:#e3e9f4;margin-top:7px">Sipho</div>
+      <div style="font:600 11.5px Outfit;color:#e2ba5f">1 420 pts</div>
+      <div style="height:88px;border-radius:18px 18px 0 0;background:linear-gradient(180deg,#2a3a5e,#1d2942);margin-top:9px;display:grid;place-items:center;font:700 24px Outfit;color:#e2ba5f">1</div>
+    </div>
+    <div style="flex:1;text-align:center">
+      <div style="width:56px;height:56px;border-radius:20px;background:#e8b4a0;color:#5c2410;display:grid;place-items:center;font:700 17px Outfit;margin:0 auto">PW</div>
+      <div style="font:600 12.5px Outfit;color:#e3e9f4;margin-top:7px">Pieter</div>
+      <div style="font:500 11px Outfit;color:#98a6bb">960 pts</div>
+      <div style="height:48px;border-radius:18px 18px 0 0;background:#1d2942;margin-top:9px;display:grid;place-items:center;font:700 18px Outfit;color:#98a6bb">3</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin:0 20px;background:#151f33;border-radius:0 0 22px 22px;padding:12px 16px">
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 0"><span style="font:700 13px Outfit;color:#98a6bb;width:18px">4</span><div style="width:32px;height:32px;border-radius:11px;background:#7dc9b0;color:#0d3320;display:grid;place-items:center;font:700 11px Outfit">AN</div><span style="flex:1;font:600 13px Outfit;color:#e3e9f4">Ayanda N.</span><span class="mi" style="font-size:14px;color:#6ee7a0">arrow_upward</span><span style="font:600 12.5px Outfit;color:#98a6bb">845</span></div>
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 0;background:#0f3550;border-radius:14px;margin:0 -8px;padding-left:8px;padding-right:8px"><span style="font:700 13px Outfit;color:#8bd2ff;width:18px">5</span><div style="width:32px;height:32px;border-radius:11px;background:#8bd2ff;color:#00344f;display:grid;place-items:center;font:700 11px Outfit">TM</div><span style="flex:1;font:600 13px Outfit;color:#cbe8ff">You · Thabo M.</span><span class="mi" style="font-size:14px;color:#6ee7a0">arrow_upward</span><span style="font:600 12.5px Outfit;color:#8bd2ff">820</span></div>
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 0"><span style="font:700 13px Outfit;color:#98a6bb;width:18px">6</span><div style="width:32px;height:32px;border-radius:11px;background:#c9a8e8;color:#3a1d5c;display:grid;place-items:center;font:700 11px Outfit">NK</div><span style="flex:1;font:600 13px Outfit;color:#e3e9f4">Nomsa K.</span><span class="mi" style="font-size:14px;color:#ffb59f">arrow_downward</span><span style="font:600 12.5px Outfit;color:#98a6bb">790</span></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 20px 10px"><span style="font:600 15px Outfit;color:#e3e9f4">Your badges</span><span style="font:500 12px Outfit;color:#8bd2ff">All 12</span></div>
+  <div style="display:flex;gap:10px;margin:0 20px 8px">
+    <div style="flex:1;background:#151f33;border-radius:20px;padding:13px 8px;text-align:center"><span class="mi" style="font-size:26px;color:#e2ba5f">military_tech</span><div style="font:600 11px Outfit;color:#e3e9f4;margin-top:6px">50 washes</div></div>
+    <div style="flex:1;background:#151f33;border-radius:20px;padding:13px 8px;text-align:center"><span class="mi" style="font-size:26px;color:#8bd2ff">speed</span><div style="font:600 11px Outfit;color:#e3e9f4;margin-top:6px">Speedster</div></div>
+    <div style="flex:1;background:#151f33;border-radius:20px;padding:13px 8px;text-align:center"><span class="mi" style="font-size:26px;color:#6ee7a0">verified</span><div style="font:600 11px Outfit;color:#e3e9f4;margin-top:6px">Zero redo</div></div>
+    <div style="flex:1;background:#151f33;border-radius:20px;padding:13px 8px;text-align:center;opacity:.45"><span class="mi" style="font-size:26px;color:#98a6bb">lock</span><div style="font:600 11px Outfit;color:#98a6bb;margin-top:6px">Locked</div></div>
+  </div>
+  <div style="padding:10px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="2f"><div class="dv-olabel"><a class="dv-oid" href="#2f">2f</a>Inventory — levels &amp; low-stock alerts</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#0d1524;border-color:rgba(255,255,255,.06)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit;color:#e3e9f4"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <div><div style="font:300 13px Outfit;color:#98a6bb">Glen Village store</div><div style="font:600 22px Outfit;color:#e3e9f4">Stock</div></div>
+    <div style="display:flex;align-items:center;gap:6px;background:rgba(110,231,160,.12);border-radius:100px;padding:6px 12px"><span class="mi" style="font-size:14px;color:#6ee7a0">cloud_done</span><span style="font:600 11.5px Outfit;color:#6ee7a0">Synced 09:38</span></div>
+  </div>
+  <div style="margin:12px 20px 0;background:rgba(255,181,159,.1);border:1px solid rgba(255,181,159,.4);border-radius:20px;padding:13px 16px;display:flex;align-items:center;gap:11px">
+    <span class="mi" style="font-size:20px;color:#ffb59f">notification_important</span>
+    <div style="flex:1"><div style="font:600 13px Outfit;color:#ffb59f">2 items below reorder threshold</div><div style="font:400 11.5px Outfit;color:#98a6bb">Manager notified · 09:12</div></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin:12px 20px 0;background:#151f33;border-radius:100px;padding:12px 18px">
+    <span class="mi" style="font-size:18px;color:#98a6bb">search</span><span style="font:400 13px Outfit;color:#5a6b85">Search consumables…</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:9px;margin:14px 20px 0">
+    <div style="background:#151f33;border:1px solid rgba(255,181,159,.4);border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="mi" style="font-size:20px;color:#ffb59f">water_drop</span><span style="flex:1;font:600 14px Outfit;color:#e3e9f4">Foam shampoo 20 L</span><span style="font:700 10px Outfit;background:#ffb59f;color:#5c1900;border-radius:100px;padding:4px 10px">LOW</span></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#2b3c58"><div style="width:12%;height:8px;border-radius:100px;background:#ffb59f"></div></div>
+        <span style="font:600 12px Outfit;color:#ffb59f">2 of 16 · min 4</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px"><span style="background:#8bd2ff;color:#00344f;border-radius:100px;padding:9px 16px;font:600 12px Outfit">Request reorder</span><span style="border:1.5px solid rgba(255,255,255,.2);color:#e3e9f4;border-radius:100px;padding:9px 16px;font:600 12px Outfit">Log usage</span></div>
+    </div>
+    <div style="background:#151f33;border:1px solid rgba(255,181,159,.4);border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="mi" style="font-size:20px;color:#ffb59f">cleaning_services</span><span style="flex:1;font:600 14px Outfit;color:#e3e9f4">Upholstery shampoo 5 L</span><span style="font:700 10px Outfit;background:#ba1a1a;color:#fff;border-radius:100px;padding:4px 10px">OUT</span></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#2b3c58"></div>
+        <span style="font:600 12px Outfit;color:#ffb59f">0 of 8 · min 2</span>
+      </div>
+      <div style="font:400 11.5px Outfit;color:#ffb59f;margin-top:8px">Blocking WO-2209 · substitute approved by supervisor</div>
+    </div>
+    <div style="background:#151f33;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="mi" style="font-size:20px;color:#8bd2ff">auto_awesome</span><span style="flex:1;font:600 14px Outfit;color:#e3e9f4">Carnauba wax 1 L</span><span style="font:600 10px Outfit;background:rgba(110,231,160,.14);color:#6ee7a0;border-radius:100px;padding:4px 10px">OK</span></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#2b3c58"><div style="width:64%;height:8px;border-radius:100px;background:#6ee7a0"></div></div>
+        <span style="font:600 12px Outfit;color:#98a6bb">9 of 14 · min 3</span>
+      </div>
+    </div>
+    <div style="background:#151f33;border-radius:22px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:10px"><span class="mi" style="font-size:20px;color:#8bd2ff">tire_repair</span><span style="flex:1;font:600 14px Outfit;color:#e3e9f4">Tyre shine gel 5 L</span><span style="font:600 10px Outfit;background:rgba(110,231,160,.14);color:#6ee7a0;border-radius:100px;padding:4px 10px">OK</span></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#2b3c58"><div style="width:81%;height:8px;border-radius:100px;background:#6ee7a0"></div></div>
+        <span style="font:600 12px Outfit;color:#98a6bb">13 of 16 · min 3</span>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:9px;margin:13px 24px 0;color:#98a6bb"><span class="mi" style="font-size:15px;color:#8bd2ff">shield_person</span><span style="font:400 11.5px Outfit">Technician view — reorder &amp; threshold edits are manager-only.</span></div>
+  <div style="padding:14px 0 8px"><div style="width:108px;height:4px;border-radius:2px;background:#3d4a5c;margin:0 auto"></div></div>
+</div></div>
+
+<div class="dv-opt" id="2g"><div class="dv-olabel"><a class="dv-oid" href="#2g">2g</a>Task list — light variant</div>
+<div class="dv-card" style="width:412px;border-radius:36px;background:#f6fafd">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px 4px;font:500 13px Outfit"><span>9:41</span><span style="display:flex;gap:5px"><span class="mi" style="font-size:15px">signal_cellular_alt</span><span class="mi" style="font-size:15px">wifi</span><span class="mi" style="font-size:15px">battery_full</span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px 4px">
+    <div><div style="font:300 13px Outfit;color:#51606f">Glen Village · Bay team</div><div style="font:600 22px Outfit">My tasks</div></div>
+    <div style="display:flex;align-items:center;gap:6px;background:#c9f0d8;border-radius:100px;padding:6px 12px"><span class="mi" style="font-size:14px;color:#0d5c32">cloud_done</span><span style="font:600 11.5px Outfit;color:#0d5c32">Synced 09:41</span></div>
+  </div>
+  <div style="display:flex;gap:8px;margin:12px 20px 0">
+    <div style="flex:1;text-align:center;background:#006398;color:#fff;border-radius:100px;padding:10px 0;font:600 13px Outfit">Mine · 4</div>
+    <div style="flex:1;text-align:center;background:#ebf1f7;color:#51606f;border-radius:100px;padding:10px 0;font:500 13px Outfit">Queue · 5</div>
+    <div style="flex:1;text-align:center;background:#ebf1f7;color:#51606f;border-radius:100px;padding:10px 0;font:500 13px Outfit">Done · 6</div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin:14px 20px 0">
+    <div style="background:#ebf1f7;border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font:700 10.5px Outfit;background:#ffdad6;color:#93000a;border-radius:100px;padding:4px 10px">P1</span>
+        <span style="font:600 12px ui-monospace,monospace;color:#51606f">WO-2214</span>
+        <span style="flex:1"></span>
+        <span style="display:flex;align-items:center;gap:5px;background:#cbe6ff;border-radius:100px;padding:4px 11px;font:600 11px Outfit;color:#006398"><span style="width:6px;height:6px;border-radius:50%;background:#006398"></span>In progress</span>
+      </div>
+      <div style="font:600 16px Outfit;margin-top:10px">Wash &amp; Wax — Toyota Corolla Cross</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#51606f;margin-top:2px">HX 42 KL GP · Bay 2</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:13px">
+        <div style="flex:1;height:8px;border-radius:100px;background:#dbe5ee"><div style="width:57%;height:8px;border-radius:100px;background:linear-gradient(90deg,#0074b8,#00a0e0)"></div></div>
+        <span style="font:600 12px Outfit;color:#006398">4/7 steps</span>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:13px">
+        <div style="flex:1;background:#006398;color:#fff;border-radius:100px;padding:12px 0;text-align:center;font:600 13px Outfit">Continue checklist</div>
+        <div style="width:48px;height:44px;border-radius:100px;background:#dbe5ee;display:grid;place-items:center"><span class="mi" style="font-size:19px;color:#16212b">timer</span></div>
+      </div>
+    </div>
+    <div style="background:#ebf1f7;border-radius:24px;padding:16px 17px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font:700 10.5px Outfit;background:#f3dda4;color:#5c4200;border-radius:100px;padding:4px 10px">P2</span>
+        <span style="font:600 12px ui-monospace,monospace;color:#51606f">WO-2216</span>
+        <span style="flex:1"></span>
+        <span style="font:600 11px Outfit;background:#e1eaf2;color:#51606f;border-radius:100px;padding:4px 11px">Queued · 10:30</span>
+      </div>
+      <div style="font:600 16px Outfit;margin-top:10px">Express Wash — VW Polo Vivo</div>
+      <div style="font:500 12px ui-monospace,monospace;color:#51606f;margin-top:2px">DR 88 SN GP · awaiting arrival</div>
+    </div>
+  </div>
+  <div style="position:relative;margin:16px 20px 0;display:flex;justify-content:flex-end">
+    <div style="display:flex;align-items:center;gap:9px;background:#006398;color:#fff;border-radius:20px;padding:15px 20px;font:600 14px Outfit;box-shadow:0 8px 20px rgba(0,99,152,.3)"><span class="mi" style="font-size:20px">qr_code_scanner</span>Scan disc</div>
+  </div>
+  <div style="display:flex;background:#ebf1f7;padding:12px 10px 6px;justify-content:space-around;margin-top:14px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;border-radius:100px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#001d31">checklist</span></div><span style="font:600 11px Outfit">Tasks</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">qr_code_scanner</span></div><span style="font:500 11px Outfit;color:#51606f">Scan</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">inventory_2</span></div><span style="font:500 11px Outfit;color:#51606f">Stock</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">social_leaderboard</span></div><span style="font:500 11px Outfit;color:#51606f">Rank</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px"><div style="width:56px;height:30px;display:grid;place-items:center"><span class="mi" style="font-size:20px;color:#51606f;font-variation-settings:'FILL' 0">menu</span></div><span style="font:500 11px Outfit;color:#51606f">More</span></div>
+  </div>
+  <div style="background:#ebf1f7;padding-bottom:8px"><div style="width:108px;height:4px;border-radius:2px;background:#9aa7b5;margin:0 auto"></div></div>
+</div></div>
+
+</div>
+<p class="dv-next">Try: "show the disc-scan check-in for staff" · "make the leaderboard monthly" · "supervisor tablet two-pane layout".</p>
+</section>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">t3</a><span class="dv-tname">Admin Dashboard — responsive web, desktop width</span></div>
+<p class="dv-tsub">KPI overview (<a class="dv-oid" href="#3a">3a</a>), loyalty &amp; config (<a class="dv-oid" href="#3b">3b</a>), inventory &amp; alerts (<a class="dv-oid" href="#3c">3c</a>), dark scheme (<a class="dv-oid" href="#3d">3d</a>). Navigation rail, drill-down tables, filters, CSV export, audit-logged config.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="3a"><div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Operations overview — light</div>
+<div class="dv-card" style="width:1240px;border-radius:20px;background:#f6fafd;display:flex">
+  <div style="width:84px;background:#ebf1f7;display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;flex:none">
+    <img src="uploads/logo-light.png" alt="S" style="width:52px;margin-bottom:14px">
+    <div style="width:56px;height:44px;border-radius:16px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#001d31">dashboard</span></div><div style="font:600 10px Outfit;margin-bottom:8px">Overview</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">calendar_month</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Bookings</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">request_quote</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Quotes</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">groups</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Staff</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">loyalty</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Loyalty</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">inventory_2</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Stock</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">settings</span></div><div style="font:500 10px Outfit;color:#51606f">Config</div>
+    <div style="flex:1"></div>
+    <div style="width:44px;height:44px;border-radius:16px;background:#203060;color:#fff;display:grid;place-items:center;font:600 14px Outfit">AM</div>
+  </div>
+  <div style="flex:1;padding:22px 26px 24px;min-width:0">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div><div style="font:600 22px Outfit">Operations overview</div><div style="font:400 12.5px Outfit;color:#51606f">Live · updated 09:41:12</div></div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#ebf1f7;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px;color:#006398">storefront</span>Glen Village Elite Centre<span class="mi" style="font-size:16px;color:#51606f">unfold_more</span></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#ebf1f7;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px;color:#006398">calendar_today</span>Today · 28 Aug</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#203060;color:#fff;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px">download</span>Export CSV</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:14px;margin-top:18px">
+      <div style="background:linear-gradient(130deg,#203060 25%,#0a5f96 85%);border-radius:24px;padding:18px 20px;color:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:500 12px Outfit;color:#9ed7f5">Revenue today</span><span style="display:flex;align-items:center;gap:4px;background:rgba(110,231,160,.2);border-radius:100px;padding:3px 10px;font:600 11px Outfit;color:#6ee7a0"><span class="mi" style="font-size:13px">trending_up</span>+12%</span></div>
+        <div style="font:700 34px/1.1 Outfit;margin-top:10px">R 18 420</div>
+        <div style="font:400 11.5px Outfit;color:#bcd9ec;margin-top:4px">vs R 16 440 last Friday</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#51606f">Bookings today</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px">64</div>
+        <div style="font:400 11.5px Outfit;color:#1d8a4e;margin-top:4px">51 completed · 8 in service</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#51606f">Avg cycle time</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px">42 min</div>
+        <div style="font:400 11.5px Outfit;color:#1d8a4e;margin-top:4px">−4 min vs 7-day avg</div>
+      </div>
+      <div style="background:#fff;border:2px solid #ffb59f;border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#93000a">Open exceptions</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px;color:#93000a">5</div>
+        <div style="font:400 11.5px Outfit;color:#51606f;margin-top:4px">2 blocked · 1 overdue · 2 low stock</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-top:14px">
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:600 14px Outfit">Bookings by hour</span><span style="display:flex;gap:14px;font:500 11px Outfit;color:#51606f"><span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:#006398"></span>Car wash</span><span style="display:flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:#8bd2ff"></span>Auto body</span></span></div>
+        <div style="display:flex;align-items:flex-end;gap:10px;height:150px;margin-top:16px">
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:8%;border-radius:6px;background:#8bd2ff"></div><div style="height:24%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">07</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:12%;border-radius:6px;background:#8bd2ff"></div><div style="height:38%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">08</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:14%;border-radius:6px;background:#8bd2ff"></div><div style="height:58%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">09</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:16%;border-radius:6px;background:#8bd2ff"></div><div style="height:72%;border-radius:6px;background:linear-gradient(180deg,#00a0e0,#006398)"></div><div style="font:600 10px Outfit;color:#006398;text-align:center;margin-top:5px">10</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:12%;border-radius:6px;background:#8bd2ff"></div><div style="height:64%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">11</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:10%;border-radius:6px;background:#8bd2ff"></div><div style="height:48%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">12</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%"><div style="height:8%;border-radius:6px;background:#8bd2ff"></div><div style="height:42%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">13</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%;opacity:.4"><div style="height:10%;border-radius:6px;background:#8bd2ff"></div><div style="height:36%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">14</div></div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;height:100%;opacity:.4"><div style="height:8%;border-radius:6px;background:#8bd2ff"></div><div style="height:30%;border-radius:6px;background:#006398"></div><div style="font:500 10px Outfit;color:#51606f;text-align:center;margin-top:5px">15</div></div>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px">
+        <div style="font:600 14px Outfit">Exceptions</div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:12px">
+          <div style="display:flex;align-items:center;gap:10px;background:#ffdad6;border-radius:16px;padding:10px 13px"><span class="mi" style="font-size:17px;color:#93000a">block</span><div style="flex:1"><div style="font:600 12px Outfit;color:#93000a">WO-2209 blocked 24 min</div><div style="font:400 10.5px Outfit;color:#51606f">Stock-out · Bay 4</div></div><span class="mi" style="font-size:15px;color:#93000a">chevron_right</span></div>
+          <div style="display:flex;align-items:center;gap:10px;background:#ffe6b8;border-radius:16px;padding:10px 13px"><span class="mi" style="font-size:17px;color:#7a5000">schedule</span><div style="flex:1"><div style="font:600 12px Outfit;color:#7a5000">WO-2201 over SLA +12 min</div><div style="font:400 10.5px Outfit;color:#51606f">Awaiting sign-off · Bay 1</div></div><span class="mi" style="font-size:15px;color:#7a5000">chevron_right</span></div>
+          <div style="display:flex;align-items:center;gap:10px;background:#ffe6b8;border-radius:16px;padding:10px 13px"><span class="mi" style="font-size:17px;color:#7a5000">inventory_2</span><div style="flex:1"><div style="font:600 12px Outfit;color:#7a5000">Foam shampoo low · 2 left</div><div style="font:400 10.5px Outfit;color:#51606f">Threshold 4 · reorder pending</div></div><span class="mi" style="font-size:15px;color:#7a5000">chevron_right</span></div>
+          <div style="display:flex;align-items:center;gap:10px;background:#ffdad6;border-radius:16px;padding:10px 13px"><span class="mi" style="font-size:17px;color:#93000a">inventory_2</span><div style="flex:1"><div style="font:600 12px Outfit;color:#93000a">Upholstery shampoo out</div><div style="font:400 10.5px Outfit;color:#51606f">Blocking 1 work order</div></div><span class="mi" style="font-size:15px;color:#93000a">chevron_right</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px;margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:600 14px Outfit">Live bookings</span><span style="display:flex;align-items:center;gap:6px;font:500 12px Outfit;color:#51606f"><span class="mi" style="font-size:16px">filter_list</span>Status · All</span></div>
+      <div style="display:grid;grid-template-columns:110px 1.2fr 1fr 1.2fr 120px 130px 90px;gap:10px;font:600 10.5px Outfit;letter-spacing:.05em;text-transform:uppercase;color:#51606f;padding:14px 8px 9px;border-bottom:1px solid #e1eaf2">
+        <span>Ref</span><span>Customer</span><span>Vehicle</span><span>Service</span><span>Slot</span><span>Status</span><span style="text-align:right">Amount</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px 1.2fr 1fr 1.2fr 120px 130px 90px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:11px 8px;border-bottom:1px solid #eef3f8">
+        <span style="font:600 12px ui-monospace,monospace;color:#006398">SPK-8042</span><span>Thandi Nkosi</span><span style="font-family:ui-monospace,monospace;font-size:11.5px">HX 42 KL GP</span><span>Wash &amp; Wax</span><span>10:30</span><span><span style="background:#cbe6ff;color:#006398;border-radius:100px;padding:4px 11px;font:600 11px Outfit">In service</span></span><span style="text-align:right;font-weight:600">R 198</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px 1.2fr 1fr 1.2fr 120px 130px 90px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:11px 8px;border-bottom:1px solid #eef3f8">
+        <span style="font:600 12px ui-monospace,monospace;color:#006398">SPK-8041</span><span>Ayesha Patel</span><span style="font-family:ui-monospace,monospace;font-size:11.5px">DR 88 SN GP</span><span>Express Wash</span><span>10:30</span><span><span style="background:#e1eaf2;color:#51606f;border-radius:100px;padding:4px 11px;font:600 11px Outfit">Confirmed</span></span><span style="text-align:right;font-weight:600">R 120</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px 1.2fr 1fr 1.2fr 120px 130px 90px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:11px 8px;border-bottom:1px solid #eef3f8">
+        <span style="font:600 12px ui-monospace,monospace;color:#006398">SPK-8039</span><span>Daniel Botha</span><span style="font-family:ui-monospace,monospace;font-size:11.5px">CJ 118-334</span><span>Quote · body repair</span><span>—</span><span><span style="background:#ffe6b8;color:#7a5000;border-radius:100px;padding:4px 11px;font:600 11px Outfit">Quote sent</span></span><span style="text-align:right;font-weight:600">R 4 850</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px 1.2fr 1fr 1.2fr 120px 130px 90px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:11px 8px">
+        <span style="font:600 12px ui-monospace,monospace;color:#006398">SPK-8036</span><span>Naledi Khumalo</span><span style="font-family:ui-monospace,monospace;font-size:11.5px">FT 21 GB GP</span><span>Full Valet</span><span>09:15</span><span><span style="background:#c9f0d8;color:#0d5c32;border-radius:100px;padding:4px 11px;font:600 11px Outfit">Completed</span></span><span style="text-align:right;font-weight:600">R 450</span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="3b"><div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Loyalty tiers &amp; rules — versioned config</div>
+<div class="dv-card" style="width:1240px;border-radius:20px;background:#f6fafd;display:flex">
+  <div style="width:84px;background:#ebf1f7;display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;flex:none">
+    <img src="uploads/logo-light.png" alt="S" style="width:52px;margin-bottom:14px">
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">dashboard</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Overview</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">calendar_month</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Bookings</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">request_quote</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Quotes</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">groups</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Staff</div>
+    <div style="width:56px;height:44px;border-radius:16px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#001d31">loyalty</span></div><div style="font:600 10px Outfit;margin-bottom:8px">Loyalty</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">inventory_2</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Stock</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">settings</span></div><div style="font:500 10px Outfit;color:#51606f">Config</div>
+    <div style="flex:1"></div>
+    <div style="width:44px;height:44px;border-radius:16px;background:#203060;color:#fff;display:grid;place-items:center;font:600 14px Outfit">AM</div>
+  </div>
+  <div style="flex:1;padding:22px 26px 24px;min-width:0">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div><div style="font:600 22px Outfit">Loyalty program</div><div style="font:400 12.5px Outfit;color:#51606f">Tiers, earning and redemption rules · applied server-side, no app release needed</div></div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#c9f0d8;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit;color:#0d5c32"><span class="mi" style="font-size:16px">verified</span>Published · v14</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#ebf1f7;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px;color:#006398">history</span>Audit log</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#203060;color:#fff;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px">edit</span>Edit draft</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px">
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;align-items:center;gap:7px;font:700 14px Outfit;color:#5a6b7c"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#e8edf2,#aab8c4)"></span>Silver</span><span style="font:500 11px Outfit;color:#51606f">7 214 members</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;font:400 12.5px Outfit">
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Qualify</span><b style="font-weight:600">0 – 1 999 pts</b></div>
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Earn rate</span><b style="font-weight:600">1 pt / R10</b></div>
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Booking discount</span><b style="font-weight:600">—</b></div>
+        </div>
+      </div>
+      <div style="background:#fff;border:2px solid #e2ba5f;border-radius:24px;padding:20px;position:relative">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;align-items:center;gap:7px;font:700 14px Outfit;color:#8a6d2f"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#f3dda4,#e2ba5f)"></span>Gold</span><span style="font:500 11px Outfit;color:#51606f">1 892 members</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;font:400 12.5px Outfit">
+          <div style="display:flex;justify-content:space-between;background:#fdf6e6;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Qualify</span><b style="font-weight:600">2 000 – 4 999 pts</b></div>
+          <div style="display:flex;justify-content:space-between;background:#fdf6e6;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Earn rate</span><b style="font-weight:600">1.25 pts / R10</b></div>
+          <div style="display:flex;justify-content:space-between;background:#fdf6e6;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Booking discount</span><b style="font-weight:600">10%</b></div>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;align-items:center;gap:7px;font:700 14px Outfit;color:#203060"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#8bd2ff,#203060)"></span>Platinum</span><span style="font:500 11px Outfit;color:#51606f">417 members</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;font:400 12.5px Outfit">
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Qualify</span><b style="font-weight:600">5 000+ pts</b></div>
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Earn rate</span><b style="font-weight:600">1.5 pts / R10</b></div>
+          <div style="display:flex;justify-content:space-between;background:#ebf1f7;border-radius:12px;padding:9px 13px"><span style="color:#51606f">Booking discount</span><b style="font-weight:600">15% + priority slots</b></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-top:14px">
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:20px">
+        <div style="font:600 14px Outfit;margin-bottom:12px">Earning &amp; expiry rules</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:12px;background:#ebf1f7;border-radius:16px;padding:12px 15px"><span class="mi" style="font-size:18px;color:#006398">payments</span><div style="flex:1"><div style="font:600 12.5px Outfit">Base earn — completed paid services only</div><div style="font:400 11px Outfit;color:#51606f">Awarded once per payment via idempotent ledger entry</div></div><div style="width:44px;height:24px;border-radius:100px;background:#006398;position:relative"><span style="position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff"></span></div></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#ebf1f7;border-radius:16px;padding:12px 15px"><span class="mi" style="font-size:18px;color:#006398">hourglass_bottom</span><div style="flex:1"><div style="font:600 12.5px Outfit">Points expiry — 24 months rolling</div><div style="font:400 11px Outfit;color:#51606f">Customer notified 60 &amp; 30 days before expiry</div></div><div style="width:44px;height:24px;border-radius:100px;background:#006398;position:relative"><span style="position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff"></span></div></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#ebf1f7;border-radius:16px;padding:12px 15px;opacity:.6"><span class="mi" style="font-size:18px;color:#51606f">cake</span><div style="flex:1"><div style="font:600 12.5px Outfit">Birthday bonus — 2× earn week</div><div style="font:400 11px Outfit;color:#51606f">Off — pending marketing consent review</div></div><div style="width:44px;height:24px;border-radius:100px;background:#c3cfda;position:relative"><span style="position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff"></span></div></div>
+        </div>
+      </div>
+      <div style="background:#203060;border-radius:24px;padding:20px;color:#fff">
+        <div style="font:600 14px Outfit">Draft changes · v15</div>
+        <div style="font:400 12px/1.6 Outfit;color:#a9c3d8;margin-top:8px">Gold earn rate 1.25 → 1.3 pts/R10<br>Platinum qualify 5 000 → 4 500 pts</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:14px;background:rgba(255,255,255,.1);border-radius:14px;padding:10px 13px"><span class="mi" style="font-size:16px;color:#8bd2ff">rule</span><span style="font:400 11px/1.5 Outfit;color:#bcd9ec">Publishing is versioned, audited and takes effect server-side within 60 s.</span></div>
+        <div style="display:flex;gap:9px;margin-top:16px">
+          <div style="flex:1;border:1.5px solid rgba(255,255,255,.3);border-radius:100px;padding:11px 0;text-align:center;font:600 12.5px Outfit">Discard</div>
+          <div style="flex:1;background:#8bd2ff;color:#00344f;border-radius:100px;padding:11px 0;text-align:center;font:600 12.5px Outfit">Publish v15</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="3c"><div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a>Inventory &amp; low-stock alerts</div>
+<div class="dv-card" style="width:1240px;border-radius:20px;background:#f6fafd;display:flex">
+  <div style="width:84px;background:#ebf1f7;display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;flex:none">
+    <img src="uploads/logo-light.png" alt="S" style="width:52px;margin-bottom:14px">
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">dashboard</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Overview</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">calendar_month</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Bookings</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">request_quote</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Quotes</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">groups</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Staff</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">loyalty</span></div><div style="font:500 10px Outfit;color:#51606f;margin-bottom:8px">Loyalty</div>
+    <div style="width:56px;height:44px;border-radius:16px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#001d31">inventory_2</span></div><div style="font:600 10px Outfit;margin-bottom:8px">Stock</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#51606f;font-variation-settings:'FILL' 0">settings</span></div><div style="font:500 10px Outfit;color:#51606f">Config</div>
+    <div style="flex:1"></div>
+    <div style="width:44px;height:44px;border-radius:16px;background:#203060;color:#fff;display:grid;place-items:center;font:600 14px Outfit">AM</div>
+  </div>
+  <div style="flex:1;padding:22px 26px 24px;min-width:0">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div><div style="font:600 22px Outfit">Inventory</div><div style="font:400 12.5px Outfit;color:#51606f">Basic stock monitoring · thresholds configurable per outlet</div></div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#ebf1f7;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px;color:#006398">storefront</span>All outlets<span class="mi" style="font-size:16px;color:#51606f">unfold_more</span></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#203060;color:#fff;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px">download</span>Export CSV</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px">
+      <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:16px 20px;display:flex;align-items:center;gap:14px"><div style="width:46px;height:46px;border-radius:16px;background:#cbe6ff;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#006398">category</span></div><div><div style="font:700 24px/1 Outfit">128</div><div style="font:500 11.5px Outfit;color:#51606f;margin-top:3px">Tracked items · 3 outlets</div></div></div>
+      <div style="background:#fff;border:2px solid #e2ba5f;border-radius:24px;padding:16px 20px;display:flex;align-items:center;gap:14px"><div style="width:46px;height:46px;border-radius:16px;background:#ffe6b8;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#7a5000">notification_important</span></div><div><div style="font:700 24px/1 Outfit;color:#7a5000">6</div><div style="font:500 11.5px Outfit;color:#51606f;margin-top:3px">Below threshold</div></div></div>
+      <div style="background:#fff;border:2px solid #ffb59f;border-radius:24px;padding:16px 20px;display:flex;align-items:center;gap:14px"><div style="width:46px;height:46px;border-radius:16px;background:#ffdad6;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#93000a">production_quantity_limits</span></div><div><div style="font:700 24px/1 Outfit;color:#93000a">2</div><div style="font:500 11.5px Outfit;color:#51606f;margin-top:3px">Out of stock · 1 blocking work</div></div></div>
+    </div>
+    <div style="background:#fff;border:1px solid #e1eaf2;border-radius:24px;padding:18px 20px;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font:600 14px Outfit">Stock levels</span>
+        <span style="background:#ffdad6;color:#93000a;border-radius:100px;padding:5px 13px;font:600 11px Outfit">Alerts first</span>
+        <span style="flex:1"></span>
+        <span style="display:flex;align-items:center;gap:6px;font:500 12px Outfit;color:#51606f"><span class="mi" style="font-size:16px">search</span>Search items…</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;font:600 10.5px Outfit;letter-spacing:.05em;text-transform:uppercase;color:#51606f;padding:14px 8px 9px;border-bottom:1px solid #e1eaf2">
+        <span>Item</span><span>Outlet</span><span>Level</span><span>On hand</span><span>Threshold</span><span>Status</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:12px 8px;border-bottom:1px solid #eef3f8;background:#fff8f7">
+        <span style="font-weight:600">Upholstery shampoo 5 L</span><span>Glen Village</span><span><span style="display:block;height:8px;border-radius:100px;background:#f0e4e2"></span></span><span style="font-weight:700;color:#93000a">0 / 8</span><span>2</span><span><span style="background:#ba1a1a;color:#fff;border-radius:100px;padding:4px 12px;font:600 11px Outfit">Out</span></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:12px 8px;border-bottom:1px solid #eef3f8;background:#fffcf5">
+        <span style="font-weight:600">Foam shampoo 20 L</span><span>Glen Village</span><span><span style="display:block;height:8px;border-radius:100px;background:#f5ead8"><span style="display:block;width:12%;height:8px;border-radius:100px;background:#e2985f"></span></span></span><span style="font-weight:700;color:#7a5000">2 / 16</span><span>4</span><span><span style="background:#ffe6b8;color:#7a5000;border-radius:100px;padding:4px 12px;font:600 11px Outfit">Low</span></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:12px 8px;border-bottom:1px solid #eef3f8;background:#fffcf5">
+        <span style="font-weight:600">Microfibre towels · pack 50</span><span>Rosebank</span><span><span style="display:block;height:8px;border-radius:100px;background:#f5ead8"><span style="display:block;width:22%;height:8px;border-radius:100px;background:#e2985f"></span></span></span><span style="font-weight:700;color:#7a5000">5 / 24</span><span>6</span><span><span style="background:#ffe6b8;color:#7a5000;border-radius:100px;padding:4px 12px;font:600 11px Outfit">Low</span></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:12px 8px;border-bottom:1px solid #eef3f8">
+        <span style="font-weight:600">Carnauba wax 1 L</span><span>Glen Village</span><span><span style="display:block;height:8px;border-radius:100px;background:#e6efe9"><span style="display:block;width:64%;height:8px;border-radius:100px;background:#1d8a4e"></span></span></span><span style="font-weight:600">9 / 14</span><span>3</span><span><span style="background:#c9f0d8;color:#0d5c32;border-radius:100px;padding:4px 12px;font:600 11px Outfit">OK</span></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 220px 120px 110px 130px;gap:10px;align-items:center;font:400 12.5px Outfit;padding:12px 8px">
+        <span style="font-weight:600">Tyre shine gel 5 L</span><span>Sandton</span><span><span style="display:block;height:8px;border-radius:100px;background:#e6efe9"><span style="display:block;width:81%;height:8px;border-radius:100px;background:#1d8a4e"></span></span></span><span style="font-weight:600">13 / 16</span><span>3</span><span><span style="background:#c9f0d8;color:#0d5c32;border-radius:100px;padding:4px 12px;font:600 11px Outfit">OK</span></span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<div class="dv-opt" id="3d"><div class="dv-olabel"><a class="dv-oid" href="#3d">3d</a>Operations overview — dark scheme</div>
+<div class="dv-card" style="width:1240px;border-radius:20px;background:#0d1524;border-color:rgba(255,255,255,.06);display:flex">
+  <div style="width:84px;background:#101a2c;display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;flex:none">
+    <img src="uploads/logo-dark.png" alt="S" style="width:52px;margin-bottom:14px">
+    <div style="width:56px;height:44px;border-radius:16px;background:#0f3550;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#8bd2ff">dashboard</span></div><div style="font:600 10px Outfit;color:#e3e9f4;margin-bottom:8px">Overview</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">calendar_month</span></div><div style="font:500 10px Outfit;color:#98a6bb;margin-bottom:8px">Bookings</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">request_quote</span></div><div style="font:500 10px Outfit;color:#98a6bb;margin-bottom:8px">Quotes</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">groups</span></div><div style="font:500 10px Outfit;color:#98a6bb;margin-bottom:8px">Staff</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">loyalty</span></div><div style="font:500 10px Outfit;color:#98a6bb;margin-bottom:8px">Loyalty</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">inventory_2</span></div><div style="font:500 10px Outfit;color:#98a6bb;margin-bottom:8px">Stock</div>
+    <div style="width:56px;height:44px;display:grid;place-items:center"><span class="mi" style="font-size:22px;color:#98a6bb;font-variation-settings:'FILL' 0">settings</span></div><div style="font:500 10px Outfit;color:#98a6bb">Config</div>
+    <div style="flex:1"></div>
+    <div style="width:44px;height:44px;border-radius:16px;background:#8bd2ff;color:#00344f;display:grid;place-items:center;font:600 14px Outfit">AM</div>
+  </div>
+  <div style="flex:1;padding:22px 26px 24px;min-width:0">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div><div style="font:600 22px Outfit;color:#e3e9f4">Operations overview</div><div style="font:400 12.5px Outfit;color:#98a6bb">Live · updated 21:14:02</div></div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#151f33;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit;color:#e3e9f4"><span class="mi" style="font-size:16px;color:#8bd2ff">storefront</span>All outlets<span class="mi" style="font-size:16px;color:#98a6bb">unfold_more</span></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#151f33;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit;color:#e3e9f4"><span class="mi" style="font-size:16px;color:#8bd2ff">calendar_today</span>This week</div>
+      <div style="display:flex;align-items:center;gap:7px;background:#8bd2ff;color:#00344f;border-radius:100px;padding:9px 16px;font:600 12.5px Outfit"><span class="mi" style="font-size:16px">download</span>Export CSV</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:14px;margin-top:18px">
+      <div style="background:linear-gradient(130deg,#1b2942 20%,#0a4f7d 80%,#0083c4);border-radius:24px;padding:18px 20px;color:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:500 12px Outfit;color:#8bd2ff">Revenue this week</span><span style="display:flex;align-items:center;gap:4px;background:rgba(110,231,160,.18);border-radius:100px;padding:3px 10px;font:600 11px Outfit;color:#6ee7a0"><span class="mi" style="font-size:13px">trending_up</span>+8%</span></div>
+        <div style="font:700 34px/1.1 Outfit;margin-top:10px">R 96 180</div>
+        <div style="font:400 11.5px Outfit;color:#bcd9ec;margin-top:4px">3 outlets · 342 services</div>
+      </div>
+      <div style="background:#151f33;border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#98a6bb">Bookings this week</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px;color:#e3e9f4">342</div>
+        <div style="font:400 11.5px Outfit;color:#6ee7a0;margin-top:4px">311 completed · 96% on time</div>
+      </div>
+      <div style="background:#151f33;border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#98a6bb">Quote conversion</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px;color:#e3e9f4">61%</div>
+        <div style="font:400 11.5px Outfit;color:#98a6bb;margin-top:4px">23 of 38 quotes accepted</div>
+      </div>
+      <div style="background:#151f33;border:1px solid rgba(255,181,159,.4);border-radius:24px;padding:18px 20px">
+        <div style="font:500 12px Outfit;color:#ffb59f">Open exceptions</div>
+        <div style="font:700 30px/1.1 Outfit;margin-top:12px;color:#ffb59f">5</div>
+        <div style="font:400 11.5px Outfit;color:#98a6bb;margin-top:4px">2 blocked · 1 overdue · 2 low stock</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-top:14px">
+      <div style="background:#151f33;border-radius:24px;padding:18px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:600 14px Outfit;color:#e3e9f4">Revenue by outlet · this week</span><span style="font:500 11px Outfit;color:#98a6bb">R thousands</span></div>
+        <div style="display:flex;flex-direction:column;gap:13px;margin-top:16px">
+          <div><div style="display:flex;justify-content:space-between;font:500 12px Outfit;color:#e3e9f4;margin-bottom:6px"><span>Glen Village Elite Centre</span><span style="color:#8bd2ff;font-weight:600">R 41.2k</span></div><div style="height:12px;border-radius:100px;background:#2b3c58"><div style="width:86%;height:12px;border-radius:100px;background:linear-gradient(90deg,#0074b8,#00a0e0)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font:500 12px Outfit;color:#e3e9f4;margin-bottom:6px"><span>Sandton</span><span style="color:#8bd2ff;font-weight:600">R 32.6k</span></div><div style="height:12px;border-radius:100px;background:#2b3c58"><div style="width:68%;height:12px;border-radius:100px;background:linear-gradient(90deg,#0074b8,#00a0e0)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font:500 12px Outfit;color:#e3e9f4;margin-bottom:6px"><span>Rosebank</span><span style="color:#8bd2ff;font-weight:600">R 22.4k</span></div><div style="height:12px;border-radius:100px;background:#2b3c58"><div style="width:47%;height:12px;border-radius:100px;background:linear-gradient(90deg,#0074b8,#00a0e0)"></div></div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid #2b3c58">
+          <span style="font:600 13px Outfit;color:#e3e9f4">Top staff this week</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span style="display:flex;align-items:center;gap:6px;background:#1d2942;border-radius:100px;padding:6px 12px;font:600 11.5px Outfit;color:#e3e9f4"><span style="width:22px;height:22px;border-radius:8px;background:linear-gradient(135deg,#f3dda4,#e2ba5f);color:#5c4200;display:grid;place-items:center;font:700 10px Outfit">SD</span>Sipho · 1 420</span>
+            <span style="display:flex;align-items:center;gap:6px;background:#1d2942;border-radius:100px;padding:6px 12px;font:600 11.5px Outfit;color:#e3e9f4"><span style="width:22px;height:22px;border-radius:8px;background:#aac4e8;color:#14243d;display:grid;place-items:center;font:700 10px Outfit">LM</span>Lerato · 1 180</span>
+          </span>
+        </div>
+      </div>
+      <div style="background:#151f33;border-radius:24px;padding:18px 20px">
+        <div style="font:600 14px Outfit;color:#e3e9f4">Live activity</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:30px;height:30px;border-radius:11px;background:rgba(110,231,160,.14);display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#6ee7a0">check_circle</span></span><div style="flex:1"><div style="font:500 12px Outfit;color:#e3e9f4">SPK-8036 completed · Full Valet</div><div style="font:400 10.5px Outfit;color:#98a6bb">Glen Village · 21:02</div></div></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:30px;height:30px;border-radius:11px;background:rgba(139,210,255,.14);display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#8bd2ff">payments</span></span><div style="flex:1"><div style="font:500 12px Outfit;color:#e3e9f4">R 198 payment verified · SPK-8042</div><div style="font:400 10.5px Outfit;color:#98a6bb">Webhook confirmed · 20:58</div></div></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:30px;height:30px;border-radius:11px;background:rgba(226,186,95,.14);display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#e2ba5f">request_quote</span></span><div style="flex:1"><div style="font:500 12px Outfit;color:#e3e9f4">Quote SPK-8039 accepted · R 4 850</div><div style="font:400 10.5px Outfit;color:#98a6bb">Converted to WO-2220 · 20:41</div></div></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:30px;height:30px;border-radius:11px;background:rgba(255,181,159,.14);display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#ffb59f">notification_important</span></span><div style="flex:1"><div style="font:500 12px Outfit;color:#e3e9f4">Low stock: microfibre towels</div><div style="font:400 10.5px Outfit;color:#98a6bb">Rosebank · threshold 6 · 20:22</div></div></div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:30px;height:30px;border-radius:11px;background:rgba(139,210,255,.14);display:grid;place-items:center"><span class="mi" style="font-size:15px;color:#8bd2ff">loyalty</span></span><div style="flex:1"><div style="font:500 12px Outfit;color:#e3e9f4">+45 pts posted · N. Khumalo</div><div style="font:400 10.5px Outfit;color:#98a6bb">Idempotent ledger entry · 20:19</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+</div>
+<p class="dv-next">Try: "staff performance analytics page" · "quote review screen for the estimator" · "make admin sidebar expanded with labels".</p>
+</section></x-dc>
+</body>
+</html>
