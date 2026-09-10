@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'validation_error'
   | 'conflict'
   | 'invalid_transition'
+  | 'invalid_otp'
   | 'rate_limited'
   | 'internal';
 
@@ -23,6 +24,7 @@ const STATUS: Record<ErrorCode, number> = {
   validation_error: 400,
   conflict: 409,
   invalid_transition: 409,
+  invalid_otp: 409,
   rate_limited: 429,
   internal: 500,
 };
@@ -55,6 +57,9 @@ export class ApiError extends Error {
   }
   static invalidTransition(from: string, to: string, entity = 'entity') {
     return new ApiError('invalid_transition', `Cannot move ${entity} from '${from}' to '${to}'`, { from, to });
+  }
+  static invalidOtp(msg = 'Incorrect OTP', details?: unknown) {
+    return new ApiError('invalid_otp', msg, details);
   }
   static rateLimited(msg = 'Too many requests') {
     return new ApiError('rate_limited', msg);

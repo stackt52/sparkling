@@ -3,7 +3,7 @@
 ///
 /// ```sh
 /// flutter run --dart-define-from-file=env/dev.json
-/// # env/dev.json: { "API_BASE_URL": "...", "SUPABASE_URL": "...", "SUPABASE_ANON_KEY": "...", "DEMO_MODE": "false", "APP_NAME": "customer" }
+/// # env/dev.json: { "API_BASE_URL": "...", "SUPABASE_URL": "...", "SUPABASE_ANON_KEY": "...", "DEMO_MODE": "false", "APP_NAME": "customer", "AUTH_EMULATOR_HOST": "" }
 /// ```
 abstract final class Env {
   /// REST base URL including `/v1`, e.g.
@@ -42,6 +42,15 @@ abstract final class Env {
     defaultValue: '0.1.0+1',
   );
 
+  /// `host:port` of the Firebase Auth emulator (e.g. `127.0.0.1:9099`, or
+  /// `10.0.2.2:9099` from an Android emulator). Empty = use live Firebase.
+  static const String authEmulatorHost = String.fromEnvironment(
+    'AUTH_EMULATOR_HOST',
+    defaultValue: '',
+  );
+
+  static bool get useAuthEmulator => authEmulatorHost.isNotEmpty;
+
   static bool get hasSupabase =>
       supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 
@@ -53,5 +62,6 @@ abstract final class Env {
     'DEMO_MODE': demoMode,
     'APP_NAME': appName,
     'APP_VERSION': appVersion,
+    'AUTH_EMULATOR_HOST': authEmulatorHost.isEmpty ? '(off)' : authEmulatorHost,
   };
 }

@@ -4,15 +4,15 @@
  * dataset every few seconds so the dashboard feels real.
  */
 import { buildCsv } from '../csv';
-import { ApiRequestError, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
+import { ApiRequestError, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type NotificationFilters, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
 import type {
   ActivityItem, AuditEvent, Booking, BookingDetail, ChecklistTemplate, CustomerDetail, CustomerSummary, ExceptionItem, FeatureFlag,
-  IntegrationStatus, InventoryItem, Kpis, LoyaltyConfig, LoyaltyConfigResponse, LoyaltyRules, LoyaltyTierConfig, Outlet, OutletService,
+  IntegrationStatus, InventoryItem, Kpis, LoyaltyConfig, LoyaltyConfigResponse, LoyaltyRules, LoyaltyTierConfig, NotificationRow, Outlet, OutletService,
   Page, Payment, Period, QuoteLineItem, Quotation, ReportKind, ReportSummary, Service, SessionResponse, StaffPerformanceRow, StaffUser,
   TimelineStage, UserRole, WorkOrder, WorkStatus,
 } from '../types';
 import {
-  AUDIT, BADGES, DEMO_PROFILES, FLAGS, INVENTORY, LEDGER, LOYALTY_ACCOUNTS, LOYALTY_CONFIGS, OUTLETS, OUTLET_SERVICES, PAYMENTS,
+  AUDIT, BADGES, DEMO_PROFILES, FLAGS, INVENTORY, LEDGER, LOYALTY_ACCOUNTS, LOYALTY_CONFIGS, NOTIFICATIONS, OUTLETS, OUTLET_SERVICES, PAYMENTS,
   QUOTATIONS, SEED_BOOKINGS, SERVICES, STAFF_BADGES, TEMPLATES, TEN, VEHICLES, WORK_ORDERS, daysAgo, generateExtraBookings, nowIso, rel,
   outletName, outletShort, profileById, profileName, rng, serviceById, vehicleById, type RawBooking,
 } from './data';
@@ -49,6 +49,7 @@ export class DemoApi implements AdminApi {
   private ledger = clone(LEDGER);
   private flags = clone(FLAGS);
   private audit = clone(AUDIT);
+  private notifications = clone(NOTIFICATIONS);
   private activityLog: ActivityItem[] = [];
   private listeners = new Set<(e: LiveEvent) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -676,13 +677,49 @@ export class DemoApi implements AdminApi {
   }
   async integrations(): Promise<IntegrationStatus[]> {
     await delay(60);
-    const wa = this.flags.find((f) => f.key === 'whatsapp_enabled')?.enabled;
+    const wa = Boolean(this.flags.find((f) => f.key === 'whatsapp_enabled')?.enabled);
     return [
       { key: 'supabase', name: 'Supabase Postgres + Realtime', status: 'demo', detail: 'Demo mode · in-memory dataset mirrors seed.sql (project uicqczgpiqkczwyssdft when live)', icon: 'database' },
       { key: 'firebase', name: 'Firebase Auth · sparkling-4e89d', status: 'demo', detail: 'Demo session · email/password + Google when NEXT_PUBLIC_DEMO_MODE=false', icon: 'verified_user' },
       { key: 'payments', name: 'Payments provider', status: 'sandbox', detail: 'Sandbox adapter · webhook HMAC verified · no real charges', icon: 'payments' },
-      { key: 'whatsapp', name: 'WhatsApp Business', status: wa ? 'connected' : 'disabled', detail: wa ? 'Notifications enabled' : 'Sandbox adapter logs only · flag whatsapp_enabled off', icon: 'chat' },
+      {
+        key: 'whatsapp', name: 'WhatsApp Business', status: wa ? 'connected' : 'disabled',
+        detail: wa ? 'Twilio Messaging Service · templates approved · status callbacks on' : 'Twilio configured · sending paused (flag whatsapp_enabled off)',
+        icon: 'chat', provider: 'twilio', configured: true, messaging_service: 'MGa1b2c3d4e5f67890abcdef12347660', enabled: wa,
+      },
     ];
+  }
+
+  /* ------------------------------------------------------------ notifications */
+  async listNotifications(f: NotificationFilters): Promise<Page<NotificationRow>> {
+    await delay();
+    this.requireRole('admin', 'manager', 'finance');
+    let rows = [...this.notifications].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (f.status && f.status !== 'all') rows = rows.filter((n) => n.status === f.status);
+    if (f.channel && f.channel !== 'all') rows = rows.filter((n) => n.channel === f.channel);
+    const limit = f.limit ?? 25;
+    const start = f.cursor ? Number(f.cursor) : 0;
+    return { data: clone(rows.slice(start, start + limit)), next_cursor: start + limit < rows.length ? String(start + limit) : null };
+  }
+  async resendNotification(id: string): Promise<NotificationRow> {
+    await delay(250);
+    this.requireRole('admin', 'manager');
+    const n = this.notifications.find((x) => x.id === id);
+    if (!n) throw new ApiRequestError(404, { code: 'not_found', message: 'Notification not found' });
+    if (n.status === 'delivered') throw new ApiRequestError(409, { code: 'conflict', message: 'This message was already delivered' });
+    const before = { status: n.status, provider_status: n.provider_status, provider_error_code: n.provider_error_code, attempts: n.attempts };
+    n.status = 'sent';
+    n.provider_status = n.channel === 'whatsapp' ? 'sent' : null;
+    n.provider_error_code = null;
+    n.error = null;
+    n.attempts += 1;
+    n.sent_at = nowIso();
+    n.delivered_at = null;
+    if (n.channel === 'whatsapp') n.provider_ref = `SM${nextId('re').replace(/-/g, '').padEnd(32, '0').slice(0, 32)}`;
+    this.log('notification.resend', 'notification', n.id, before, { status: 'sent', attempts: n.attempts, template_key: n.template_key });
+    this.pushActivity({ kind: 'assigned', title: `${n.template_key} re-sent to ${n.recipient_name ?? n.recipient_id}`, subtitle: `${n.channel === 'whatsapp' ? 'WhatsApp (Twilio)' : n.channel} · attempt ${n.attempts}`, icon: 'forward_to_inbox', tone: 'primary' });
+    this.emit('notifications');
+    return clone(n);
   }
 
   /* ------------------------------------------------------------ live tick */

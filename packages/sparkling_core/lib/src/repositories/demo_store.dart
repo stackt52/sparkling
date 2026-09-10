@@ -91,6 +91,23 @@ class DemoStore {
   static const String woInService =
       '30000000-0000-4000-8000-000000000001'; // WO-2026-4821
   static const String taskInService = '40000000-0000-4000-8000-000000000001';
+
+  /// Thabo's Express Wash from earlier today: verified, keys not yet released
+  /// (collection OTP `73104`).
+  static const String bookingReady =
+      '10000000-0000-4000-8000-000000000010'; // SPK-2026-0098
+  static const String woReady =
+      '30000000-0000-4000-8000-000000000006'; // WO-2026-4820
+  static const String taskReady = '40000000-0000-4000-8000-000000000006';
+
+  /// Naledi's verified Express Wash (WO-2026-4822) — hand-over OTP.
+  static const String woVerified = '30000000-0000-4000-8000-000000000002';
+
+  /// Wrong-OTP attempts allowed before `rate_limited` (mirrors the API).
+  static const int maxOtpAttempts = 5;
+
+  /// Minimum gap between OTP re-sends per work order.
+  static const Duration otpResendCooldown = Duration(seconds: 60);
   static const String quotationQuoted =
       '20000000-0000-4000-8000-000000000001'; // QT-2026-0041
 
@@ -153,6 +170,12 @@ class DemoStore {
   late LoyaltyConfig loyaltyDraft;
   final Map<String, bool> featureFlags = {};
   final Set<String> _idempotencyKeys = {};
+
+  /// Active collection OTP per work order (never exposed to staff payloads).
+  final Map<String, String> pickupOtps = {};
+  final Map<String, int> _otpAttempts = {};
+  final Map<String, DateTime> _otpResentAt = {};
+  int _otpSeq = 0;
 
   // ---------------------------------------------------------------------------
   // Seed (mirrors seed.sql)
@@ -913,6 +936,27 @@ class DemoStore {
         createdAt: n.subtract(const Duration(days: 24)),
       ),
       Booking(
+        id: bookingReady,
+        ref: 'SPK-$_yr-0098',
+        customerId: 'seed_thabo',
+        vehicleId: vehPolo,
+        outletId: outletSandton,
+        serviceId: svcExpress,
+        slotStart: t.subtract(const Duration(hours: 2)),
+        slotEnd: t
+            .subtract(const Duration(hours: 2))
+            .add(const Duration(minutes: 20)),
+        status: BookingStatus.completed,
+        priceCents: 12000,
+        discountCents: 1200,
+        totalCents: 10800,
+        discountLabel: 'Gold −10%',
+        pointsPending: 11,
+        clientOpId: 'seed-op-0098',
+        createdAt: n.subtract(const Duration(days: 1)),
+        updatedAt: t.subtract(const Duration(minutes: 100)),
+      ),
+      Booking(
         id: '10000000-0000-4000-8000-000000000004',
         ref: 'SPK-$_yr-0052',
         customerId: 'seed_thabo',
@@ -1102,7 +1146,30 @@ class DemoStore {
         createdAt: t.subtract(const Duration(minutes: 20)),
       ),
       WorkOrder(
-        id: '30000000-0000-4000-8000-000000000002',
+        id: woReady,
+        ref: 'WO-$_yr-4820',
+        outletId: outletSandton,
+        bookingId: bookingReady,
+        vehicleId: vehPolo,
+        customerId: 'seed_thabo',
+        serviceId: svcExpress,
+        status: WorkStatus.verified,
+        priority: 2,
+        bay: 'Bay 1',
+        checklistTemplateId: tplExpress,
+        templateVersion: 2,
+        assigneeId: 'seed_lerato',
+        assigneeName: 'Lerato Mahlangu',
+        etaAt: t.subtract(const Duration(minutes: 100)),
+        startedAt: t.subtract(const Duration(minutes: 118)),
+        completedAt: t.subtract(const Duration(minutes: 102)),
+        verifiedAt: t.subtract(const Duration(minutes: 100)),
+        verifiedBy: 'seed_johan',
+        dueAt: t.subtract(const Duration(minutes: 100)),
+        createdAt: t.subtract(const Duration(minutes: 125)),
+      ),
+      WorkOrder(
+        id: woVerified,
         ref: 'WO-$_yr-4822',
         outletId: outletSandton,
         bookingId: '10000000-0000-4000-8000-000000000005',
@@ -1182,7 +1249,25 @@ class DemoStore {
       ),
     ]);
 
+    // Collection OTPs for verified, not-yet-collected work (5 digits).
+    pickupOtps[woReady] = '73104';
+    pickupOtps[woVerified] = '48213';
+
     tasks.addAll([
+      Task(
+        id: taskReady,
+        workOrderId: woReady,
+        outletId: outletSandton,
+        title: 'Express Wash · CJ 12 PZ GP',
+        assigneeId: 'seed_lerato',
+        assigneeName: 'Lerato Mahlangu',
+        status: WorkStatus.verified,
+        priority: 2,
+        dueAt: t.subtract(const Duration(minutes: 100)),
+        startedAt: t.subtract(const Duration(minutes: 118)),
+        completedAt: t.subtract(const Duration(minutes: 102)),
+        elapsedSeconds: 960,
+      ),
       Task(
         id: taskInService,
         workOrderId: woInService,
@@ -1271,19 +1356,21 @@ class DemoStore {
         StepResult(id: _newId('5'), workOrderId: woInService, stepKey: k),
       );
     }
-    for (final k in ['exterior', 'wheels', 'dry', 'supervisor']) {
-      stepResults.add(
-        StepResult(
-          id: _newId('5'),
-          workOrderId: '30000000-0000-4000-8000-000000000002',
-          stepKey: k,
-          status: StepStatus.done,
-          value: true,
-          actorId: k == 'supervisor' ? 'seed_johan' : 'seed_lerato',
-          actorName: k == 'supervisor' ? 'Johan Botha' : 'Lerato Mahlangu',
-          completedAt: t.subtract(const Duration(minutes: 75)),
-        ),
-      );
+    for (final (wo, minutesAgo) in [(woVerified, 75), (woReady, 104)]) {
+      for (final k in ['exterior', 'wheels', 'dry', 'supervisor']) {
+        stepResults.add(
+          StepResult(
+            id: _newId('5'),
+            workOrderId: wo,
+            stepKey: k,
+            status: StepStatus.done,
+            value: true,
+            actorId: k == 'supervisor' ? 'seed_johan' : 'seed_lerato',
+            actorName: k == 'supervisor' ? 'Johan Botha' : 'Lerato Mahlangu',
+            completedAt: t.subtract(Duration(minutes: minutesAgo)),
+          ),
+        );
+      }
     }
     stepResults.addAll([
       StepResult(
@@ -1356,7 +1443,7 @@ class DemoStore {
       TaskEvent(
         id: _newId('8'),
         taskId: '40000000-0000-4000-8000-000000000002',
-        workOrderId: '30000000-0000-4000-8000-000000000002',
+        workOrderId: woVerified,
         actorId: 'seed_johan',
         actorName: 'Johan Botha',
         event: 'transition',
@@ -1364,6 +1451,18 @@ class DemoStore {
         toStatus: 'verified',
         reason: 'Checklist compliant',
         createdAt: t.subtract(const Duration(minutes: 70)),
+      ),
+      TaskEvent(
+        id: _newId('8'),
+        taskId: taskReady,
+        workOrderId: woReady,
+        actorId: 'seed_johan',
+        actorName: 'Johan Botha',
+        event: 'transition',
+        fromStatus: 'completed',
+        toStatus: 'verified',
+        reason: 'Checklist compliant',
+        createdAt: t.subtract(const Duration(minutes: 100)),
       ),
     ]);
 
@@ -1910,6 +2009,22 @@ class DemoStore {
       AppNotification(
         id: _newId('c'),
         recipientId: 'seed_thabo',
+        channel: NotifyChannel.whatsapp,
+        templateKey: 'pickup_otp',
+        title: 'Ready for collection',
+        body: 'Your Volkswagen Polo Vivo is ready at Sparkling Sandton. Collection OTP: 73104 — show it at the counter to collect your keys.',
+        status: NotifyStatus.delivered,
+        providerRef: 'SM7f3c0d9e4a1b4c8d9e0f1a2b3c4d5e6f',
+        providerStatus: 'delivered',
+        payload: const {'type': 'booking', 'id': bookingReady},
+        sentAt: t.subtract(const Duration(minutes: 100)),
+        deliveredAt: t.subtract(const Duration(minutes: 99)),
+        readAt: t.subtract(const Duration(minutes: 95)),
+        createdAt: t.subtract(const Duration(minutes: 100)),
+      ),
+      AppNotification(
+        id: _newId('c'),
+        recipientId: 'seed_thabo',
         channel: NotifyChannel.push,
         templateKey: 'quote_ready',
         title: 'Your quotation is ready',
@@ -2241,6 +2356,13 @@ class DemoStore {
       final d = workOrderDetail(wo.id);
       final stepsDone = d.stepsDone;
       final count = d.stepCount;
+      // The OTP is only exposed to the owning customer while the booking is
+      // completed and the keys have not been released (API contract).
+      final exposeOtp =
+          b.customerId == uid &&
+          !role.isStaff &&
+          b.status == BookingStatus.completed &&
+          wo.collectedAt == null;
       woSummary = WorkOrderSummary(
         id: wo.id,
         ref: wo.ref,
@@ -2253,6 +2375,9 @@ class DemoStore {
         etaAt: wo.etaAt,
         updatedAt: wo.updatedAt ?? wo.startedAt,
         stageTitle: d.currentStep?.title,
+        pickupOtp: exposeOtp ? pickupOtps[wo.id] : null,
+        pickupOtpVerifiedAt: wo.pickupOtpVerifiedAt,
+        collectedAt: wo.collectedAt,
       );
       if (detail) timeline = d.toTimeline();
     }
@@ -3091,6 +3216,7 @@ class DemoStore {
         bookingRef: booking?.ref,
         customerName: nameOf(wo.customerId),
         slotStart: booking?.slotStart,
+        collectedAt: wo.collectedAt,
       ),
     );
   }
@@ -3271,6 +3397,7 @@ class DemoStore {
         'Your ${vehicle?.displayName ?? 'vehicle'} is ready at ${outletById(wo.outletId)?.name}.',
         {'type': 'booking', 'id': wo.bookingId ?? wo.id},
       );
+      _issuePickupOtp(workOrders[wi]);
     } else if (input.to == WorkStatus.blocked) {
       for (final sup in profiles.values.where(
         (p) =>
@@ -3488,6 +3615,141 @@ class DemoStore {
     _notify('work_orders', workOrderId);
     _notify('tasks');
     return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Vehicle hand-over (collection OTP)
+  // ---------------------------------------------------------------------------
+
+  /// Generates a fresh 5-digit OTP for [wo], resets the attempt counter and
+  /// sends it to the customer by WhatsApp (mirrored in the inbox).
+  void _issuePickupOtp(WorkOrder wo, {bool resend = false}) {
+    _otpSeq++;
+    final code = ((wo.ref.hashCode.abs() + _otpSeq * 7919) % 90000 + 10000)
+        .toString();
+    pickupOtps[wo.id] = code;
+    _otpAttempts.remove(wo.id);
+    final vehicle = vehicleById(wo.vehicleId);
+    _pushNotification(
+      wo.customerId,
+      'pickup_otp',
+      'Ready for collection',
+      'Your ${vehicle?.displayName ?? 'vehicle'} is ready at ${outletById(wo.outletId)?.name}. Collection OTP: $code — show it at the counter to collect your keys.',
+      {'type': 'booking', 'id': wo.bookingId ?? wo.id},
+      channel: NotifyChannel.whatsapp,
+      providerStatus: resend ? 'queued' : 'sent',
+    );
+  }
+
+  /// `POST /work-orders/:id/pickup/verify` — staff only.
+  PickupVerifyResult verifyPickupOtp(String workOrderId, String otp) {
+    _requireRole(role.isStaff);
+    final wi = workOrders.indexWhere((w) => w.id == workOrderId);
+    final wo = _requireWorkOrder(workOrderId);
+    if (wo.collectedAt != null) {
+      throw ApiException(
+        code: 'invalid_transition',
+        message:
+            'Keys were already released at ${SparklingDates.hhmm(wo.collectedAt!)}.',
+        statusCode: 409,
+      );
+    }
+    if (wo.status != WorkStatus.verified) {
+      throw ApiException(
+        code: 'invalid_transition',
+        message: 'The work must be verified before the vehicle is handed over.',
+        statusCode: 409,
+      );
+    }
+    final attempts = _otpAttempts[workOrderId] ?? 0;
+    if (attempts >= maxOtpAttempts) {
+      throw ApiException(
+        code: 'rate_limited',
+        message: 'Too many incorrect codes. Re-send a new OTP to the customer and try again.',
+        statusCode: 429,
+      );
+    }
+    final expected = pickupOtps[workOrderId];
+    if (expected == null || otp.trim() != expected) {
+      final used = attempts + 1;
+      _otpAttempts[workOrderId] = used;
+      final left = maxOtpAttempts - used;
+      if (left <= 0) {
+        throw ApiException(
+          code: 'rate_limited',
+          message: 'Too many incorrect codes. Re-send a new OTP to the customer and try again.',
+          statusCode: 429,
+          data: const {
+            'code': 'rate_limited',
+            'details': {'attempts_left': 0},
+          },
+        );
+      }
+      throw ApiException(
+        code: 'invalid_otp',
+        message: 'That code is not correct.',
+        statusCode: 409,
+        data: {
+          'code': 'invalid_otp',
+          'details': {'attempts_left': left},
+        },
+      );
+    }
+    final at = now;
+    workOrders[wi] = wo.copyWith(
+      pickupOtpVerifiedAt: at,
+      collectedAt: at,
+      updatedAt: at,
+    );
+    _otpAttempts.remove(workOrderId);
+    final task = tasks.where((t) => t.workOrderId == workOrderId).firstOrNull;
+    taskEvents.add(
+      TaskEvent(
+        id: _newId('8'),
+        taskId: task?.id,
+        workOrderId: workOrderId,
+        actorId: uid,
+        actorName: nameOf(uid),
+        event: 'pickup_verified',
+        fromStatus: wo.status.db,
+        toStatus: wo.status.db,
+        reason: 'Collection OTP verified · keys released',
+        createdAt: at,
+      ),
+    );
+    _notify('work_orders', workOrderId);
+    if (task != null) _notify('tasks', task.id);
+    if (wo.bookingId != null) _notify('bookings', wo.bookingId);
+    return PickupVerifyResult(verified: true, collectedAt: at);
+  }
+
+  /// `POST /work-orders/:id/pickup/resend` — staff only, 60 s cooldown.
+  void resendPickupOtp(String workOrderId) {
+    _requireRole(role.isStaff);
+    final wi = workOrders.indexWhere((w) => w.id == workOrderId);
+    final wo = _requireWorkOrder(workOrderId);
+    if (wo.collectedAt != null || wo.status != WorkStatus.verified) {
+      throw ApiException(
+        code: 'invalid_transition',
+        message: wo.collectedAt != null
+            ? 'The vehicle has already been collected.'
+            : 'The work must be verified before an OTP can be sent.',
+        statusCode: 409,
+      );
+    }
+    final last = _otpResentAt[workOrderId];
+    if (last != null && now.difference(last) < otpResendCooldown) {
+      final wait = otpResendCooldown - now.difference(last);
+      throw ApiException(
+        code: 'rate_limited',
+        message: 'An OTP was just sent. Try again in ${wait.inSeconds} s.',
+        statusCode: 429,
+      );
+    }
+    _otpResentAt[workOrderId] = now;
+    _issuePickupOtp(workOrders[wi], resend: true);
+    _notify('work_orders', workOrderId);
+    if (wo.bookingId != null) _notify('bookings', wo.bookingId);
   }
 
   // ---------------------------------------------------------------------------
@@ -3863,18 +4125,24 @@ class DemoStore {
     String key,
     String? title,
     String body,
-    Map<String, dynamic> payload,
-  ) {
+    Map<String, dynamic> payload, {
+    NotifyChannel channel = NotifyChannel.push,
+    String? providerStatus,
+  }) {
     notifications.add(
       AppNotification(
         id: _newId('c'),
         recipientId: recipientId,
-        channel: NotifyChannel.push,
+        channel: channel,
         templateKey: key,
         title: title,
         body: body,
         payload: payload,
         status: NotifyStatus.sent,
+        attempts: 1,
+        providerStatus:
+            providerStatus ??
+            (channel == NotifyChannel.whatsapp ? 'sent' : null),
         sentAt: now,
         createdAt: now,
       ),

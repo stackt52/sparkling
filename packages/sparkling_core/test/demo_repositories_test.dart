@@ -13,7 +13,13 @@ void main() {
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('sparkling_demo_');
     HiveStore.reset();
-    store = DemoStore(currentUser: DemoPersonas.customer);
+    // Fixed clock (today 16:30 local) so SLA/overdue expectations don't depend
+    // on the wall-clock time the suite happens to run at.
+    final today = DateTime.now();
+    store = DemoStore(
+      currentUser: DemoPersonas.customer,
+      clock: () => DateTime(today.year, today.month, today.day, 16, 30),
+    );
     repos = await SparklingCore.bootstrap(
       demo: true,
       hivePath: dir.path,
@@ -217,8 +223,9 @@ void main() {
         expect(confirmed.isPaid, isTrue);
 
         await Future<void>.delayed(const Duration(milliseconds: 10));
-        expect(emissions.first, 4);
-        expect(emissions.last, 5);
+        // Thabo's seed has five bookings; the new one makes six.
+        expect(emissions.first, 5);
+        expect(emissions.last, 6);
         await sub.cancel();
 
         // Cancel is allowed before in_service; in-service booking is not.
@@ -351,8 +358,12 @@ void main() {
         contains('interior shampoo'),
       );
       expect(
-        (await repos.staff.tasks(scope: TaskScope.done)).single.workOrder?.ref,
-        'WO-${DateTime.now().year}-4822',
+        (await repos.staff.tasks(scope: TaskScope.done))
+            .map((t) => t.workOrder?.ref),
+        containsAll([
+          'WO-${DateTime.now().year}-4822',
+          'WO-${DateTime.now().year}-4820',
+        ]),
       );
 
       final detail = await repos.staff.workOrder(task.workOrderId);
@@ -493,13 +504,22 @@ void main() {
         ),
         hasLength(1),
       );
+      // Verification issues a collection OTP to the customer by WhatsApp.
+      expect(store.pickupOtps[task.workOrderId], matches(RegExp(r'^\d{5}$')));
+      final otpNote = store.notifications.lastWhere(
+        (n) =>
+            n.recipientId == 'seed_thabo' &&
+            n.templateKey == 'pickup_otp' &&
+            n.channel == NotifyChannel.whatsapp,
+      );
+      expect(otpNote.body, contains(store.pickupOtps[task.workOrderId]!));
 
       // Ops summary + assignment for the supervisor.
       final ops = await repos.staff.opsSummary(
         outletId: DemoStore.outletSandton,
       );
       expect(ops.counts.blocked, 1);
-      expect(ops.counts.done, 2);
+      expect(ops.counts.done, 3);
       expect(
         ops.needsAttention.map((a) => a.kind),
         containsAll([
@@ -720,5 +740,199 @@ void main() {
       ),
     );
     expect(found, same(repos));
+  });
+  group('Vehicle hand-over (pickup OTP)', () {
+    test(
+      'customer sees the OTP only on completed, uncollected bookings',
+      () async {
+        final bookings = await repos.customer.bookings();
+        final ready = bookings.firstWhere(
+          (b) => b.id == DemoStore.bookingReady,
+        );
+        expect(ready.ref, 'SPK-${DateTime.now().year}-0098');
+        expect(ready.status, BookingStatus.completed);
+        expect(ready.isReadyForCollection, isTrue);
+        expect(ready.pickupOtp, '73104');
+        expect(ready.workOrder?.ref, 'WO-${DateTime.now().year}-4820');
+        expect(ready.workOrder?.collectedAt, isNull);
+
+        // Already collected weeks ago: no OTP, nothing to show.
+        final collected = bookings.firstWhere(
+          (b) => b.ref == 'SPK-${DateTime.now().year}-0067',
+        );
+        expect(collected.isReadyForCollection, isFalse);
+        expect(collected.pickupOtp, isNull);
+
+        // Staff payloads never carry the code.
+        await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        final staffView = await repos.customer.booking(DemoStore.bookingReady);
+        expect(staffView.workOrder?.pickupOtp, isNull);
+        final detail = await repos.staff.workOrder(DemoStore.woReady);
+        expect(detail.workOrder.toJson().containsKey('pickup_otp'), isFalse);
+        expect(detail.workOrder.awaitingCollection, isTrue);
+        expect(detail.task?.workOrder?.awaitingCollection, isTrue);
+      },
+    );
+
+    test(
+      'technician verifies WO-4822 with 48213 and releases the keys',
+      () async {
+        await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        final changes = <DemoChange>[];
+        final sub = store.changes.listen(changes.add);
+
+        final wrong = repos.staff.verifyPickupOtp(
+          DemoStore.woVerified,
+          '00000',
+        );
+        await expectLater(
+          wrong,
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.code, 'code', 'invalid_otp')
+                .having((e) => e.isInvalidOtp, 'isInvalidOtp', isTrue)
+                .having((e) => e.statusCode, 'status', 409)
+                .having((e) => e.attemptsLeft, 'attemptsLeft', 4),
+          ),
+        );
+
+        final result = await repos.staff.verifyPickupOtp(
+          DemoStore.woVerified,
+          '48213',
+        );
+        expect(result.verified, isTrue);
+        expect(result.collectedAt, isNotNull);
+        final wo = store.workOrders.firstWhere(
+          (w) => w.id == DemoStore.woVerified,
+        );
+        expect(wo.collectedAt, result.collectedAt);
+        expect(wo.pickupOtpVerifiedAt, result.collectedAt);
+        expect(wo.isCollected, isTrue);
+        final done = await repos.staff.tasks(scope: TaskScope.done);
+        final card = done
+            .firstWhere((t) => t.workOrderId == DemoStore.woVerified)
+            .workOrder!;
+        expect(card.isCollected, isTrue);
+        expect(card.awaitingCollection, isFalse);
+        expect(
+          store.taskEvents.where(
+            (e) =>
+                e.workOrderId == DemoStore.woVerified &&
+                e.event == 'pickup_verified',
+          ),
+          hasLength(1),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        expect(
+          changes.map((c) => c.table),
+          containsAll(['work_orders', 'tasks']),
+        );
+        await sub.cancel();
+
+        // Second verification is rejected; the customer's timeline shows it.
+        await expectLater(
+          repos.staff.verifyPickupOtp(DemoStore.woVerified, '48213'),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.code,
+              'code',
+              'invalid_transition',
+            ),
+          ),
+        );
+        final booking = await repos.customer.booking(
+          '10000000-0000-4000-8000-000000000005',
+        );
+        expect(booking.workOrder?.collectedAt, isNotNull);
+        expect(booking.timeline.last.key, 'collected');
+      },
+    );
+
+    test('five wrong codes rate-limit; resend issues a fresh OTP', () async {
+      await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      for (var i = 1; i <= 4; i++) {
+        await expectLater(
+          repos.staff.verifyPickupOtp(DemoStore.woReady, '11111'),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.code, 'code', 'invalid_otp')
+                .having((e) => e.attemptsLeft, 'attemptsLeft', 5 - i),
+          ),
+        );
+      }
+      await expectLater(
+        repos.staff.verifyPickupOtp(DemoStore.woReady, '11111'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.code, 'code', 'rate_limited')
+              .having((e) => e.isRateLimited, 'isRateLimited', isTrue)
+              .having((e) => e.statusCode, 'status', 429),
+        ),
+      );
+      // Even the right code is refused while locked.
+      await expectLater(
+        repos.staff.verifyPickupOtp(DemoStore.woReady, '73104'),
+        throwsA(
+          isA<ApiException>().having((e) => e.code, 'code', 'rate_limited'),
+        ),
+      );
+
+      // Resend → new code, attempts reset, WhatsApp row queued for the customer.
+      final before = store.notifications.length;
+      await repos.staff.resendPickupOtp(DemoStore.woReady);
+      final fresh = store.pickupOtps[DemoStore.woReady]!;
+      expect(fresh, matches(RegExp(r'^\d{5}$')));
+      expect(fresh, isNot('73104'));
+      expect(store.notifications.length, before + 1);
+      final row = store.notifications.last;
+      expect(row.recipientId, 'seed_thabo');
+      expect(row.channel, NotifyChannel.whatsapp);
+      expect(row.templateKey, 'pickup_otp');
+      expect(row.body, contains(fresh));
+      // Cooldown.
+      await expectLater(
+        repos.staff.resendPickupOtp(DemoStore.woReady),
+        throwsA(
+          isA<ApiException>().having((e) => e.code, 'code', 'rate_limited'),
+        ),
+      );
+      // Old code no longer works, the new one releases the keys.
+      await expectLater(
+        repos.staff.verifyPickupOtp(DemoStore.woReady, '73104'),
+        throwsA(
+          isA<ApiException>().having((e) => e.code, 'code', 'invalid_otp'),
+        ),
+      );
+      final ok = await repos.staff.verifyPickupOtp(DemoStore.woReady, fresh);
+      expect(ok.verified, isTrue);
+
+      // The customer no longer sees an OTP for that booking.
+      await repos.auth.signInWithEmail('thabo@example.com', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final b = await repos.customer.booking(DemoStore.bookingReady);
+      expect(b.isReadyForCollection, isFalse);
+      expect(b.pickupOtp, isNull);
+      expect(b.workOrder?.collectedAt, isNotNull);
+      expect(
+        (await repos.notifications.list()).items.where(
+          (n) => n.templateKey == 'pickup_otp' && n.isDelivered,
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('customers cannot verify or resend', () async {
+      await expectLater(
+        repos.staff.verifyPickupOtp(DemoStore.woReady, '73104'),
+        throwsA(isA<ApiException>().having((e) => e.code, 'code', 'forbidden')),
+      );
+      await expectLater(
+        repos.staff.resendPickupOtp(DemoStore.woReady),
+        throwsA(isA<ApiException>().having((e) => e.code, 'code', 'forbidden')),
+      );
+    });
   });
 }
