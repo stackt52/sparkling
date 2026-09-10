@@ -141,21 +141,24 @@ insert into public.badges (id, code, name, description, icon, colour, criteria) 
  ('90000000-0000-4000-8000-000000000006','TOP_MONTH','Top of the month','Finish #1 on a monthly leaderboard','social_leaderboard','#F3DDA4','{"rank":1}');
 
 -- ---------- Notification templates (NOT-001) ---------------------------------
-insert into public.notification_templates (key, channel, title, body, is_promotional) values
- ('booking_confirmed','push','Booking confirmed','{{service}} at {{outlet}} on {{slot}}. Ref {{ref}}.',false),
- ('booking_confirmed','whatsapp',null,'Hi {{name}}, your Sparkling booking {{ref}} is confirmed for {{slot}} at {{outlet}}. Reply STOP to opt out of promos.',false),
- ('service_started','push','Service started','Your {{vehicle}} is now in bay {{bay}}.',false),
- ('stage_changed','push','Progress update','{{vehicle}}: {{stage}} complete.',false),
- ('service_ready','push','Ready for collection','Your {{vehicle}} is ready at {{outlet}}.',false),
- ('service_ready','whatsapp',null,'Your {{vehicle}} is sparkling and ready for collection at {{outlet}}. Ref {{ref}}.',false),
- ('payment_successful','push','Payment received','R {{amount}} received. Receipt {{receipt}}.',false),
- ('payment_failed','push','Payment failed','We could not process R {{amount}}. Tap to retry.',false),
- ('quote_ready','push','Your quotation is ready','{{ref}}: R {{amount}}. Accept or decline in the app.',false),
- ('quote_ready','whatsapp',null,'Your Sparkling quotation {{ref}} for R {{amount}} is ready. Open the app to accept or decline.',false),
- ('points_posted','push','Points posted','+{{points}} pts added. Balance {{balance}}.',false),
- ('low_stock','push','Low stock alert','{{item}} at {{outlet}} is below threshold ({{on_hand}}/{{threshold}}).',false),
- ('task_assigned','push','New task','{{ref}} assigned to you · {{service}} · bay {{bay}}.',false),
- ('promo_weekend','whatsapp',null,'Weekend special: 15% off Premium Detail. Book in the Sparkling app.',true);
+insert into public.notification_templates (key, channel, title, body, is_promotional, provider, provider_template_sid, provider_variables) values
+ ('booking_confirmed','push','Booking confirmed','{{service}} at {{outlet}} on {{slot}}. Ref {{ref}}.',false,null,null,'{}'),
+ ('booking_confirmed','whatsapp',null,'Hi {{name}}, your Sparkling booking {{ref}} is confirmed for {{slot}} at {{outlet}}. Reply STOP to opt out of promos.',false,null,null,'{}'),
+ ('service_started','push','Service started','Your {{vehicle}} is now in bay {{bay}}.',false,null,null,'{}'),
+ ('stage_changed','push','Progress update','{{vehicle}}: {{stage}} complete.',false,null,null,'{}'),
+ ('service_ready','push','Ready for collection','Your {{vehicle}} is ready at {{outlet}}. Collection OTP {{otp}}.',false,null,null,'{}'),
+ -- Twilio WhatsApp Content templates carried over from the legacy sparkling-admin project (approved cards)
+ ('service_ready','whatsapp',null,'Thank you for visiting Sparkling Auto. Your {{vehicle}} is ready at {{outlet}}. Present OTP {{otp}} to collect your keys.',false,'twilio','HX63a748f8b6680eac890e0137dfcf0fdb','{"1":"otp"}'),
+ ('pickup_otp','push','Collection OTP','Show OTP {{otp}} at {{outlet}} to collect your {{vehicle}}.',false,null,null,'{}'),
+ ('pickup_otp','whatsapp',null,'Your Sparkling collection OTP is {{otp}}. Present it at {{outlet}} to collect your keys.',false,'twilio','HX63a748f8b6680eac890e0137dfcf0fdb','{"1":"otp"}'),
+ ('payment_successful','push','Payment received','R {{amount}} received. Receipt {{receipt}}.',false,null,null,'{}'),
+ ('payment_failed','push','Payment failed','We could not process R {{amount}}. Tap to retry.',false,null,null,'{}'),
+ ('quote_ready','push','Your quotation is ready','{{ref}}: R {{amount}}. Accept or decline in the app.',false,null,null,'{}'),
+ ('quote_ready','whatsapp',null,'Hi {{first_name}}, your quotation {{ref}} is ready. Review it in the Sparkling app.',false,'twilio','HX011c7f1b31697f8e21d36ff6b4d02b06','{"1":"first_name","2":"quotation_id"}'),
+ ('points_posted','push','Points posted','+{{points}} pts added. Balance {{balance}}.',false,null,null,'{}'),
+ ('low_stock','push','Low stock alert','{{item}} at {{outlet}} is below threshold ({{on_hand}}/{{threshold}}).',false,null,null,'{}'),
+ ('task_assigned','push','New task','{{ref}} assigned to you · {{service}} · bay {{bay}}.',false,null,null,'{}'),
+ ('promo_weekend','whatsapp',null,'Weekend special: 15% off Premium Detail. Book in the Sparkling app.',true,null,null,'{}');
 
 insert into public.feature_flags (key, enabled, description) values
  ('payments_sandbox', true, 'Use the sandbox payment provider (no real charges)'),

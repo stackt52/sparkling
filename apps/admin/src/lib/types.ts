@@ -473,6 +473,39 @@ export interface IntegrationStatus {
   status: 'connected' | 'sandbox' | 'disabled' | 'demo' | 'error';
   detail: string;
   icon: string;
+  /** WhatsApp (Twilio) card: `{ provider, configured, messaging_service, enabled }` — never secrets. */
+  provider?: string;
+  configured?: boolean;
+  messaging_service?: string | null;
+  enabled?: boolean;
+}
+
+/* ---------- notifications ---------- */
+export type NotifyChannel = 'push' | 'whatsapp' | 'sms' | 'email';
+export type NotifyStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'suppressed';
+
+/** `notifications` row as returned by `GET /admin/notifications` (with recipient + provider expansions). */
+export interface NotificationRow {
+  id: string;
+  recipient_id: string;
+  recipient_name: string | null;
+  channel: NotifyChannel;
+  template_key: string;
+  title: string | null;
+  body: string;
+  payload: Record<string, unknown>;
+  status: NotifyStatus;
+  /** Provider-side state (Twilio: queued / sent / delivered / read / undelivered / failed). */
+  provider_status: string | null;
+  provider_ref: string | null;
+  /** Provider error code (e.g. Twilio `63016` = outside the 24 h session window). */
+  provider_error_code: string | null;
+  error: string | null;
+  attempts: number;
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  created_at: string;
 }
 
 export type ReportKind = 'bookings' | 'payments' | 'inventory' | 'staff_performance' | 'loyalty';

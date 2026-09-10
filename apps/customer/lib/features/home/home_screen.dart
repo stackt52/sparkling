@@ -58,7 +58,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refresh() async {
     setState(_init);
-    await context.session.refreshProfile();
+    final session = context.session;
+    if (session.serverUnreachable) {
+      await session.retryBootstrap();
+    } else {
+      await session.refreshProfile();
+    }
   }
 
   @override
@@ -77,13 +82,25 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
                 _AppBarRow(unread: _unread),
+                // Always one child here: toggling the banner in/out would shift
+                // the (index-matched) children below and recreate their
+                // StreamBuilders, losing the streams' first emission. Not
+                // const: it must rebuild when the session notifies.
+                // ignore: prefer_const_constructors
+                _ServerUnreachableBanner(),
                 const SizedBox(height: 22),
                 _Greeting(loyalty: _loyalty),
                 const SizedBox(height: 18),
                 StreamBuilder<List<Booking>>(
+                  key: const ValueKey('home-bookings'),
                   stream: _bookings,
                   builder: (context, snap) {
                     if (snap.hasError) {
+                      // API down: the banner above already explains; keep the
+                      // home usable rather than stacking error states.
+                      if (session.serverUnreachable) {
+                        return const _BookingHero(bookings: []);
+                      }
                       return ErrorView(
                         error: snap.error,
                         compact: true,
@@ -132,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onAction: () => context.push(Routes.vehicles),
                 ),
                 StreamBuilder<List<Vehicle>>(
+                  key: const ValueKey('home-vehicles'),
                   stream: _vehicles,
                   builder: (context, snap) {
                     final vehicles = snap.data ?? const <Vehicle>[];
@@ -165,6 +183,31 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Non-blocking notice when `POST /auth/session` / `GET /me` could not reach
+/// the API (offline, emulator without the Functions emulator, outage). The
+/// user stays signed in; Retry re-runs the session bootstrap.
+class _ServerUnreachableBanner extends StatelessWidget {
+  const _ServerUnreachableBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.session;
+    if (!session.serverUnreachable) return const SizedBox.shrink();
+    return InfoBanner(
+      key: const ValueKey('server-unreachable'),
+      margin: const EdgeInsets.only(top: 14),
+      tone: InfoTone.warning,
+      icon: Symbols.cloud_off_rounded,
+      title: "Couldn't reach Sparkling servers",
+      text:
+          "You're signed in, but we couldn't load your profile and bookings. "
+          'Check your connection and try again.',
+      actionLabel: session.busy ? 'Retrying…' : 'Retry',
+      onAction: session.busy ? null : session.retryBootstrap,
     );
   }
 }
@@ -280,6 +323,11 @@ class _BookingHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A vehicle waiting at the counter beats everything else.
+    final ready = bookings.where((b) => b.isReadyForCollection).toList()
+      ..sort((a, b) => b.slotStart.compareTo(a.slotStart));
+    if (ready.isNotEmpty) return _ReadyForCollectionHero(booking: ready.first);
+
     final inService = bookings.where((b) => b.isInService).toList();
     if (inService.isNotEmpty) return _InServiceHero(booking: inService.first);
 
@@ -388,6 +436,104 @@ class _NextBookingHero extends StatelessWidget {
               Expanded(
                 child: PillButton(
                   label: 'Track service',
+                  variant: context.isDark
+                      ? PillButtonVariant.filled
+                      : PillButtonVariant.whiteOnNavy,
+                  expand: true,
+                  onPressed: () => context.push(Routes.track(b.id)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              IconTileButton(
+                icon: Symbols.more_horiz_rounded,
+                tone: IconTileTone.onDark,
+                size: 48,
+                radius: 24,
+                tooltip: 'Booking options',
+                onPressed: () =>
+                    context.push(Routes.bookingDetail(b.id), extra: b),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Completed booking whose collection OTP is still active: "Ready for
+/// collection · OTP 73104" with a "Show OTP" CTA into the tracking screen.
+class _ReadyForCollectionHero extends StatelessWidget {
+  const _ReadyForCollectionHero({required this.booking});
+  final Booking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = booking;
+    final otp = b.pickupOtp ?? '';
+    final subtitle = [
+      b.vehicle?.shortName,
+      shortOutletName(b.outlet?.name),
+    ].where((s) => s != null && s.isNotEmpty).join(' · ');
+
+    return HeroCard(
+      key: const ValueKey('home-ready-hero'),
+      onTap: () => context.push(Routes.track(b.id)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(child: _Overline('Your keys are waiting')),
+              const StatusChip(
+                label: 'Verified',
+                tone: StatusChipTone.onDark,
+                icon: Symbols.verified_rounded,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  'Ready for collection · ',
+                  style: SparklingTypography.headlineMedium.copyWith(
+                    fontSize: 22,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  'OTP $otp',
+                  style: SparklingTypography.mono(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle.isEmpty ? b.title : subtitle,
+            style: SparklingTypography.bodyLarge.copyWith(
+              fontSize: 15,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: PillButton(
+                  label: 'Show OTP',
+                  icon: Symbols.key_rounded,
                   variant: context.isDark
                       ? PillButtonVariant.filled
                       : PillButtonVariant.whiteOnNavy,

@@ -12,7 +12,20 @@
           "package_name": "za.co.sparkling.customer"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "700174326619-glu3a3g5namlhisg5aael7fgiq7vt18c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "za.co.sparkling.customer",
+            "certificate_hash": "91abbf88c42fb942139edadc67b82f8edf87a484"
+          }
+        },
+        {
+          "client_id": "700174326619-bii3h6qmsdp5qqq6arnaf569750hn8bn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAkIqe0P1ZS7NORDaXaib0pjtBFmXUsSmM"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "700174326619-bii3h6qmsdp5qqq6arnaf569750hn8bn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "700174326619-jdi2i27vdvl4f9i788hpvkes0f6jg4ir.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "za.co.sparkling.customer"
+              }
+            }
+          ]
         }
       }
     },
@@ -31,7 +56,20 @@
           "package_name": "za.co.sparkling.staff"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "700174326619-4rfku7jqkp5ulcu3onq744bk10p91bi2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "za.co.sparkling.staff",
+            "certificate_hash": "91abbf88c42fb942139edadc67b82f8edf87a484"
+          }
+        },
+        {
+          "client_id": "700174326619-bii3h6qmsdp5qqq6arnaf569750hn8bn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAkIqe0P1ZS7NORDaXaib0pjtBFmXUsSmM"
@@ -39,7 +77,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "700174326619-bii3h6qmsdp5qqq6arnaf569750hn8bn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "700174326619-jdi2i27vdvl4f9i788hpvkes0f6jg4ir.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "za.co.sparkling.customer"
+              }
+            }
+          ]
         }
       }
     }

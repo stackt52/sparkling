@@ -5,7 +5,7 @@ import { assertOutlet, assertOwner, assertOwnerOrOutletStaff } from '../middlewa
 import { ApiError } from '../middleware/errors.js';
 import type { Quotation, RequestContext, Vehicle } from '../types.js';
 import { audit } from './audit.js';
-import { formatRand, notify } from './notifications.js';
+import { firstName, formatRand, notify } from './notifications.js';
 import { convertQuotation as convertToWorkOrder } from './workflow.js';
 
 export interface CreateQuotationInput {
@@ -76,10 +76,12 @@ export async function quote(ctx: RequestContext, id: string, input: { amount_cen
       .single(),
     'quote',
   );
+  const customer = unwrap<{ full_name: string | null } | null>(await db.from('profiles').select('full_name').eq('id', q.customer_id).maybeSingle(), 'customer');
   await notify({
     recipientId: q.customer_id,
     templateKey: 'quote_ready',
-    vars: { ref: q.ref, amount: formatRand(input.amount_cents) },
+    // `first_name` + `quotation_id` feed the Twilio quote_ready Content template ({"1":"first_name","2":"quotation_id"}).
+    vars: { ref: q.ref, amount: formatRand(input.amount_cents), first_name: firstName(customer?.full_name), quotation_id: q.id },
     dedupeKey: `quote_ready:${q.id}:${updated.quoted_at}`,
     payload: { type: 'quotation', quotation_id: q.id },
   });

@@ -1,10 +1,12 @@
-/** Work orders & checklist steps (STF-030..035). */
+/** Work orders, checklist steps (STF-030..035) and vehicle collection OTP. */
 import { Router } from 'express';
 import { z } from 'zod';
+import { PICKUP_OTP_PATTERN } from '../lib/otp.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { clientOpId, parseBody, uuid } from '../lib/validate.js';
 import { assertOwnerOrOutletStaff, requireProfile, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
+import { redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
 import { buildTimeline, loadStepResults, loadTemplateForWorkOrder, progress, recordStep } from '../services/workflow.js';
 import type { Task, WorkOrder } from '../types.js';
 
@@ -35,8 +37,10 @@ workOrdersRouter.get(
     ]);
     const steps = template?.steps ?? [];
     if (isCustomer) delete (wo as Record<string, unknown>).customer;
+    // The collection OTP is only ever shown to the owning customer while the vehicle is ready and uncollected.
+    const safe = redactPickupOtp(req.auth!, wo, (wo.booking as { status?: string } | null)?.status ?? null);
     res.json({
-      work_order: { ...wo, ...progress(steps, results) },
+      work_order: { ...safe, ...progress(steps, results) },
       template: template ? { id: template.id, name: template.name, version: template.version, steps } : null,
       results,
       events: (events.data ?? []) as unknown[],
@@ -63,5 +67,36 @@ workOrdersRouter.post(
     const body = parseBody(stepSchema, req.body);
     const result = await recordStep(req.ctx, id, key, { status: body.status, value: body.value, attachmentId: body.attachment_id, note: body.note, clientOpId: body.client_op_id });
     res.json(result);
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Vehicle collection OTP (legacy car pick-up flow)
+// ---------------------------------------------------------------------------
+
+const pickupVerifySchema = z.object({
+  otp: z.union([z.string(), z.number()]).transform((v) => String(v).trim()).pipe(z.string().regex(PICKUP_OTP_PATTERN, 'OTP is 5 digits')),
+});
+
+/** Staff at the outlet confirm the OTP the customer presents; marks the vehicle collected. */
+workOrdersRouter.post(
+  '/work-orders/:id/pickup/verify',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const body = parseBody(pickupVerifySchema, req.body);
+    const out = await verifyPickup(req.ctx, id, body.otp);
+    res.json({ ...out, collected: true });
+  }),
+);
+
+/** Re-sends the same OTP to the customer (push + WhatsApp); 1/min per work order. */
+workOrdersRouter.post(
+  '/work-orders/:id/pickup/resend',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const out = await resendPickupOtp(req.ctx, id);
+    res.json(out);
   }),
 );

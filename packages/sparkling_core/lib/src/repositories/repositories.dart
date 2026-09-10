@@ -100,6 +100,15 @@ abstract interface class StaffRepository {
     String? bay,
     int? priority,
   });
+
+  /// Vehicle hand-over: verifies the customer's 5-digit collection OTP and
+  /// releases the keys. Never queued offline. Throws [ApiException]
+  /// `invalid_otp` (see `attemptsLeft`) or `rate_limited`.
+  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp);
+
+  /// Re-sends the collection OTP to the customer (WhatsApp + push).
+  /// Throws `rate_limited` when called again within the cooldown.
+  Future<void> resendPickupOtp(String workOrderId);
   Future<List<Booking>> outletBookings({
     required String outletId,
     BookingStatus? status,

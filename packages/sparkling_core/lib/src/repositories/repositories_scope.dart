@@ -1,7 +1,9 @@
 import 'package:flutter/widgets.dart';
 
+import '../api/api_exception.dart';
 import '../api/sparkling_api.dart';
 import '../auth/auth_service.dart';
+import '../models/profile.dart';
 import '../offline/connectivity_service.dart';
 import '../offline/draft_store.dart';
 import '../offline/local_cache.dart';
@@ -48,18 +50,30 @@ class Repositories {
   /// Null in demo mode or when Supabase is not configured.
   final RealtimeService? realtime;
 
-  /// Runs `POST /auth/session` (no-op in demo mode). Call after sign-in.
-  Future<void> bootstrapSession({
+  /// Runs `POST /auth/session` after sign-in and returns the server-side
+  /// [Profile] (claims are refreshed when the API minted new ones).
+  ///
+  /// Returns `null` in demo mode (there is no API). When `API_BASE_URL` is
+  /// empty or the request fails with a network error / timeout, throws
+  /// [ApiException] with `code == 'network'` so the app can show
+  /// "Couldn't reach Sparkling servers" and retry without signing out.
+  Future<Profile?> bootstrapSession({
     required String app,
     String? fullName,
     String? phone,
   }) async {
     final a = api;
-    if (a == null) return;
-    await SessionBootstrap(
-      api: a,
-      auth: auth,
-    ).run(app: app, fullName: fullName, phone: phone);
+    if (a == null) return null;
+    if (!a.isConfigured) throw ApiException.unreachable();
+    try {
+      return await SessionBootstrap(
+        api: a,
+        auth: auth,
+      ).run(app: app, fullName: fullName, phone: phone);
+    } on ApiException catch (e) {
+      if (e.isNetwork) throw ApiException.unreachable();
+      rethrow;
+    }
   }
 
   /// Clears user-scoped local state (call on sign-out).

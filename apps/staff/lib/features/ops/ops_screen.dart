@@ -14,6 +14,7 @@ import '../../widgets/feedback.dart';
 import '../../widgets/kpi_tile.dart';
 import '../../widgets/live_sync_chip.dart';
 import '../../widgets/screen_header.dart';
+import '../checklist/handover_sheet.dart';
 import 'assign_sheet.dart';
 
 /// Attention filter (STF-061).
@@ -30,6 +31,8 @@ class OpsScreen extends StatefulWidget {
 
 class _OpsScreenState extends State<OpsScreen> {
   StreamSubscription<OpsSummary>? _sub;
+  StreamSubscription<List<Task>>? _doneSub;
+  List<Task> _done = const [];
   OpsSummary? _summary;
   Object? _error;
   OpsFilter _filter = OpsFilter.all;
@@ -41,6 +44,16 @@ class _OpsScreenState extends State<OpsScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _sub ??= _subscribe();
+    _doneSub ??= context.repositories.staff
+        .watchTasks(scope: TaskScope.done, outletId: context.session.outletId)
+        .listen(
+          (list) {
+            if (mounted) setState(() => _done = list);
+          },
+          onError: (Object _) {
+            // The KPI stream surfaces errors; the done list is supplementary.
+          },
+        );
     _outlet ??= context.repositories.catalogue.outlet(context.session.outletId);
   }
 
@@ -68,7 +81,23 @@ class _OpsScreenState extends State<OpsScreen> {
   @override
   void dispose() {
     _sub?.cancel();
+    _doneSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _handover(Task task) async {
+    final wo = task.workOrder;
+    final result = await showHandoverSheet(
+      context,
+      workOrderId: task.workOrderId,
+      ref: task.ref,
+      customerName: wo?.customerName,
+      vehicleLabel: wo?.vehicle?.registrationNo,
+    );
+    if (result != null && mounted) {
+      StaffHaptics.success(context);
+      StaffSnack.show(context, '${task.ref}: keys released');
+    }
   }
 
   List<AttentionItem> _filtered(OpsSummary s) {
@@ -270,7 +299,10 @@ class _OpsScreenState extends State<OpsScreen> {
         snapshot: snapshot,
         onRetry: _refresh,
         loading: Column(
-          children: [header, const Expanded(child: LoadingState())],
+          children: [
+            header,
+            const Expanded(child: LoadingState()),
+          ],
         ),
         builder: (context, s) {
           final items = _filtered(s);
@@ -311,6 +343,42 @@ class _OpsScreenState extends State<OpsScreen> {
               const SizedBox(height: 12),
             ],
           ];
+          final awaiting = _done
+              .where((t) => t.workOrder?.awaitingCollection ?? false)
+              .toList();
+          final collected = _done
+              .where((t) => t.workOrder?.isCollected ?? false)
+              .toList();
+          final doneList = <Widget>[
+            SectionHeader(
+              title: 'Done today',
+              trailing: Text(
+                awaiting.isEmpty
+                    ? '${_done.length} verified'
+                    : '${awaiting.length} awaiting collection',
+                style: SparklingTypography.bodyLarge.copyWith(
+                  color: awaiting.isEmpty
+                      ? context.colors.onSurfaceVariant
+                      : context.colors.primary,
+                ),
+              ),
+            ),
+            if (_done.isEmpty)
+              const ListTileCard(
+                title: Text('Nothing verified yet'),
+                subtitle: Text(
+                  'Verified work shows here until it is collected.',
+                ),
+              ),
+            for (final t in awaiting) ...[
+              _DoneRow(task: t, onHandover: () => _handover(t)),
+              const SizedBox(height: 10),
+            ],
+            for (final t in collected) ...[
+              _DoneRow(task: t),
+              const SizedBox(height: 10),
+            ],
+          ];
           final team = <Widget>[
             SectionHeader(
               title: 'Team load',
@@ -344,6 +412,8 @@ class _OpsScreenState extends State<OpsScreen> {
                             kpis,
                             const SizedBox(height: 24),
                             ...attention,
+                            const SizedBox(height: 12),
+                            ...doneList,
                           ],
                         ),
                       ),
@@ -374,6 +444,8 @@ class _OpsScreenState extends State<OpsScreen> {
                     kpis,
                     const SizedBox(height: 24),
                     ...attention,
+                    const SizedBox(height: 12),
+                    ...doneList,
                     const SizedBox(height: 12),
                     ...team,
                   ],
@@ -498,7 +570,10 @@ class _AttentionCard extends StatelessWidget {
               Container(
                 width: 32,
                 height: 32,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: iconBg),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: iconBg,
+                ),
                 child: Icon(icon, size: 18, color: iconFg, fill: 1),
               ),
               const SizedBox(width: 12),
@@ -591,7 +666,10 @@ class _TeamRow extends StatelessWidget {
                     : LinearLevelBar.progress(
                         value: row.load,
                         gradient: const LinearGradient(
-                          colors: [SparklingColors.azure, SparklingColors.azure],
+                          colors: [
+                            SparklingColors.azure,
+                            SparklingColors.azure,
+                          ],
                         ),
                       ),
               ],
@@ -606,6 +684,70 @@ class _TeamRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Verified work order in the ops "Done today" list: hand-over CTA while the
+/// customer has not collected, otherwise the release time.
+class _DoneRow extends StatelessWidget {
+  const _DoneRow({required this.task, this.onHandover});
+  final Task task;
+  final VoidCallback? onHandover;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final x = context.sparkling;
+    final wo = task.workOrder;
+    final collectedAt = wo?.collectedAt;
+    final subtitle = [
+      wo?.vehicle?.registrationNo,
+      wo?.customerName,
+      if (task.completedAt != null)
+        'verified ${SparklingDates.hhmm(task.completedAt!)}',
+    ].whereType<String>().join(' · ');
+    return ListTileCard(
+      key: ValueKey('done-${task.id}'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      borderColor: collectedAt == null
+          ? cs.primary.withValues(alpha: 0.4)
+          : null,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: collectedAt == null ? cs.primaryContainer : x.successContainer,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          collectedAt == null ? Symbols.key_rounded : Symbols.check_rounded,
+          color: collectedAt == null ? cs.primary : x.onSuccessContainer,
+          fill: 1,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        '${task.ref} · ${wo?.serviceName ?? task.title}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        collectedAt == null
+            ? subtitle
+            : 'Keys released ${SparklingDates.hhmm(collectedAt)}${subtitle.isEmpty ? '' : ' · $subtitle'}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: collectedAt == null && onHandover != null
+          ? PillButton(
+              label: 'Hand over',
+              icon: Symbols.key_rounded,
+              variant: PillButtonVariant.tonal,
+              minHeight: 48,
+              onPressed: onHandover,
+            )
+          : null,
     );
   }
 }

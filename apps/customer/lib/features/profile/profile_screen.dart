@@ -137,11 +137,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
+                // Profile-dependent sections. When the API is unreachable the
+                // user still gets Appearance, Data and Sign out below.
                 if (p == null && session.error != null)
                   ErrorView(
                     error: session.error,
                     compact: true,
-                    onRetry: session.refreshProfile,
+                    onRetry: session.serverUnreachable
+                        ? session.retryBootstrap
+                        : session.refreshProfile,
                   )
                 else if (p == null)
                   const LoadingView()
@@ -219,49 +223,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     value: p.haptics,
                     onChanged: (v) => _patch(ProfileUpdate(haptics: v)),
                   ),
-                  const SizedBox(height: 22),
-                  const SectionHeader(title: 'Appearance'),
-                  SegmentedPills(
-                    labels: const ['System', 'Light', 'Dark'],
-                    selected: switch (settings.themeMode) {
-                      ThemeMode.system => 0,
-                      ThemeMode.light => 1,
-                      ThemeMode.dark => 2,
-                    },
-                    onSelected: (i) => settings.setThemeMode(
-                      const [
-                        ThemeMode.system,
-                        ThemeMode.light,
-                        ThemeMode.dark,
-                      ][i],
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  const SectionHeader(title: 'Data'),
-                  _NavTile(
-                    icon: Symbols.cloud_sync_rounded,
-                    title: 'Sync status',
-                    subtitle: 'Offline queue and last sync',
-                    onTap: () => context.push(Routes.sync),
-                  ),
-                  const SizedBox(height: 22),
-                  PillButton(
-                    label: 'Sign out',
-                    icon: Symbols.logout_rounded,
-                    variant: PillButtonVariant.outlined,
-                    expand: true,
-                    onPressed: _saving ? null : _signOut,
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Text(
-                      'Sparkling ${Env.appVersion}${context.repos.demo ? ' · demo mode' : ''}',
-                      style: SparklingTypography.bodySmall.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
                 ],
+                const SizedBox(height: 22),
+                const SectionHeader(title: 'Appearance'),
+                SegmentedPills(
+                  labels: const ['System', 'Light', 'Dark'],
+                  selected: switch (settings.themeMode) {
+                    ThemeMode.system => 0,
+                    ThemeMode.light => 1,
+                    ThemeMode.dark => 2,
+                  },
+                  onSelected: (i) => settings.setThemeMode(
+                    const [
+                      ThemeMode.system,
+                      ThemeMode.light,
+                      ThemeMode.dark,
+                    ][i],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                const SectionHeader(title: 'Data'),
+                _NavTile(
+                  icon: Symbols.cloud_sync_rounded,
+                  title: 'Sync status',
+                  subtitle: 'Offline queue and last sync',
+                  onTap: () => context.push(Routes.sync),
+                ),
+                const SizedBox(height: 22),
+                PillButton(
+                  label: 'Sign out',
+                  icon: Symbols.logout_rounded,
+                  variant: PillButtonVariant.outlined,
+                  expand: true,
+                  onPressed: _saving ? null : _signOut,
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: Text(
+                    'Sparkling ${Env.appVersion}${context.repos.demo ? ' · demo mode' : ''}',
+                    style: SparklingTypography.bodySmall.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
               ],
             );
           },

@@ -2160,6 +2160,104 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/StepRequest'
+  /work-orders/{id}/pickup/verify:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/WorkOrder'
+                  collected_at:
+                    type: string
+                    format: date-time
+                  collected:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: verifyPickupOtp
+      summary: Staff confirm the collection OTP the customer presents → vehicle collected (409 invalid_otp with attempts_remaining; locked after 5 failures)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                otp:
+                  type: string
+                  pattern: ^\d{5}$
+                  example: '48213'
+              required:
+                - otp
+  /work-orders/{id}/pickup/resend:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/WorkOrder'
+                  notification:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotifyOutcome'
+                  retry_after_seconds:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: resendPickupOtp
+      summary: Re-send the same collection OTP (push + WhatsApp pickup_otp template); rate-limited to once a minute per work order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
   /sync/batch:
     post:
       responses:
@@ -4324,6 +4422,125 @@ paths:
         - Admin
       operationId: getIntegrations
       summary: 'Integration status cards: Supabase probe, Firebase project, payments provider, WhatsApp'
+  /admin/notifications:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminNotification'
+                  next_cursor:
+                    type: string
+                    nullable: true
+                required:
+                  - data
+                  - next_cursor
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminListNotifications
+      summary: Delivery log across channels (provider status, error codes, receipts)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            example: slot_start:desc
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            description: 'Comma-separated: queued|sent|delivered|failed|suppressed'
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: string
+            description: 'Comma-separated: push|whatsapp|sms|email'
+        - name: recipient_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: template_key
+          in: query
+          required: false
+          schema:
+            type: string
+  /admin/notifications/{id}/resend:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notification:
+                    $ref: '#/components/schemas/NotificationFull'
+                  outcome:
+                    $ref: '#/components/schemas/NotifyOutcome'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminResendNotification
+      summary: Re-send a failed/suppressed push or WhatsApp notification from its stored template + payload.vars (bumps attempts; audited)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
   /admin/flags:
     get:
       responses:
@@ -4511,6 +4728,64 @@ paths:
           schema:
             type: string
             format: uuid
+  /notifications/twilio/status:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ignored:
+                    type: boolean
+                  reason:
+                    type: string
+                  notification_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - queued
+                      - sent
+                      - delivered
+                      - failed
+                      - suppressed
+                  provider_status:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Notifications
+      operationId: twilioStatusCallback
+      summary: Twilio delivery-status callback (form-encoded; X-Twilio-Signature validated against PUBLIC_API_BASE_URL/v1/notifications/twilio/status; idempotent by MessageSid)
+      security: []
+      parameters:
+        - name: X-Twilio-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TwilioStatusCallback'
 components:
   securitySchemes:
     bearerAuth:
@@ -4576,6 +4851,7 @@ components:
                 - validation_error
                 - conflict
                 - invalid_transition
+                - invalid_otp
                 - rate_limited
                 - internal
             message:
@@ -4948,6 +5224,25 @@ components:
         blocked_reason:
           type: string
           nullable: true
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        collected_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp:
+          type: string
+          description: Only on GET /bookings/:id for the owning customer while the booking is completed and the vehicle uncollected; omitted otherwise
+          example: '48213'
+        pickup_otp_issued_at:
+          type: string
+          format: date-time
         updated_at:
           type: string
           format: date-time
@@ -5226,6 +5521,26 @@ components:
           type: string
           nullable: true
         due_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp:
+          type: string
+          description: 5-digit collection OTP — present only for the owning customer while the work order is verified and not yet collected; always null for staff
+          example: '48213'
+          nullable: true
+        pickup_otp_issued_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp_verified_by:
+          type: string
+          nullable: true
+        collected_at:
           type: string
           format: date-time
           nullable: true
@@ -6152,6 +6467,207 @@ components:
         created_at:
           type: string
           format: date-time
+    AdminNotification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recipient_id:
+          type: string
+        recipient_name:
+          type: string
+          nullable: true
+        channel:
+          type: string
+          enum:
+            - push
+            - whatsapp
+            - sms
+            - email
+        template_key:
+          type: string
+        title:
+          type: string
+          nullable: true
+        body:
+          type: string
+        status:
+          type: string
+          enum:
+            - queued
+            - sent
+            - delivered
+            - failed
+            - suppressed
+        provider_ref:
+          type: string
+          description: Twilio Message SID (SM…) for WhatsApp
+          nullable: true
+        provider_status:
+          type: string
+          description: 'Raw provider status: queued|accepted|sending|sent|delivered|read|failed|undelivered'
+          nullable: true
+        provider_error_code:
+          type: string
+          example: '63016'
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        attempts:
+          type: integer
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_by_recipient_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationFull:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recipient_id:
+          type: string
+        channel:
+          type: string
+          enum:
+            - push
+            - whatsapp
+            - sms
+            - email
+        template_key:
+          type: string
+        title:
+          type: string
+          nullable: true
+        body:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+          description: Deep-link payload; `vars` holds the render context used for resend
+        status:
+          type: string
+          enum:
+            - queued
+            - sent
+            - delivered
+            - failed
+            - suppressed
+        dedupe_key:
+          type: string
+          nullable: true
+        provider_ref:
+          type: string
+          nullable: true
+        provider_status:
+          type: string
+          nullable: true
+        provider_error_code:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        attempts:
+          type: integer
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_by_recipient_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotifyOutcome:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum:
+            - push
+            - whatsapp
+            - sms
+            - email
+        status:
+          type: string
+          enum:
+            - queued
+            - sent
+            - delivered
+            - failed
+            - suppressed
+            - duplicate
+            - no_template
+        id:
+          type: string
+          format: uuid
+    TwilioStatusCallback:
+      type: object
+      properties:
+        MessageSid:
+          type: string
+          example: SM0123456789abcdef0123456789abcdef
+        MessageStatus:
+          type: string
+          enum:
+            - queued
+            - accepted
+            - scheduled
+            - sending
+            - sent
+            - delivered
+            - read
+            - failed
+            - undelivered
+        SmsStatus:
+          type: string
+        ErrorCode:
+          type: string
+          example: '63016'
+        ErrorMessage:
+          type: string
+        AccountSid:
+          type: string
+        From:
+          type: string
+        To:
+          type: string
+      required:
+        - MessageSid
     SyncOperation:
       type: object
       properties:
@@ -6705,7 +7221,9 @@ components:
         - detail
         - icon
       additionalProperties: true
-      description: 'Per-key extras: supabase {ok, latency_ms, url}; firebase {project_id, emulator}; payments {provider, sandbox, sandbox_confirm_enabled}; whatsapp {enabled, token_configured}'
+      description: >-
+        Per-key extras: supabase {ok, latency_ms, url}; firebase {project_id, emulator}; payments {provider, sandbox, sandbox_confirm_enabled}; whatsapp {enabled, provider: twilio|sandbox, configured,
+        messaging_service (masked MG… SID), status_callback}
     LeaderboardRow:
       type: object
       properties:

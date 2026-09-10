@@ -4,6 +4,7 @@
  * `verified` follow ARCHITECTURE.md.
  */
 import { canTransitionBooking, canTransitionWork, ACTIVE_WORK_STATUSES } from '../domain/stateMachines.js';
+import { generatePickupOtp, redactPickupOtp } from '../lib/otp.js';
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { assertOutlet, isSupervisor } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
@@ -398,7 +399,7 @@ export async function recordStep(ctx: RequestContext, workOrderId: string, stepK
   return { result, duplicate: false, progress: prog };
 }
 
-async function vehicleLabel(vehicleId: string): Promise<string> {
+export async function vehicleLabel(vehicleId: string): Promise<string> {
   const v = unwrap<Vehicle | null>(await getSupabase().from('vehicles').select('make, model, registration_no').eq('id', vehicleId).maybeSingle(), 'vehicle');
   if (!v) return 'vehicle';
   return [v.make, v.model].filter(Boolean).join(' ') || v.registration_no;
@@ -550,7 +551,8 @@ export async function transitionTask(ctx: RequestContext, taskId: string, input:
     Object.assign(sideEffects, await onVerified(ctx, updatedWo, updatedTask, steps, results, overrideRecorded));
   }
   await audit(ctx, { action: `task.${to}`, entity_type: 'task', entity_id: task.id, outlet_id: task.outlet_id, before: { status: from }, after: { status: to, reason: input.reason ?? null } });
-  return { task: updatedTask, work_order: updatedWo, duplicate: false, side_effects: sideEffects };
+  // Staff callers must never receive the collection OTP (issued on verify).
+  return { task: updatedTask, work_order: redactPickupOtp(ctx.auth, updatedWo), duplicate: false, side_effects: sideEffects };
 }
 
 async function onVerified(ctx: RequestContext, wo: WorkOrder, task: Task, steps: ChecklistStep[], results: StepResult[], overridden: boolean): Promise<Record<string, unknown>> {
@@ -589,16 +591,24 @@ async function onVerified(ctx: RequestContext, wo: WorkOrder, task: Task, steps:
     firstTime: priorVerifyAttempts.length === 0,
   });
 
+  // Collection OTP (legacy car pick-up flow): 5-digit code the customer presents at hand-over.
+  // Never returned to staff — it reaches the customer via push + WhatsApp and GET /bookings/:id.
+  const otp = generatePickupOtp();
+  const issuedAt = new Date().toISOString();
+  const otpRes = await db.from('work_orders').update({ pickup_otp: otp, pickup_otp_issued_at: issuedAt, pickup_otp_verified_at: null, pickup_otp_verified_by: null }).eq('id', wo.id);
+  if (otpRes.error) ctx.log.error({ err: otpRes.error, work_order_id: wo.id }, 'pickup otp store failed');
+  out.pickup_otp_issued = !otpRes.error;
+
   // Customer notification.
   const outlet = unwrap<{ name: string } | null>(await db.from('outlets').select('name').eq('id', wo.outlet_id).maybeSingle(), 'outlet');
   out.notification = await notify({
     recipientId: wo.customer_id,
     templateKey: 'service_ready',
-    vars: { vehicle: await vehicleLabel(wo.vehicle_id), outlet: outlet?.name ?? '', ref: wo.ref },
+    vars: { vehicle: await vehicleLabel(wo.vehicle_id), outlet: outlet?.name ?? '', ref: wo.ref, otp },
     dedupeKey: `service_ready:${wo.id}`,
     payload: { type: 'work_order', work_order_id: wo.id, booking_id: wo.booking_id },
   });
-  await audit(ctx, { action: 'work_order.verified', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { verified_by: ctx.auth.uid, overridden } });
+  await audit(ctx, { action: 'work_order.verified', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { verified_by: ctx.auth.uid, overridden, pickup_otp_issued: out.pickup_otp_issued } });
   return out;
 }
 

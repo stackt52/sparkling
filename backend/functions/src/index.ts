@@ -5,7 +5,7 @@
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onRequest } from 'firebase-functions/v2/https';
 import { createApp } from './app.js';
-import { paymentWebhookSecret, REGION, supabaseServiceRoleKey, whatsappToken } from './config.js';
+import { paymentWebhookSecret, REGION, supabaseServiceRoleKey, twilioAccountSid, twilioAuthToken } from './config.js';
 
 setGlobalOptions({ region: REGION, maxInstances: 20 });
 
@@ -14,7 +14,7 @@ let app: ReturnType<typeof createApp> | null = null;
 export const api = onRequest(
   {
     region: REGION,
-    secrets: [supabaseServiceRoleKey, paymentWebhookSecret, whatsappToken],
+    secrets: [supabaseServiceRoleKey, paymentWebhookSecret, twilioAccountSid, twilioAuthToken],
     memory: '512MiB',
     timeoutSeconds: 60,
     minInstances: 0,

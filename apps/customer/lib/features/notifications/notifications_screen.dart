@@ -96,6 +96,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   IconData _icon(AppNotification n) => switch (n.templateKey) {
+    final k when k.contains('otp') || k.contains('pickup') =>
+      Symbols.key_rounded,
     final k when k.contains('ready') => Symbols.task_alt_rounded,
     final k when k.contains('quote') => Symbols.request_quote_rounded,
     final k when k.contains('loyalty') || k.contains('points') =>
@@ -104,6 +106,44 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       Symbols.receipt_long_rounded,
     _ => Symbols.notifications_rounded,
   };
+
+  /// Unread dot and/or the delivery double-tick (WhatsApp / push confirmed
+  /// delivered by the provider).
+  Widget? _trailing(BuildContext context, AppNotification n) {
+    final delivered = n.isDelivered;
+    if (n.isRead && !delivered) return null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (delivered)
+          Tooltip(
+            message: n.deliveredAt == null
+                ? 'Delivered'
+                : 'Delivered ${SparklingDates.hhmm(n.deliveredAt!)}',
+            child: Semantics(
+              label: 'Delivered',
+              child: Icon(
+                Symbols.done_all_rounded,
+                key: const ValueKey('delivered-tick'),
+                size: 20,
+                color: context.sparkling.success,
+              ),
+            ),
+          ),
+        if (!n.isRead) ...[
+          if (delivered) const SizedBox(width: 8),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: context.sparkling.azure,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -185,16 +225,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            trailing: n.isRead
-                                ? null
-                                : Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      color: context.sparkling.azure,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
+                            trailing: _trailing(context, n),
                           );
                         },
                       ),

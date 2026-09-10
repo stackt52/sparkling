@@ -48,6 +48,12 @@ class SparklingApi {
   final Dio dio;
   late final TokenProvider _tokenProvider;
 
+  /// Configured base URL (empty when `API_BASE_URL` was not set).
+  String get baseUrl => dio.options.baseUrl;
+
+  /// `true` when a base URL is configured, i.e. requests can be attempted.
+  bool get isConfigured => baseUrl.trim().isNotEmpty;
+
   /// Called on 401 so the app can route to sign-in.
   final void Function()? onUnauthenticated;
 
@@ -590,6 +596,21 @@ class SparklingApi {
     }),
   );
 
+  /// `POST /work-orders/:id/pickup/verify { otp }` (staff) — releases the
+  /// keys. 409 `invalid_otp` with `details.attempts_left`, 429 `rate_limited`
+  /// after five wrong codes.
+  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
+      post(
+        '/work-orders/$workOrderId/pickup/verify',
+        body: {'otp': otp},
+        map: (d) => PickupVerifyResult.fromJson(_obj(d)),
+      );
+
+  /// `POST /work-orders/:id/pickup/resend` (staff) → `{ sent: true }`;
+  /// 429 `rate_limited` when re-sent too quickly.
+  Future<void> resendPickupOtp(String workOrderId) =>
+      post('/work-orders/$workOrderId/pickup/resend', map: _void);
+
   /// `POST /sync/batch` (ARC-004)
   Future<List<SyncOperationResult>> syncBatch(List<j.Json> operations) => post(
     '/sync/batch',
@@ -904,4 +925,29 @@ class SparklingApi {
 
   Future<void> markNotificationRead(String id) =>
       post('/notifications/$id/read', map: _void);
+
+  /// `GET /admin/notifications?status&channel&limit&cursor` (manager/admin,
+  /// finance read-only) — rows carry `provider_status`, `provider_error_code`,
+  /// `delivered_at`, `attempts`, `recipient_name`.
+  Future<Page<AppNotification>> adminNotifications({
+    NotifyStatus? status,
+    NotifyChannel? channel,
+    int? limit,
+    String? cursor,
+  }) => get(
+    '/admin/notifications',
+    query: {
+      'status': status?.db,
+      'channel': channel?.db,
+      'limit': limit,
+      'cursor': cursor,
+    },
+    map: (d) => Page.fromJson(d, AppNotification.fromJson),
+  );
+
+  /// `POST /admin/notifications/:id/resend` (manager/admin) → updated row.
+  Future<AppNotification> adminResendNotification(String id) => post(
+    '/admin/notifications/$id/resend',
+    map: (d) => AppNotification.fromJson(_obj(d)),
+  );
 }

@@ -22,6 +22,8 @@ class AppNotification extends Equatable {
     this.readAt,
     this.sentAt,
     this.createdAt,
+    this.providerStatus,
+    this.deliveredAt,
   });
 
   final String id;
@@ -42,7 +44,21 @@ class AppNotification extends Equatable {
   final DateTime? sentAt;
   final DateTime? createdAt;
 
+  /// Provider-side delivery state (Twilio: queued / sent / delivered / read /
+  /// failed / undelivered) when the channel reports one.
+  final String? providerStatus;
+  final DateTime? deliveredAt;
+
   bool get isRead => readAt != null;
+
+  /// Confirmed delivered to the device / handset (double-tick).
+  bool get isDelivered =>
+      status == NotifyStatus.delivered ||
+      deliveredAt != null ||
+      providerStatus == 'delivered' ||
+      providerStatus == 'read';
+
+  bool get isFailed => status == NotifyStatus.failed;
 
   /// Deep-link target from the payload, when present (`{type, id}`).
   String? get linkType => strOrNull(payload['type'] ?? payload['link_type']);
@@ -64,6 +80,8 @@ class AppNotification extends Equatable {
     readAt: dtOrNull(json['read_at']),
     sentAt: dtOrNull(json['sent_at']),
     createdAt: dtOrNull(json['created_at']),
+    providerStatus: strOrNull(json['provider_status']),
+    deliveredAt: dtOrNull(json['delivered_at']),
   );
 
   Json toJson() => compact({
@@ -82,12 +100,19 @@ class AppNotification extends Equatable {
     'read_at': iso(readAt),
     'sent_at': iso(sentAt),
     'created_at': iso(createdAt),
+    'provider_status': providerStatus,
+    'delivered_at': iso(deliveredAt),
   });
 
   AppNotification copyWith({
     NotifyStatus? status,
     DateTime? readAt,
     DateTime? sentAt,
+    String? providerStatus,
+    DateTime? deliveredAt,
+    int? attempts,
+    String? error,
+    bool clearError = false,
   }) => AppNotification(
     id: id,
     recipientId: recipientId,
@@ -98,12 +123,14 @@ class AppNotification extends Equatable {
     payload: payload,
     status: status ?? this.status,
     providerRef: providerRef,
-    error: error,
-    attempts: attempts,
+    error: clearError ? null : (error ?? this.error),
+    attempts: attempts ?? this.attempts,
     dedupeKey: dedupeKey,
     readAt: readAt ?? this.readAt,
     sentAt: sentAt ?? this.sentAt,
     createdAt: createdAt,
+    providerStatus: providerStatus ?? this.providerStatus,
+    deliveredAt: deliveredAt ?? this.deliveredAt,
   );
 
   @override
@@ -117,6 +144,9 @@ class AppNotification extends Equatable {
     status,
     readAt,
     createdAt,
+    providerStatus,
+    deliveredAt,
+    attempts,
   ];
 }
 

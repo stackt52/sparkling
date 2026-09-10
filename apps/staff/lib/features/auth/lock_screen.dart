@@ -5,7 +5,8 @@ import '../../app/scope.dart';
 import '../../widgets/avatar_tile.dart';
 
 /// Session-timeout re-authentication (STF-004): the app locked after a period
-/// of inactivity; the signed-in user re-enters their password.
+/// of inactivity; the signed-in user re-enters their password (or re-runs the
+/// Google sign-in for Google-only accounts).
 class LockScreen extends StatefulWidget {
   const LockScreen({super.key});
 
@@ -56,34 +57,46 @@ class _LockScreenState extends State<LockScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '${session.displayName} · enter your password to continue',
+                      session.usesProviderReauth
+                          ? '${session.displayName} · continue with Google to unlock'
+                          : '${session.displayName} · enter your password to continue',
                       textAlign: TextAlign.center,
                       style: SparklingTypography.bodyLarge.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 24),
-                    TextField(
-                      controller: _password,
-                      obscureText: true,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'Password',
-                        prefixIcon: Icon(Symbols.lock_rounded),
+                    if (!session.usesProviderReauth)
+                      TextField(
+                        controller: _password,
+                        obscureText: true,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Password',
+                          prefixIcon: Icon(Symbols.lock_rounded),
+                        ),
+                        onSubmitted: (_) => session.unlock(_password.text),
                       ),
-                      onSubmitted: (_) => session.unlock(_password.text),
-                    ),
                     if (session.error != null) ...[
                       const SizedBox(height: 12),
                       InfoBanner(text: session.error!, tone: InfoTone.error),
                     ],
                     const SizedBox(height: 16),
-                    PillButton(
-                      label: 'Unlock',
-                      expand: true,
-                      loading: session.busy,
-                      onPressed: () => session.unlock(_password.text),
-                    ),
+                    if (session.usesProviderReauth)
+                      PillButton(
+                        label: 'Continue with Google',
+                        icon: Symbols.account_circle_rounded,
+                        expand: true,
+                        loading: session.busy,
+                        onPressed: session.unlockWithGoogle,
+                      )
+                    else
+                      PillButton(
+                        label: 'Unlock',
+                        expand: true,
+                        loading: session.busy,
+                        onPressed: () => session.unlock(_password.text),
+                      ),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: session.busy ? null : session.signOut,

@@ -20,8 +20,48 @@ import { can } from '@/lib/rbac';
 import { env } from '@/lib/env';
 import { tk } from '@/theme/tokens';
 import { fmtDateTime } from '@/lib/format';
+import type { FeatureFlag, IntegrationStatus } from '@/lib/types';
 
 const statusTone = { connected: 'success', sandbox: 'warning', disabled: 'neutral', demo: 'primary', error: 'error' } as const;
+
+/** "MGa1b2…7660" — Messaging Service SIDs are never shown in full. */
+function maskSid(sid: string | null | undefined): string {
+  if (!sid) return 'not set';
+  return sid.length > 8 ? `${sid.slice(0, 2)}…${sid.slice(-4)}` : sid;
+}
+
+/** WhatsApp (Twilio) card: provider · Messaging Service · configured, plus the `whatsapp_enabled` flag switch. */
+function WhatsAppCard({ integration, flag, manage, pending, onToggle }: { integration: IntegrationStatus; flag: FeatureFlag | undefined; manage: boolean; pending: boolean; onToggle: (enabled: boolean) => void }) {
+  const configured = integration.configured ?? integration.status === 'connected';
+  const enabled = flag?.enabled ?? integration.enabled ?? false;
+  const provider = integration.provider === 'twilio' ? 'Twilio' : (integration.provider ?? 'Provider');
+  return (
+    <Paper data-testid="integration-whatsapp" sx={{ p: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start', bgcolor: tk.surfaceContainer, border: 'none', borderRadius: '18px', gridColumn: { md: '1 / -1' } }}>
+      <IconTile icon={integration.icon} tone={!configured ? 'error' : enabled ? 'success' : 'neutral'} size={44} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6">{integration.name}</Typography>
+          <StatusChip tone={!configured ? 'error' : enabled ? 'success' : 'neutral'} label={!configured ? 'not configured' : enabled ? 'enabled' : 'paused'} sx={{ height: 22, fontSize: 11 }} />
+        </Box>
+        <Typography variant="body2" sx={{ mt: 0.25 }}>
+          {provider} · Messaging Service <span className="mono">{maskSid(integration.messaging_service)}</span> · {configured ? 'configured' : 'not configured'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">{integration.detail}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1.25, flexWrap: 'wrap' }}>
+          <M3Switch checked={enabled} disabled={!manage || pending || !flag} onChange={(e) => onToggle(e.target.checked)} slotProps={{ input: { 'aria-label': 'whatsapp_enabled' } }} />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" className="mono">whatsapp_enabled</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {enabled ? 'Collection OTPs and booking updates go out by WhatsApp (push stays on).' : 'WhatsApp sending is paused — customers still get push notifications.'}
+              {flag ? ` Updated ${fmtDateTime(flag.updated_at)}.` : ''}
+              {!manage ? ' Admin-only.' : ''}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
 
 export default function SettingsPage() {
   const api = useApi();
@@ -61,7 +101,16 @@ export default function SettingsPage() {
           <SectionCard title="Integrations">
             {integrations.isLoading && <LoadingRows rows={4} height={72} />}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.25 }}>
-              {(integrations.data ?? []).map((i) => (
+              {(integrations.data ?? []).map((i) => i.key === 'whatsapp' ? (
+                <WhatsAppCard
+                  key={i.key}
+                  integration={i}
+                  flag={flags.data?.find((f) => f.key === 'whatsapp_enabled')}
+                  manage={manage}
+                  pending={update.isPending}
+                  onToggle={(enabled) => update.mutate({ key: 'whatsapp_enabled', enabled })}
+                />
+              ) : (
                 <Paper key={i.key} sx={{ p: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start', bgcolor: tk.surfaceContainer, border: 'none', borderRadius: '18px' }}>
                   <IconTile icon={i.icon} tone={i.status === 'connected' ? 'success' : i.status === 'error' ? 'error' : i.status === 'sandbox' ? 'warning' : 'primary'} size={44} />
                   <Box sx={{ minWidth: 0 }}>

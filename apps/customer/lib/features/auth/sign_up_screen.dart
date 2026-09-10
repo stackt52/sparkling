@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../app/app_scope.dart';
@@ -28,16 +29,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_form.currentState!.validate()) return;
+  Future<void> _submit() => _run(
+    () =>
+        context.session.signUp(_email.text, _password.text, _name.text.trim()),
+  );
+
+  Future<void> _google() => _run(() => context.session.signInWithGoogle());
+
+  Future<void> _run(Future<void> Function() action) async {
     setState(() => _busy = true);
     try {
-      await context.session.signUp(
-        _email.text,
-        _password.text,
-        _name.text.trim(),
-      );
+      await action();
       // Router redirects to home once the auth stream emits.
+    } on AuthException catch (e) {
+      if (mounted && !e.isCancelled) showSnack(context, e.message);
     } catch (e) {
       if (mounted) showSnack(context, describeError(e));
     } finally {
@@ -47,10 +52,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = context.colors;
     return AuthScaffold(
       title: 'Create account',
       subtitle: 'Earn points on every wash from day one.',
       showBack: true,
+      showEmulatorNote: AuthService.emulatorHost != null,
       child: Form(
         key: _form,
         child: Column(
@@ -107,7 +114,34 @@ class _SignUpScreenState extends State<SignUpScreen> {
               label: 'Create account',
               loading: _busy,
               expand: true,
-              onPressed: _submit,
+              onPressed: () {
+                if (!_form.currentState!.validate()) return;
+                _submit();
+              },
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'or',
+                    style: SparklingTypography.labelMedium.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const Expanded(child: Divider()),
+              ],
+            ),
+            const SizedBox(height: 16),
+            PillButton(
+              label: 'Continue with Google',
+              icon: Symbols.account_circle_rounded,
+              variant: PillButtonVariant.outlined,
+              expand: true,
+              onPressed: _busy ? null : _google,
             ),
           ],
         ),

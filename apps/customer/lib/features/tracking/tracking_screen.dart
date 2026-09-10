@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../app/app_scope.dart';
 import '../../widgets/common.dart';
+import 'pickup_otp_card.dart';
 
 /// Live service tracking timeline (1h) with offline degradation (1l).
 ///
@@ -162,6 +163,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                       children: [
                         _StageCard(booking: b, online: _online),
+                        if (b.isReadyForCollection) ...[
+                          const SizedBox(height: 14),
+                          PickupOtpCard(booking: b),
+                        ],
                         const SizedBox(height: 20),
                         if (b.timeline.isEmpty)
                           InfoBanner(
@@ -205,7 +210,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
                           const SizedBox(height: 4),
                           InfoBanner(
                             tone: InfoTone.success,
-                            title: 'Service complete',
+                            icon: b.workOrder?.isCollected ?? false
+                                ? Symbols.car_tag_rounded
+                                : null,
+                            title: b.workOrder?.isCollected ?? false
+                                ? 'Keys released ${SparklingDates.hhmm(b.workOrder!.collectedAt!)}'
+                                : 'Service complete',
                             text:
                                 '+${b.pointsPending} pts were added to your balance. Thanks for choosing Sparkling!',
                           ),
@@ -273,17 +283,20 @@ class _StageCard extends StatelessWidget {
     final title =
         wo?.stageTitle ??
         (b.status == BookingStatus.completed
-            ? 'Ready for collection'
+            ? (wo?.isCollected ?? false ? 'Collected' : 'Ready for collection')
             : b.status.label);
     final stage = wo == null || wo.stageCount == 0
         ? null
         : 'Stage ${wo.stage} of ${wo.stageCount}';
     final assignee = wo?.assigneeFirstName;
+    final complete = b.status == BookingStatus.completed;
     final subtitle = [
       stage,
       if (!online)
         'as of last sync'
-      else if (assignee != null)
+      else if (complete && wo?.bay != null)
+        'Collect at ${wo!.bay}'
+      else if (!complete && assignee != null)
         '$assignee is on your vehicle'
       else if (wo?.bay != null)
         'Bay ${wo!.bay}',

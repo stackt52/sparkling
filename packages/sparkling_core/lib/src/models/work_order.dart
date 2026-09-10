@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../api/api_exception.dart';
 import 'enums.dart';
 import 'json.dart';
 
@@ -422,6 +423,8 @@ class WorkOrder extends Equatable {
     this.completedAt,
     this.verifiedAt,
     this.verifiedBy,
+    this.pickupOtpVerifiedAt,
+    this.collectedAt,
     this.dueAt,
     this.createdAt,
     this.updatedAt,
@@ -454,6 +457,12 @@ class WorkOrder extends Equatable {
   final DateTime? completedAt;
   final DateTime? verifiedAt;
   final String? verifiedBy;
+
+  /// When staff verified the customer's collection OTP.
+  final DateTime? pickupOtpVerifiedAt;
+
+  /// When the keys were released to the customer (vehicle collected).
+  final DateTime? collectedAt;
   final DateTime? dueAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -466,6 +475,12 @@ class WorkOrder extends Equatable {
 
   bool get isOverdue =>
       dueAt != null && status.isOpen && dueAt!.isBefore(DateTime.now());
+
+  bool get isCollected => collectedAt != null;
+
+  /// Verified and still waiting for the customer to collect (hand-over OTP).
+  bool get awaitingCollection =>
+      status == WorkStatus.verified && collectedAt == null;
 
   factory WorkOrder.fromJson(Json json) {
     final vehicle = asJsonOrNull(json['vehicle']);
@@ -492,6 +507,8 @@ class WorkOrder extends Equatable {
       completedAt: dtOrNull(json['completed_at']),
       verifiedAt: dtOrNull(json['verified_at']),
       verifiedBy: strOrNull(json['verified_by']),
+      pickupOtpVerifiedAt: dtOrNull(json['pickup_otp_verified_at']),
+      collectedAt: dtOrNull(json['collected_at']),
       dueAt: dtOrNull(json['due_at']),
       createdAt: dtOrNull(json['created_at']),
       updatedAt: dtOrNull(json['updated_at']),
@@ -534,6 +551,8 @@ class WorkOrder extends Equatable {
     'completed_at': iso(completedAt),
     'verified_at': iso(verifiedAt),
     'verified_by': verifiedBy,
+    'pickup_otp_verified_at': iso(pickupOtpVerifiedAt),
+    'collected_at': iso(collectedAt),
     'due_at': iso(dueAt),
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
@@ -555,6 +574,8 @@ class WorkOrder extends Equatable {
     DateTime? completedAt,
     DateTime? verifiedAt,
     String? verifiedBy,
+    DateTime? pickupOtpVerifiedAt,
+    DateTime? collectedAt,
     DateTime? updatedAt,
     bool clearBlockedReason = false,
   }) => WorkOrder(
@@ -581,6 +602,8 @@ class WorkOrder extends Equatable {
     completedAt: completedAt ?? this.completedAt,
     verifiedAt: verifiedAt ?? this.verifiedAt,
     verifiedBy: verifiedBy ?? this.verifiedBy,
+    pickupOtpVerifiedAt: pickupOtpVerifiedAt ?? this.pickupOtpVerifiedAt,
+    collectedAt: collectedAt ?? this.collectedAt,
     dueAt: dueAt,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -602,6 +625,47 @@ class WorkOrder extends Equatable {
     blockedReason,
     completedAt,
     verifiedAt,
+    pickupOtpVerifiedAt,
+    collectedAt,
     updatedAt,
   ];
+}
+
+/// `POST /work-orders/:id/pickup/verify` → `{ verified, collected_at }`.
+class PickupVerifyResult extends Equatable {
+  const PickupVerifyResult({required this.verified, this.collectedAt});
+
+  final bool verified;
+  final DateTime? collectedAt;
+
+  factory PickupVerifyResult.fromJson(Json json) => PickupVerifyResult(
+    verified: boolOf(json['verified']),
+    collectedAt: dtOrNull(json['collected_at']),
+  );
+
+  Json toJson() =>
+      compact({'verified': verified, 'collected_at': iso(collectedAt)});
+
+  @override
+  List<Object?> get props => [verified, collectedAt];
+}
+
+/// Pickup-OTP error helpers: `409 invalid_otp { details: { attempts_left } }`
+/// and `429 rate_limited` after five wrong codes.
+extension PickupOtpErrorX on ApiException {
+  bool get isInvalidOtp => code == 'invalid_otp';
+
+  /// Remaining attempts reported by the API on an `invalid_otp` error.
+  int? get attemptsLeft {
+    final d = data?['details'];
+    if (d is Map && d['attempts_left'] != null) {
+      return int.tryParse(d['attempts_left'].toString());
+    }
+    for (final item in details) {
+      if (item is Map && item['attempts_left'] != null) {
+        return int.tryParse(item['attempts_left'].toString());
+      }
+    }
+    return null;
+  }
 }

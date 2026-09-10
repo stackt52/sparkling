@@ -346,4 +346,121 @@ void main() {
       );
     });
   });
+
+  group('Pickup OTP & delivery fields', () {
+    test('WorkOrderSummary / WorkOrder round-trip pickup fields', () {
+      final summary = WorkOrderSummary.fromJson({
+        'id': 'w1',
+        'ref': 'WO-2026-4820',
+        'status': 'verified',
+        'pickup_otp': '73104',
+        'pickup_otp_verified_at': null,
+        'collected_at': null,
+      });
+      expect(summary.pickupOtp, '73104');
+      expect(summary.awaitingCollection, isTrue);
+      expect(summary.toJson()['pickup_otp'], '73104');
+      final collected = summary.copyWith(
+        collectedAt: DateTime.utc(2026, 9, 9, 8, 30),
+        clearPickupOtp: true,
+      );
+      expect(collected.awaitingCollection, isFalse);
+      expect(collected.toJson().containsKey('pickup_otp'), isFalse);
+      expect(collected.toJson()['collected_at'], '2026-09-09T08:30:00.000Z');
+
+      final booking = Booking.fromJson({
+        'id': 'b1',
+        'ref': 'SPK-2026-0098',
+        'customer_id': 'c',
+        'status': 'completed',
+        'slot_start': '2026-09-09T06:00:00Z',
+        'slot_end': '2026-09-09T06:20:00Z',
+        'work_order': summary.toJson(),
+      });
+      expect(booking.isReadyForCollection, isTrue);
+      expect(booking.pickupOtp, '73104');
+      expect(
+        booking.copyWith(status: BookingStatus.inService).pickupOtp,
+        isNull,
+      );
+
+      final wo = WorkOrder.fromJson({
+        'id': 'w1',
+        'ref': 'WO-2026-4820',
+        'outlet_id': 'o',
+        'vehicle_id': 'v',
+        'customer_id': 'c',
+        'service_id': 's',
+        'status': 'verified',
+        'pickup_otp_verified_at': '2026-09-09T08:30:00Z',
+        'collected_at': '2026-09-09T08:30:00Z',
+      });
+      expect(wo.isCollected, isTrue);
+      expect(wo.awaitingCollection, isFalse);
+      expect(wo.toJson()['collected_at'], '2026-09-09T08:30:00.000Z');
+      expect(WorkOrder.fromJson(wo.toJson()), wo);
+
+      final result = PickupVerifyResult.fromJson({
+        'verified': true,
+        'collected_at': '2026-09-09T08:30:00Z',
+      });
+      expect(result.verified, isTrue);
+      expect(result.collectedAt, DateTime.utc(2026, 9, 9, 8, 30));
+    });
+
+    test('ApiException exposes attempts_left for invalid_otp', () {
+      final e = ApiException.fromEnvelope({
+        'error': {
+          'code': 'invalid_otp',
+          'message': 'Wrong code',
+          'details': {'attempts_left': 3},
+        },
+      }, statusCode: 409);
+      expect(e.isInvalidOtp, isTrue);
+      expect(e.attemptsLeft, 3);
+      expect(e.isConflict, isTrue);
+      const plain = ApiException(code: 'rate_limited', message: 'x');
+      expect(plain.attemptsLeft, isNull);
+      expect(plain.isInvalidOtp, isFalse);
+    });
+
+    test('AppNotification carries provider_status / delivered_at', () {
+      final n = AppNotification.fromJson({
+        'id': 'n1',
+        'recipient_id': 'c',
+        'channel': 'whatsapp',
+        'template_key': 'pickup_otp',
+        'body': 'OTP 73104',
+        'status': 'sent',
+        'provider_status': 'delivered',
+        'delivered_at': '2026-09-09T08:21:00Z',
+        'attempts': 1,
+      });
+      expect(n.isDelivered, isTrue);
+      expect(n.deliveredAt, DateTime.utc(2026, 9, 9, 8, 21));
+      expect(n.toJson()['provider_status'], 'delivered');
+      expect(AppNotification.fromJson(n.toJson()), n);
+      final failed = n.copyWith(
+        status: NotifyStatus.failed,
+        providerStatus: 'undelivered',
+        error: '63016 outside 24h session',
+        attempts: 2,
+      );
+      expect(failed.isFailed, isTrue);
+      expect(failed.attempts, 2);
+      expect(failed.error, contains('63016'));
+      expect(failed.copyWith(clearError: true).error, isNull);
+      expect(
+        AppNotification.fromJson({
+          'id': 'n2',
+          'recipient_id': 'c',
+          'channel': 'push',
+          'template_key': 'x',
+          'body': 'b',
+          'status': 'sent',
+        }).isDelivered,
+        isFalse,
+      );
+    });
+  });
 }

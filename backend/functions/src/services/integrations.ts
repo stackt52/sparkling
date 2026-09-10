@@ -39,6 +39,10 @@ export async function integrationStatus(): Promise<IntegrationCard[]> {
   const provider = getPaymentProvider();
   const sandbox = provider.name === 'sandbox';
   const whatsappEnabled = flags.whatsapp_enabled === true;
+  const whatsappProvider = config.whatsappProvider;
+  const twilioConfigured = config.twilioConfigured;
+  const messagingService = maskSid(config.twilioMessagingServiceSid);
+  const statusCallback = config.publicApiBaseUrl.length > 0;
   const projectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || FIREBASE_PROJECT_ID;
 
   return [
@@ -73,12 +77,29 @@ export async function integrationStatus(): Promise<IntegrationCard[]> {
     },
     {
       key: 'whatsapp',
-      name: 'WhatsApp Business',
-      status: whatsappEnabled ? (config.whatsappToken ? 'connected' : 'sandbox') : 'disabled',
-      detail: whatsappEnabled ? (config.whatsappToken ? 'Notifications enabled' : 'Flag on · sandbox adapter logs only (no WHATSAPP_TOKEN)') : 'Flag whatsapp_enabled off · notifications suppressed',
+      name: 'WhatsApp Business (Twilio)',
+      status: whatsappEnabled ? (whatsappProvider === 'twilio' && twilioConfigured ? 'connected' : 'sandbox') : 'disabled',
+      detail: whatsappEnabled
+        ? whatsappProvider === 'twilio' && twilioConfigured
+          ? `Twilio Messaging Service ${messagingService} · Content templates${statusCallback ? ' · status callback on' : ' · no PUBLIC_API_BASE_URL (no delivery receipts)'}`
+          : whatsappProvider === 'twilio'
+            ? 'Flag on but TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — sends fail'
+            : 'Flag on · sandbox adapter logs only'
+        : `Flag whatsapp_enabled off · notifications suppressed (provider ${whatsappProvider}${twilioConfigured ? ', Twilio configured' : ''})`,
       icon: 'chat',
       enabled: whatsappEnabled,
-      token_configured: config.whatsappToken.length > 0,
+      provider: whatsappProvider,
+      configured: twilioConfigured,
+      messaging_service: messagingService,
+      status_callback: statusCallback,
+      /** @deprecated legacy Meta token flag */
     },
   ];
+}
+
+/** `MG4d8b…1660` — enough to recognise the SID in the Twilio console without exposing it. */
+export function maskSid(sid: string | null | undefined): string | null {
+  if (!sid) return null;
+  if (sid.length <= 10) return `${sid.slice(0, 2)}…`;
+  return `${sid.slice(0, 6)}…${sid.slice(-4)}`;
 }

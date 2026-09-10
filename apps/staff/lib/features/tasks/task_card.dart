@@ -13,6 +13,7 @@ class TaskCard extends StatelessWidget {
     required this.task,
     required this.onOpen,
     this.onStart,
+    this.onHandover,
     this.selected = false,
   });
 
@@ -23,6 +24,9 @@ class TaskCard extends StatelessWidget {
 
   /// Start / claim a queued or assigned task (transition → in_progress).
   final VoidCallback? onStart;
+
+  /// Verified & awaiting collection: open the OTP hand-over sheet.
+  final VoidCallback? onHandover;
   final bool selected;
 
   @override
@@ -109,7 +113,9 @@ class TaskCard extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: LinearLevelBar.progress(value: progress.fraction)),
+                Expanded(
+                  child: LinearLevelBar.progress(value: progress.fraction),
+                ),
                 const SizedBox(width: 14),
                 Text(
                   progress.label,
@@ -153,15 +159,49 @@ class TaskCard extends StatelessWidget {
                 onPressed: onStart,
               ),
             ],
-          ] else if (status.isDone && task.completedAt != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              '${status.label} ${SparklingDates.hhmm(task.completedAt!)}'
-              '${task.assigneeName == null ? '' : ' · ${task.assigneeName}'}',
-              style: SparklingTypography.bodyMedium.copyWith(
-                color: cs.onSurfaceVariant,
+          ] else if (status.isDone) ...[
+            if (task.completedAt != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${status.label} ${SparklingDates.hhmm(task.completedAt!)}'
+                '${task.assigneeName == null ? '' : ' · ${task.assigneeName}'}',
+                style: SparklingTypography.bodyMedium.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
               ),
-            ),
+            ],
+            if (wo?.isCollected ?? false) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Symbols.check_circle_rounded,
+                    size: 18,
+                    color: context.sparkling.success,
+                    fill: 1,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Keys released ${SparklingDates.hhmm(wo!.collectedAt!)}',
+                    style: SparklingTypography.bodyMedium.copyWith(
+                      color: context.sparkling.success,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ] else if ((wo?.awaitingCollection ?? false) &&
+                onHandover != null) ...[
+              const SizedBox(height: 14),
+              PillButton(
+                label: 'Hand over vehicle',
+                icon: Symbols.key_rounded,
+                variant: PillButtonVariant.tonal,
+                expand: true,
+                minHeight: 52,
+                onPressed: onHandover,
+              ),
+            ],
           ],
         ],
       ),

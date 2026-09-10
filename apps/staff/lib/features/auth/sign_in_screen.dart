@@ -5,9 +5,9 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/scope.dart';
 import '../../widgets/avatar_tile.dart';
 
-/// Staff sign-in (STF-001): e-mail + password. In demo mode a persona picker
-/// (Pieter technician / Johan supervisor / Ayesha manager) sits above the
-/// form.
+/// Staff sign-in (STF-001): e-mail + password or Google. In demo mode a
+/// persona picker (Pieter technician / Johan supervisor / Ayesha manager)
+/// sits above the form.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -129,7 +129,10 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                         if (session.error != null) ...[
                           const SizedBox(height: 12),
-                          InfoBanner(text: session.error!, tone: InfoTone.error),
+                          InfoBanner(
+                            text: session.error!,
+                            tone: InfoTone.error,
+                          ),
                         ],
                         const SizedBox(height: 20),
                         PillButton(
@@ -138,6 +141,30 @@ class _SignInScreenState extends State<SignInScreen> {
                           loading: session.busy,
                           onPressed: _submit,
                         ),
+                        if (!session.demo) ...[
+                          const SizedBox(height: 10),
+                          PillButton(
+                            label: 'Continue with Google',
+                            icon: Symbols.account_circle_rounded,
+                            variant: PillButtonVariant.outlined,
+                            expand: true,
+                            onPressed: session.busy
+                                ? null
+                                : () => context.session.signInWithGoogle(),
+                          ),
+                        ],
+                        if (AuthService.emulatorHost != null) ...[
+                          const SizedBox(height: 14),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: StatusChip(
+                              label:
+                                  'Firebase Auth emulator · ${AuthService.emulatorHost}',
+                              tone: StatusChipTone.warning,
+                              icon: Symbols.science_rounded,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

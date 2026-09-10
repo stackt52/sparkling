@@ -24,6 +24,32 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Firebase Auth provider sign-in (Google) returns to the app through
+	     these schemes: the REVERSED_CLIENT_ID from GoogleService-Info.plist and
+	     the encoded Firebase iOS app id (GOOGLE_APP_ID with ":" → "-"). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>za.co.sparkling.customer.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.700174326619-jdi2i27vdvl4f9i788hpvkes0f6jg4ir</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>za.co.sparkling.customer.firebase</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-700174326619-ios-77a6daf38eb9861dc5587e</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Sparkling uses the camera to scan the PDF417 barcode on your vehicle licence disc. Decoding happens on your phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -6,7 +6,7 @@
 - `psql` 15+ for applying the Supabase migrations
 
 ## 1. Database (Supabase project `uicqczgpiqkczwyssdft`)
-**Status: applied on 8 Sep 2026** — migrations `0001_sparkling_schema` and `0002_receipt_rpc` plus the demo seed are live (applied through the Supabase MCP server; they appear under Database → Migrations). The previous `stores/orders/work_items…` tables were removed as requested.
+**Status: applied 8–9 Sep 2026** — migrations `0001_sparkling_schema`, `0002_receipt_rpc`, `0003_hardening`, `0004_whatsapp_twilio` plus the demo seed are live (applied through the Supabase MCP server; they appear under Database → Migrations). The previous `stores/orders/work_items…` tables were removed as requested.
 
 The schema is a **clean-slate** migration: it drops every object in `public` and recreates everything. To re-apply or reseed later:
 
@@ -37,10 +37,19 @@ One-time console steps: enable **Authentication → Sign-in method → Email/Pas
 
 Secrets (never in the repo — INT-006):
 ```bash
-firebase functions:secrets:set SUPABASE_SERVICE_ROLE_KEY --project sparkling-4e89d
-firebase functions:secrets:set PAYMENT_WEBHOOK_SECRET   --project sparkling-4e89d   # any long random string for the sandbox provider
-firebase functions:secrets:set WHATSAPP_TOKEN           --project sparkling-4e89d   # optional
+firebase functions:secrets:set SUPABASE_SERVICE_ROLE_KEY --project sparkling-4e89d      # Supabase → Project Settings → API Keys → secret / service_role
+openssl rand -hex 32 | firebase functions:secrets:set PAYMENT_WEBHOOK_SECRET --project sparkling-4e89d --data-file=-   # random HMAC secret for the sandbox provider
 ```
+Secret Manager rejects empty values, so set every secret **before** `firebase deploy`; the deploy prompt only appears for secrets that have no version yet. Check with `firebase functions:secrets:access PAYMENT_WEBHOOK_SECRET --project sparkling-4e89d`.
+```bash```
+
+WhatsApp via **Twilio** (credentials carried over from the legacy `sparkling-admin/.env`; they are in `backend/functions/.secret.local` for the emulator — never commit them):
+```bash
+firebase functions:secrets:set TWILIO_ACCOUNT_SID --project sparkling-4e89d   # paste the AC… sid
+firebase functions:secrets:set TWILIO_AUTH_TOKEN  --project sparkling-4e89d
+# params (non-secret) live in backend/functions/.env: TWILIO_MESSAGING_SERVICE_SID=MG4d8b6037dc3b183f43b2622307271660, PUBLIC_API_BASE_URL=https://<region>-sparkling-4e89d.cloudfunctions.net/api
+```
+Then in the Twilio console set the Messaging Service status callback to `${PUBLIC_API_BASE_URL}/v1/notifications/twilio/status` and, once the sender is confirmed, flip the `whatsapp_enabled` feature flag in Admin → Settings (it ships **off** so seeded demo numbers never receive real messages). Approved Content templates reused from the old project: quote ready `HX011c7f1b31697f8e21d36ff6b4d02b06`, collection OTP card `HX63a748f8b6680eac890e0137dfcf0fdb` (bound in `notification_templates.provider_template_sid`, migration 0004).
 
 ## 3. Backend API
 ```bash

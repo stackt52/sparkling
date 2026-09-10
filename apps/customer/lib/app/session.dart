@@ -22,8 +22,14 @@ class SessionController extends ChangeNotifier {
   AuthUser? _user;
   Profile? _profile;
   bool _busy = false;
+  bool _bootstrapping = false;
   Object? _error;
   bool _disposed = false;
+
+  /// Name entered on the sign-up form. Firebase emits the new user *before*
+  /// `updateDisplayName` completes, so keep it for the greeting and for
+  /// `POST /auth/session` (`full_name`).
+  String? _pendingName;
 
   AuthUser? get user => _user;
   Profile? get profile => _profile;
@@ -31,16 +37,25 @@ class SessionController extends ChangeNotifier {
   bool get busy => _busy;
   Object? get error => _error;
 
+  /// `POST /auth/session` (or `GET /me`) failed because the Sparkling API
+  /// could not be reached. The Firebase session is still valid — the home
+  /// screen shows a banner with Retry instead of an error state.
+  bool get serverUnreachable {
+    final e = _error;
+    return e is ApiException && e.isNetwork;
+  }
+
   /// First name for greetings, falling back to the auth display name.
   String get firstName {
     final p = _profile;
     if (p != null && p.fullName.trim().isNotEmpty) return p.firstName;
-    final d = _user?.displayName;
+    final d = _user?.displayName ?? _pendingName;
     if (d != null && d.trim().isNotEmpty) return d.trim().split(' ').first;
     return 'there';
   }
 
-  String get initials => _profile?.initials ?? _initialsOf(_user?.displayName);
+  String get initials =>
+      _profile?.initials ?? _initialsOf(_user?.displayName ?? _pendingName);
 
   static String _initialsOf(String? name) {
     if (name == null || name.trim().isEmpty) return '?';
@@ -61,16 +76,24 @@ class SessionController extends ChangeNotifier {
     _notify();
   }
 
+  /// Bootstraps the API session (live mode) and loads the profile. A network
+  /// failure is kept in [error] (see [serverUnreachable]) without signing the
+  /// user out; call [retryBootstrap] to try again.
   Future<void> _afterSignIn() async {
+    if (_bootstrapping) return;
+    _bootstrapping = true;
     _busy = true;
     _error = null;
     _notify();
     try {
       if (!repositories.demo) {
-        await repositories.bootstrapSession(
+        final p = await repositories.bootstrapSession(
           app: 'customer',
-          fullName: _user?.displayName,
+          fullName: _user?.displayName ?? _pendingName,
         );
+        if (p != null) _profile = p;
+        // Claims may have been minted/refreshed by the session call.
+        _user = repositories.auth.currentUser ?? _user;
       }
       _profile = await repositories.customer.me();
       // Best effort — never blocks the UI.
@@ -78,10 +101,14 @@ class SessionController extends ChangeNotifier {
     } catch (e) {
       _error = e;
     } finally {
+      _bootstrapping = false;
       _busy = false;
       _notify();
     }
   }
+
+  /// Re-runs the session bootstrap after "Couldn't reach Sparkling servers".
+  Future<void> retryBootstrap() => _afterSignIn();
 
   Future<void> refreshProfile() async {
     try {
@@ -122,8 +149,16 @@ class SessionController extends ChangeNotifier {
   Future<void> signIn(String email, String password) =>
       repositories.auth.signInWithEmail(email, password);
 
-  Future<void> signUp(String email, String password, String name) =>
-      repositories.auth.signUpWithEmail(email, password, displayName: name);
+  Future<void> signUp(String email, String password, String name) async {
+    _pendingName = name.trim().isEmpty ? null : name.trim();
+    await repositories.auth.signUpWithEmail(email, password, displayName: name);
+    _user = repositories.auth.currentUser ?? _user;
+    _notify();
+  }
+
+  /// Native Google provider flow; throws [AuthException] (`cancelled` /
+  /// `provider-unavailable`) when it cannot complete.
+  Future<void> signInWithGoogle() => repositories.auth.signInWithGoogle();
 
   Future<void> continueAsDemoCustomer() =>
       repositories.auth.signInWithEmail(DemoPersonas.customer.email!, '');
@@ -132,6 +167,8 @@ class SessionController extends ChangeNotifier {
     await repositories.auth.signOut();
     await repositories.clearLocalState();
     _profile = null;
+    _pendingName = null;
+    _error = null;
     _notify();
   }
 

@@ -20,6 +20,25 @@ npx tsc --noEmit
 npm run build
 ```
 
+## Messages (notifications) and WhatsApp
+
+* **/notifications** ("Messages" in the rail, under Loyalty) — DataGrid of
+  `GET /admin/notifications?status&channel&limit&cursor`: recipient, channel
+  chip (WhatsApp / push icon), template key, status chip with the provider
+  status (Twilio `queued / sent / delivered / read / undelivered`), attempts,
+  sent / delivered times and the provider error (`63016` = free-form message
+  outside the 24 h WhatsApp session). Status / channel filters, cursor paging,
+  and a **Resend** row action (`POST /admin/notifications/:id/resend`, confirm
+  dialog, audited as `notification.resend`) for managers / admins. Finance
+  sees the page read-only (`view:notifications` without
+  `notification:resend`).
+* **Settings → Integrations** — the WhatsApp card reads the `whatsapp` entry
+  of `GET /admin/integrations` (`provider`, `configured`, masked
+  `messaging_service` "MG…7660", `enabled`) and carries the `whatsapp_enabled`
+  flag switch (admin only, audited like every flag).
+* Demo API: seed-mirroring rows plus one failed WhatsApp row (`63016 outside
+  24h session`) that Resend flips to `sent`.
+
 ## Environment
 
 | Variable | Purpose |
@@ -36,7 +55,7 @@ Firebase web config for `sparkling-4e89d` is committed in `src/lib/firebaseConfi
 ```
 src/app/login                 Firebase Auth (email/password + Google) → POST /v1/auth/session → role gate
 src/app/(dashboard)/…         Authenticated routes: /, bookings, quotations, work-orders, staff, staff/performance,
-                              customers, outlets, services, templates, loyalty, inventory, reports, audit, settings
+                              customers, outlets, services, templates, loyalty, notifications, inventory, reports, audit, settings
 src/theme                     tokens.ts (design tokens → CSS variables), theme.ts (MUI colorSchemes light/dark)
 src/components                MSymbol (Material Symbols Rounded), layout (nav rail / drawer / header), ui, ops
 src/lib/api.ts                AdminApi interface + HttpApi (error envelope, Idempotency-Key, X-Correlation-Id, X-Client-App)

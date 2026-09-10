@@ -48,6 +48,7 @@ class WorkOrderCard extends Equatable {
     this.bookingRef,
     this.customerName,
     this.slotStart,
+    this.collectedAt,
   });
 
   final String id;
@@ -63,6 +64,15 @@ class WorkOrderCard extends Equatable {
   final String? bookingRef;
   final String? customerName;
   final DateTime? slotStart;
+
+  /// Keys released to the customer (pickup OTP verified).
+  final DateTime? collectedAt;
+
+  bool get isCollected => collectedAt != null;
+
+  /// Verified work waiting for the customer to collect the vehicle.
+  bool get awaitingCollection =>
+      status == WorkStatus.verified && collectedAt == null;
 
   /// "Wash & Wax — Toyota Corolla Cross"
   String get title => [
@@ -90,6 +100,7 @@ class WorkOrderCard extends Equatable {
     bookingRef: strOrNull(json['booking_ref']),
     customerName: strOrNull(json['customer_name']),
     slotStart: dtOrNull(json['slot_start']),
+    collectedAt: dtOrNull(json['collected_at']),
   );
 
   Json toJson() => compact({
@@ -106,6 +117,7 @@ class WorkOrderCard extends Equatable {
     'booking_ref': bookingRef,
     'customer_name': customerName,
     'slot_start': iso(slotStart),
+    'collected_at': iso(collectedAt),
   });
 
   WorkOrderCard copyWith({
@@ -115,6 +127,7 @@ class WorkOrderCard extends Equatable {
     DateTime? etaAt,
     StepProgress? progress,
     String? blockedReason,
+    DateTime? collectedAt,
     bool clearBlockedReason = false,
   }) => WorkOrderCard(
     id: id,
@@ -132,6 +145,7 @@ class WorkOrderCard extends Equatable {
     bookingRef: bookingRef,
     customerName: customerName,
     slotStart: slotStart,
+    collectedAt: collectedAt ?? this.collectedAt,
   );
 
   @override
@@ -146,6 +160,7 @@ class WorkOrderCard extends Equatable {
     etaAt,
     progress,
     blockedReason,
+    collectedAt,
   ];
 }
 
@@ -459,6 +474,16 @@ class WorkOrderDetail extends Equatable {
         at: workOrder.verifiedAt,
       ),
     );
+    if (workOrder.collectedAt != null) {
+      entries.add(
+        TimelineEntry(
+          key: 'collected',
+          title: 'Keys released',
+          state: TimelineEntryState.done,
+          at: workOrder.collectedAt,
+        ),
+      );
+    }
     return entries;
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../app/app_scope.dart';
@@ -32,6 +33,10 @@ class _SignInScreenState extends State<SignInScreen> {
     setState(() => _busy = true);
     try {
       await action();
+      // Router redirects to home once the auth stream emits.
+    } on AuthException catch (e) {
+      // Closing the Google sheet is not an error worth a snackbar.
+      if (mounted && !e.isCancelled) showSnack(context, e.message);
     } catch (e) {
       if (mounted) showSnack(context, describeError(e));
     } finally {
@@ -46,6 +51,7 @@ class _SignInScreenState extends State<SignInScreen> {
     return AuthScaffold(
       title: 'Welcome back',
       subtitle: 'Sign in to book, track and earn rewards.',
+      showEmulatorNote: AuthService.emulatorHost != null,
       child: Form(
         key: _form,
         child: Column(
@@ -109,7 +115,7 @@ class _SignInScreenState extends State<SignInScreen> {
               expand: true,
               onPressed: _busy
                   ? null
-                  : () => _run(() => repos.auth.signInWithGoogle()),
+                  : () => _run(() => context.session.signInWithGoogle()),
             ),
             if (repos.demo) ...[
               const SizedBox(height: 18),

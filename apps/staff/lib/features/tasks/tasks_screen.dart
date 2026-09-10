@@ -14,6 +14,7 @@ import '../../widgets/live_sync_chip.dart';
 import '../../widgets/screen_header.dart';
 import '../../widgets/segmented_pills.dart';
 import '../checklist/checklist_screen.dart';
+import '../checklist/handover_sheet.dart';
 import 'task_card.dart';
 
 /// "My tasks" (2a/2g): outlet header + sync chip, Mine/Queue/Done segments
@@ -106,6 +107,20 @@ class _TasksScreenState extends State<TasksScreen> {
     }
   }
 
+  Future<void> _handover(Task task) async {
+    final wo = task.workOrder;
+    final result = await showHandoverSheet(
+      context,
+      workOrderId: task.workOrderId,
+      ref: task.ref,
+      customerName: wo?.customerName,
+      vehicleLabel: wo?.vehicle?.registrationNo,
+    );
+    if (result != null && mounted) {
+      StaffSnack.show(context, '${task.ref}: keys released');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = _tasks[_scope];
@@ -192,6 +207,9 @@ class _TasksScreenState extends State<TasksScreen> {
                           (t.status == WorkStatus.assigned ||
                               t.status == WorkStatus.queued)
                           ? () => _start(t)
+                          : null,
+                      onHandover: t.workOrder?.awaitingCollection ?? false
+                          ? () => _handover(t)
                           : null,
                     );
                   },

@@ -149,6 +149,35 @@ export interface WorkOrder {
   verified_at: string | null;
   verified_by: string | null;
   due_at: string | null;
+  /** Vehicle-collection OTP (migration 0004): issued on verify, shown to the owning customer only. */
+  pickup_otp: string | null;
+  pickup_otp_issued_at: string | null;
+  pickup_otp_verified_at: string | null;
+  pickup_otp_verified_by: string | null;
+  collected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Notification {
+  id: string;
+  recipient_id: string;
+  channel: NotifyChannel;
+  template_key: string;
+  title: string | null;
+  body: string;
+  payload: Record<string, unknown> & { vars?: Record<string, unknown> };
+  status: NotifyStatus;
+  dedupe_key: string | null;
+  provider_ref: string | null;
+  provider_status: string | null;
+  provider_error_code: string | null;
+  error: string | null;
+  attempts: number;
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_by_recipient_at: string | null;
+  read_at: string | null;
   created_at: string;
   updated_at: string;
 }

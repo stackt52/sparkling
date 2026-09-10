@@ -22,7 +22,9 @@ abstract final class SparklingCore {
   /// * `demo` defaults to [Env.demoMode]. In demo mode nothing touches the
   ///   network or Firebase; data comes from [DemoStore] (mirrors seed.sql).
   /// * In live mode the app must have called `Firebase.initializeApp()` first
-  ///   (or pass a ready [auth]).
+  ///   (or pass a ready [auth]). When [authEmulatorHost] (default
+  ///   [Env.authEmulatorHost]) is non-empty, Firebase Auth is pointed at the
+  ///   local Auth emulator before any auth call is made.
   /// * [hivePath] is for tests (uses `Hive.init(path)` instead of `initFlutter`).
   static Future<Repositories> bootstrap({
     bool? demo,
@@ -31,6 +33,7 @@ abstract final class SparklingCore {
     String? apiBaseUrl,
     String? supabaseUrl,
     String? supabaseAnonKey,
+    String? authEmulatorHost,
     AuthGateway? auth,
     Dio? dio,
     String? hivePath,
@@ -79,7 +82,11 @@ abstract final class SparklingCore {
       );
     }
 
-    final liveAuth = auth ?? AuthService();
+    final liveAuth =
+        auth ??
+        await AuthService.create(
+          emulatorHost: authEmulatorHost ?? Env.authEmulatorHost,
+        );
     final api = SparklingApi(
       baseUrl: apiBaseUrl ?? Env.apiBaseUrl,
       tokenProvider: () => liveAuth.idToken(),
