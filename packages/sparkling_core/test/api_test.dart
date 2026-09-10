@@ -300,4 +300,110 @@ void main() {
     final acc = await api.loyaltyAccount();
     expect(acc.nextTierLabel, '550 pts to Platinum');
   });
+
+  group('pickup OTP', () {
+    test('verify posts the code and parses collected_at', () async {
+      adapter.handler = (o) async =>
+          _json({'verified': true, 'collected_at': '2026-09-09T08:30:00Z'});
+      final r = await api.verifyPickupOtp('wo-1', '48213');
+      expect(r.verified, isTrue);
+      expect(r.collectedAt, DateTime.utc(2026, 9, 9, 8, 30));
+      final req = adapter.requests.single;
+      expect(req.uri.path, '/v1/work-orders/wo-1/pickup/verify');
+      expect(req.method, 'POST');
+      expect(req.data, {'otp': '48213'});
+    });
+
+    test(
+      'invalid_otp 409 surfaces attempts_left; 429 is rate limited',
+      () async {
+        adapter.handler = (o) async => _json({
+          'error': {
+            'code': 'invalid_otp',
+            'message': 'That code is not correct.',
+            'details': {'attempts_left': 2},
+          },
+        }, status: 409);
+        await expectLater(
+          api.verifyPickupOtp('wo-1', '00000'),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.isInvalidOtp, 'isInvalidOtp', isTrue)
+                .having((e) => e.attemptsLeft, 'attemptsLeft', 2)
+                .having((e) => e.statusCode, 'status', 409),
+          ),
+        );
+        adapter.handler = (o) async => _json({
+          'error': {'code': 'rate_limited', 'message': 'Too many attempts'},
+        }, status: 429);
+        await expectLater(
+          api.verifyPickupOtp('wo-1', '00000'),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.isRateLimited,
+              'isRateLimited',
+              isTrue,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('resend posts to /pickup/resend', () async {
+      adapter.handler = (o) async => _json({'sent': true});
+      await api.resendPickupOtp('wo-1');
+      expect(
+        adapter.requests.single.uri.path,
+        '/v1/work-orders/wo-1/pickup/resend',
+      );
+      expect(adapter.requests.single.method, 'POST');
+    });
+
+    test('admin notifications list + resend', () async {
+      adapter.handler = (o) async => _json({
+        'data': [
+          {
+            'id': 'n1',
+            'recipient_id': 'c',
+            'recipient_name': 'Thabo Nkosi',
+            'channel': 'whatsapp',
+            'template_key': 'pickup_otp',
+            'body': 'x',
+            'status': 'failed',
+            'provider_status': 'undelivered',
+            'provider_error_code': '63016',
+            'attempts': 1,
+          },
+        ],
+        'next_cursor': null,
+      });
+      final page = await api.adminNotifications(
+        status: NotifyStatus.failed,
+        channel: NotifyChannel.whatsapp,
+        limit: 25,
+      );
+      expect(page.items.single.isFailed, isTrue);
+      expect(adapter.requests.single.uri.queryParameters, {
+        'status': 'failed',
+        'channel': 'whatsapp',
+        'limit': '25',
+      });
+      adapter.handler = (o) async => _json({
+        'id': 'n1',
+        'recipient_id': 'c',
+        'channel': 'whatsapp',
+        'template_key': 'pickup_otp',
+        'body': 'x',
+        'status': 'sent',
+        'provider_status': 'sent',
+        'attempts': 2,
+      });
+      final row = await api.adminResendNotification('n1');
+      expect(row.attempts, 2);
+      expect(
+        adapter.requests.last.uri.path,
+        '/v1/admin/notifications/n1/resend',
+      );
+    });
+  });
 }

@@ -12,6 +12,7 @@ import { audit } from '../services/audit.js';
 import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, listAdminPayments, REPORTS, staffPerformance, type ReportName } from '../services/admin.js';
 import { integrationStatus } from '../services/integrations.js';
 import { getFlags, invalidateFlags } from '../services/flags.js';
+import { resendNotification } from '../services/notifications.js';
 import { listInventory } from './inventory.js';
 import type { LoyaltyConfig, Profile, UserRole } from '../types.js';
 import { STAFF_ROLES } from '../types.js';
@@ -612,6 +613,44 @@ adminRouter.get('/admin/reports/summary', managerFinance, asyncHandler(async (re
 
 adminRouter.get('/admin/integrations', managerPlus, asyncHandler(async (_req, res) => {
   res.json({ data: await integrationStatus() });
+}));
+
+// ---------------------------------------------------------------------------
+// Notifications (delivery log + resend)
+// ---------------------------------------------------------------------------
+
+const notifyStatusEnum = z.enum(['queued', 'sent', 'delivered', 'failed', 'suppressed']);
+const notifyChannelEnum = z.enum(['push', 'whatsapp', 'sms', 'email']);
+
+adminRouter.get('/admin/notifications', managerPlus, asyncHandler(async (req, res) => {
+  const q = parseQuery(
+    pagination.extend({ status: z.string().optional(), channel: z.string().optional(), recipient_id: z.string().optional(), template_key: z.string().max(64).optional() }),
+    req.query,
+  );
+  const statuses = q.status ? q.status.split(',').map((s) => notifyStatusEnum.parse(s.trim())) : null;
+  const channels = q.channel ? q.channel.split(',').map((s) => notifyChannelEnum.parse(s.trim())) : null;
+  const offset = decodeCursor(q.cursor);
+  const db = getSupabase();
+  let query = db
+    .from('notifications')
+    .select('id, recipient_id, channel, template_key, title, body, status, provider_ref, provider_status, provider_error_code, error, attempts, sent_at, delivered_at, read_by_recipient_at, read_at, created_at, updated_at')
+    .order('created_at', { ascending: false })
+    .range(offset, offset + q.limit);
+  if (statuses) query = query.in('status', statuses);
+  if (channels) query = query.in('channel', channels);
+  if (q.recipient_id) query = query.eq('recipient_id', q.recipient_id);
+  if (q.template_key) query = query.eq('template_key', q.template_key);
+  const rows = unwrap<Array<Record<string, unknown> & { recipient_id: string }>>(await query, 'notifications');
+  const ids = [...new Set(rows.map((r) => r.recipient_id))];
+  const names = ids.length ? unwrap<Array<{ id: string; full_name: string }>>(await db.from('profiles').select('id, full_name').in('id', ids), 'recipients') : [];
+  const byId = new Map(names.map((n) => [n.id, n.full_name]));
+  res.json(pageResult(rows.map((r) => ({ ...r, recipient_name: byId.get(r.recipient_id) ?? null })), q.limit, offset));
+}));
+
+adminRouter.post('/admin/notifications/:id/resend', managerPlus, asyncHandler(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const out = await resendNotification(req.ctx, id);
+  res.json(out);
 }));
 
 export type { UserRole };

@@ -23,6 +23,9 @@ import type {
   LoyaltyConfigResponse,
   LoyaltyRules,
   LoyaltyTierConfig,
+  NotificationRow,
+  NotifyChannel,
+  NotifyStatus,
   Outlet,
   OutletService,
   Page,
@@ -79,6 +82,12 @@ export interface AuditFilters {
 export interface ReportFilters extends OutletScoped {
   from: string;
   to: string;
+}
+export interface NotificationFilters {
+  status?: NotifyStatus | 'all';
+  channel?: NotifyChannel | 'all';
+  limit?: number;
+  cursor?: string | null;
 }
 export interface TeamMember {
   id: string;
@@ -153,6 +162,9 @@ export interface AdminApi {
   listFlags(): Promise<FeatureFlag[]>;
   updateFlag(key: string, enabled: boolean): Promise<FeatureFlag>;
   integrations(): Promise<IntegrationStatus[]>;
+  /* notifications (manager/admin; finance read-only) */
+  listNotifications(filters: NotificationFilters): Promise<Page<NotificationRow>>;
+  resendNotification(id: string): Promise<NotificationRow>;
   /** Live updates: demo emits synthetic ticks; http resolves to a no-op (Supabase realtime handles it). */
   subscribe(listener: (e: LiveEvent) => void): () => void;
 }
@@ -369,6 +381,12 @@ export class HttpApi implements AdminApi {
   }
   integrations() {
     return this.list<IntegrationStatus>('/admin/integrations');
+  }
+  listNotifications(f: NotificationFilters) {
+    return this.request<Page<NotificationRow>>('GET', `/admin/notifications${qs(f)}`);
+  }
+  resendNotification(id: string) {
+    return this.request<NotificationRow>('POST', `/admin/notifications/${id}/resend`, {});
   }
   subscribe() {
     return () => {};

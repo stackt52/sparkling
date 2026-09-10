@@ -15,7 +15,7 @@ import { bookingsRouter } from './routes/bookings.js';
 import { catalogueRouter } from './routes/catalogue.js';
 import { inventoryRouter } from './routes/inventory.js';
 import { loyaltyRouter } from './routes/loyalty.js';
-import { notificationsRouter } from './routes/notifications.js';
+import { notificationsRouter, twilioStatusRouter } from './routes/notifications.js';
 import { paymentsRouter, paymentsWebhookRouter } from './routes/payments.js';
 import { quotationsRouter } from './routes/quotations.js';
 import { staffRouter } from './routes/staff.js';
@@ -33,7 +33,7 @@ export function createApp(): Express {
     cors({
       origin: true,
       credentials: false,
-      allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Correlation-Id', 'X-Client-App', 'X-Client-Version', 'X-Signature'],
+      allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Correlation-Id', 'X-Client-App', 'X-Client-Version', 'X-Signature', 'X-Twilio-Signature'],
       exposedHeaders: ['X-Correlation-Id', 'Idempotent-Replayed', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After'],
       maxAge: 600,
     }),
@@ -41,11 +41,12 @@ export function createApp(): Express {
 
   const v1 = express.Router();
 
-  // Public routes (no auth): health + provider webhook (raw body for HMAC).
+  // Public routes (no auth): health + provider webhooks (payments: raw body for HMAC; Twilio: form-encoded, X-Twilio-Signature).
   v1.get('/health', (_req, res) => {
     res.json({ ok: true, version: config.apiVersion, service: 'sparkling-api', time: new Date().toISOString() });
   });
   v1.use(paymentsWebhookRouter);
+  v1.use(twilioStatusRouter);
 
   // Everything else: JSON body, Firebase auth, idempotency.
   v1.use(express.json({ limit: '1mb' }));

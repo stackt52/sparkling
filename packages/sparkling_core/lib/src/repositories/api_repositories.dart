@@ -500,6 +500,14 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   );
 
   @override
+  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
+      api.verifyPickupOtp(workOrderId, otp);
+
+  @override
+  Future<void> resendPickupOtp(String workOrderId) =>
+      api.resendPickupOtp(workOrderId);
+
+  @override
   Future<List<Booking>> outletBookings({
     required String outletId,
     BookingStatus? status,

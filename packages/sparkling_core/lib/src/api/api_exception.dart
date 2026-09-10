@@ -70,6 +70,14 @@ class ApiException implements Exception {
     message: message ?? 'No connection. Check your network and try again.',
   );
 
+  /// The Sparkling API could not be reached at all (no base URL configured,
+  /// connection refused, DNS failure, timeout). Code is always `network` so
+  /// apps can show "Couldn't reach Sparkling servers" and offer a retry.
+  factory ApiException.unreachable([String? message]) => ApiException(
+    code: 'network',
+    message: message ?? "Couldn't reach Sparkling servers. Check your connection and try again.",
+  );
+
   factory ApiException.timeout() => const ApiException(
     code: 'timeout',
     message: 'The server took too long to respond. Please try again.',

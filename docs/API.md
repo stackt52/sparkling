@@ -7,7 +7,7 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
 
 ## Conventions
 
-- **Auth**: `Authorization: Bearer <Firebase ID token>` on every route except `/health` and `/payments/webhook`.
+- **Auth**: `Authorization: Bearer <Firebase ID token>` on every route except `/health`, `/payments/webhook` and `/notifications/twilio/status` (provider-signed).
 - **Idempotency** (API-003): mutating routes accept `Idempotency-Key: <uuid>` (or `client_op_id` in the body). Replays return the cached first response (`idempotency_keys`).
 - **Errors** (API-004):
   ```json
@@ -79,6 +79,8 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
 | POST | `/tasks/:id/transition` | staff | `{ to: "in_progress"|"blocked"|"completed"|"verified", reason?, client_op_id, override?: {reason} }` (STF-023/033) |
 | POST | `/tasks/:id/assign` | supervisor/manager | `{ assignee_id, reason? }` (STF-021) |
 | POST | `/work-orders/:id/steps/:key` | staff | `{ status: "done"|"blocked"|"skipped", value?, attachment_id?, note?, client_op_id }` (numeric validated against min/max; photo requires attachment) |
+| POST | `/work-orders/:id/pickup/verify` | staff (outlet) | `{ otp }` — customer presents the 5-digit collection OTP issued on `verified`; success sets `pickup_otp_verified_at/by` + `collected_at`, task_event `collected`, audited. Wrong OTP → 409 `invalid_otp` with `details.attempts_remaining`; after 5 failures (tracked in `task_events` `pickup_otp_failed`) → 409 `conflict` `{locked:true}` |
+| POST | `/work-orders/:id/pickup/resend` | staff (outlet) | re-sends the **same** OTP via `pickup_otp` (push + WhatsApp Content template); 429 if sent < 1 min ago |
 | POST | `/sync/batch` | any | `{ operations: [{ client_op_id, kind, payload, device_time }] }` → per-op `{ client_op_id, status: applied|conflict|rejected, result }` (ARC-004) |
 
 ### Staff — ops, inventory, gamification
@@ -109,12 +111,17 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
 | GET | `/admin/payments?outlet_id&from&to&status&limit&cursor` | manager/admin/finance | `{ range, data:[{ id, booking_id, booking_ref, outlet_id, outlet_name, customer_id, customer_name, provider, method_brand, method_last4, amount_cents, currency, status, receipt_no, failure_reason, verified_at, created_at }], next_cursor }` newest first; finance-safe — no provider tokens/refs or idempotency keys (ADM-061). Same rows as `payments.csv` for the same filters |
 | GET | `/admin/reports/summary?outlet_id&from&to` | manager/admin/finance | `{ range, financial:{ revenue_cents, refunds_cents, payments_total, payments_successful, payments_failed, avg_ticket_cents, by_status, by_outlet:[{outlet_id,name,revenue_cents,bookings}], by_service:[{service_id,name,category,revenue_cents,count}] }, operational:{ bookings, created, pending, confirmed, in_service, completed, cancelled, work_orders_completed, on_time_pct, avg_cycle_minutes, checklist_compliance_pct, quotes:{requested,quoted,accepted,declined,expired,converted} }, loyalty:{ points_issued, points_redeemed, points_expired }, inventory:{ items_active, items_below_threshold, items_out_of_stock, open_alerts }, notifications:{ total, delivered, failed, suppressed, delivery_rate_pct } }` — computed from the same queries as the CSV exports so totals reconcile (REP-005). `loyalty`/`notifications` are platform-wide (`outlet_scoped:false`) |
 | GET | `/admin/exports/:report.csv?…filters` | manager/admin/finance | `report ∈ bookings|payments|inventory|staff_performance|loyalty`; header rows include generated_at, filters, scope (REP-007) |
-| GET | `/admin/integrations` | manager/admin | `{ data:[{ key, name, status, detail, icon, … }] }` — `supabase {ok, latency_ms}`, `firebase {project_id}`, `payments {provider, sandbox}`, `whatsapp {enabled}`; never secrets |
+| GET | `/admin/integrations` | manager/admin | `{ data:[{ key, name, status, detail, icon, … }] }` — `supabase {ok, latency_ms}`, `firebase {project_id}`, `payments {provider, sandbox}`, `whatsapp {provider: twilio|sandbox, configured, messaging_service (masked `MG4d8b…1660`), status_callback, enabled}`; never secrets |
+| GET | `/admin/notifications?status&channel&recipient_id&template_key&limit&cursor` | manager/admin | delivery log: `{ data:[{ id, recipient_id, recipient_name, channel, template_key, title, body, status, provider_ref, provider_status, provider_error_code, error, attempts, sent_at, delivered_at, read_by_recipient_at, read_at, created_at }], next_cursor }` |
+| POST | `/admin/notifications/:id/resend` | manager/admin | re-sends a `failed`/`suppressed` push or WhatsApp row from its stored template + `payload.vars`; bumps `attempts`; audited (`notification.resend`) → `{ notification, outcome:{channel,status} }`; 409 otherwise |
 | GET | `/admin/flags`, `PATCH /admin/flags/:key` | admin | |
 
 ### Notifications
 | GET | `/notifications?limit&cursor` | any | own |
 | POST | `/notifications/:id/read` | any | |
+| POST | `/notifications/twilio/status` | Twilio (form-encoded, `X-Twilio-Signature`) | delivery receipts: maps `queued|accepted|sending→queued`, `sent→sent`, `delivered→delivered` (+`delivered_at`), `read→delivered` (+`read_by_recipient_at`), `failed|undelivered→failed` (+`ErrorCode`/`ErrorMessage` → `provider_error_code`/`error`); matched by `provider_ref = MessageSid`; idempotent (replays / stale / unknown SIDs → 200 `{ignored:true}`); 403 on a bad signature or when `TWILIO_AUTH_TOKEN` is unset |
+
+**WhatsApp via Twilio (INT-002).** `notification_templates` rows with `provider='twilio'` + `provider_template_sid` (`HX…`) are sent as Content templates: `provider_variables` (`{"1":"first_name","2":"quotation_id"}`) is resolved against the render context. `quote_ready` supplies `first_name` (from the profile) + `quotation_id`; `service_ready`/`pickup_otp` supply `otp`, `vehicle`, `outlet`. The rendered `body` is still stored for the in-app inbox. Sending is gated by the `whatsapp_enabled` flag and `whatsapp_opt_in`; numbers are normalised to E.164 (`082…` → `+2782…`).
 
 ## Realtime channels (client-side, Supabase)
 
@@ -135,7 +142,8 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
   "service": { "id": "…", "name": "Full Valet", "duration_minutes": 60, "category": "car_wash" },
   "vehicle": { "id": "…", "registration_no": "KL 45 MN GP", "make": "Toyota", "model": "Corolla Cross" },
   "work_order": { "id": "…", "ref": "WO-2026-4821", "status": "in_progress", "stage": 3, "stage_count": 6, "progress_pct": 58,
-                  "assignee_name": "Pieter van der Merwe", "bay": "Bay 2", "eta_at": "…", "updated_at": "…" },
+                  "assignee_name": "Pieter van der Merwe", "bay": "Bay 2", "eta_at": "…", "updated_at": "…",
+                  "verified_at": null, "pickup_otp_verified_at": null, "collected_at": null },
   "timeline": [ { "key": "checked_in", "title": "Checked in", "state": "done", "at": "…" },
                 { "key": "prewash", "title": "Pre-wash inspection", "state": "done", "at": "…" },
                 { "key": "exterior", "title": "Exterior wash & rinse", "state": "current" },
@@ -143,3 +151,5 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
   "payment": { "id": "…", "status": "successful", "receipt_no": "RCP-70001", "amount_cents": 19800 }
 }
 ```
+
+Once the work order is `verified` (booking `completed`) and until `collected_at` is set, the **owning customer's** `work_order` additionally carries `"pickup_otp": "48213", "pickup_otp_issued_at": "…"` — the 5-digit collection code (also pushed / WhatsApped). Staff never receive `pickup_otp`; they see `pickup_otp_verified_at` / `collected_at` after `POST /work-orders/:id/pickup/verify`.
