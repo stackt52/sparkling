@@ -111,6 +111,9 @@ class WorkOrderSummary extends Equatable {
     this.etaAt,
     this.updatedAt,
     this.stageTitle,
+    this.pickupOtp,
+    this.pickupOtpVerifiedAt,
+    this.collectedAt,
   });
 
   final String id;
@@ -126,6 +129,19 @@ class WorkOrderSummary extends Equatable {
 
   /// Current stage title when provided.
   final String? stageTitle;
+
+  /// 5-digit collection OTP. Only present for the owning customer while the
+  /// booking is `completed` and the vehicle has not been collected yet.
+  final String? pickupOtp;
+  final DateTime? pickupOtpVerifiedAt;
+
+  /// Set once staff verified the OTP and released the keys.
+  final DateTime? collectedAt;
+
+  bool get isCollected => collectedAt != null;
+
+  /// The customer can show an OTP at the counter.
+  bool get awaitingCollection => pickupOtp != null && collectedAt == null;
 
   double get progress => stageCount == 0
       ? progressPct / 100
@@ -146,6 +162,9 @@ class WorkOrderSummary extends Equatable {
     etaAt: dtOrNull(json['eta_at']),
     updatedAt: dtOrNull(json['updated_at']),
     stageTitle: strOrNull(json['stage_title']),
+    pickupOtp: strOrNull(json['pickup_otp']),
+    pickupOtpVerifiedAt: dtOrNull(json['pickup_otp_verified_at']),
+    collectedAt: dtOrNull(json['collected_at']),
   );
 
   Json toJson() => compact({
@@ -160,6 +179,9 @@ class WorkOrderSummary extends Equatable {
     'eta_at': iso(etaAt),
     'updated_at': iso(updatedAt),
     'stage_title': stageTitle,
+    'pickup_otp': pickupOtp,
+    'pickup_otp_verified_at': iso(pickupOtpVerifiedAt),
+    'collected_at': iso(collectedAt),
   });
 
   WorkOrderSummary copyWith({
@@ -172,6 +194,10 @@ class WorkOrderSummary extends Equatable {
     DateTime? etaAt,
     DateTime? updatedAt,
     String? stageTitle,
+    String? pickupOtp,
+    DateTime? pickupOtpVerifiedAt,
+    DateTime? collectedAt,
+    bool clearPickupOtp = false,
   }) => WorkOrderSummary(
     id: id,
     ref: ref,
@@ -184,6 +210,9 @@ class WorkOrderSummary extends Equatable {
     etaAt: etaAt ?? this.etaAt,
     updatedAt: updatedAt ?? this.updatedAt,
     stageTitle: stageTitle ?? this.stageTitle,
+    pickupOtp: clearPickupOtp ? null : (pickupOtp ?? this.pickupOtp),
+    pickupOtpVerifiedAt: pickupOtpVerifiedAt ?? this.pickupOtpVerifiedAt,
+    collectedAt: collectedAt ?? this.collectedAt,
   );
 
   @override
@@ -198,6 +227,9 @@ class WorkOrderSummary extends Equatable {
     bay,
     etaAt,
     updatedAt,
+    pickupOtp,
+    pickupOtpVerifiedAt,
+    collectedAt,
   ];
 }
 
@@ -364,6 +396,15 @@ class Booking extends Equatable {
   bool get isUpcoming =>
       status == BookingStatus.confirmed || status == BookingStatus.pending;
   bool get isInService => status == BookingStatus.inService;
+
+  /// Completed, keys not yet released and the API exposed the collection OTP
+  /// (only the owning customer receives it).
+  bool get isReadyForCollection =>
+      status == BookingStatus.completed &&
+      (workOrder?.awaitingCollection ?? false);
+
+  /// Collection OTP to show at the counter, when [isReadyForCollection].
+  String? get pickupOtp => isReadyForCollection ? workOrder!.pickupOtp : null;
 
   /// "Full Valet — Corolla Cross"
   String get title => [

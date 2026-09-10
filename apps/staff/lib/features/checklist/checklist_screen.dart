@@ -9,6 +9,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/live_sync_chip.dart';
 import 'blocked_reason_sheet.dart';
+import 'handover_sheet.dart';
 import 'step_tiles.dart';
 
 /// Full-screen checklist route (phone).
@@ -125,10 +126,7 @@ class _ChecklistViewState extends State<ChecklistView> {
   Future<void> _blockStep(ChecklistStep step) async {
     final detail = _detail;
     if (detail == null) return;
-    final reason = await showBlockedReasonSheet(
-      context,
-      stepTitle: step.title,
-    );
+    final reason = await showBlockedReasonSheet(context, stepTitle: step.title);
     if (reason == null || !mounted) return;
     final staff = context.repositories.staff;
     final task = detail.task;
@@ -171,6 +169,23 @@ class _ChecklistViewState extends State<ChecklistView> {
       queued: '${task.ref} → ${to.label}',
     );
     if (result != null && mounted) StaffHaptics.success(context);
+  }
+
+  /// Vehicle hand-over: OTP sheet → keys released (stream refreshes the
+  /// banner with `collected_at`).
+  Future<void> _handover(WorkOrderDetail detail) async {
+    final wo = detail.workOrder;
+    final card = detail.task?.workOrder;
+    final result = await showHandoverSheet(
+      context,
+      workOrderId: wo.id,
+      ref: wo.ref,
+      customerName: wo.customerName ?? card?.customerName,
+      vehicleLabel: wo.vehicleRegistration ?? card?.vehicle?.registrationNo,
+    );
+    if (result != null && mounted) {
+      StaffSnack.show(context, '${wo.ref}: keys released');
+    }
   }
 
   /// Supervisor sign-off: completes the task if needed, records the
@@ -368,12 +383,23 @@ class _ChecklistViewState extends State<ChecklistView> {
             text: 'Awaiting supervisor verification before the vehicle is released.',
           );
         case WorkStatus.verified:
-          banner = InfoBanner(
-            tone: InfoTone.success,
-            icon: Symbols.verified_rounded,
-            title: 'Verified',
-            text:
-                'Signed off${wo.verifiedAt == null ? '' : ' at ${SparklingDates.hhmm(wo.verifiedAt!)}'} · customer notified.',
+          banner = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InfoBanner(
+                tone: InfoTone.success,
+                icon: Symbols.verified_rounded,
+                title: 'Verified',
+                text:
+                    'Signed off${wo.verifiedAt == null ? '' : ' at ${SparklingDates.hhmm(wo.verifiedAt!)}'} · customer notified with their collection OTP.',
+              ),
+              const SizedBox(height: 10),
+              _HandoverCard(
+                collectedAt: wo.collectedAt,
+                busy: _busy,
+                onHandover: () => _handover(detail),
+              ),
+            ],
           );
         case WorkStatus.cancelled:
           banner = const InfoBanner(
@@ -427,16 +453,10 @@ class _ChecklistViewState extends State<ChecklistView> {
           onBlock: () => _blockStep(step),
         );
       } else {
-        tile = UpcomingStepTile(
-          step: step,
-          locked: detail.isStepLocked(step),
-        );
+        tile = UpcomingStepTile(step: step, locked: detail.isStepLocked(step));
       }
       children.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-          child: tile,
-        ),
+        Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: tile),
       );
     }
 
@@ -467,15 +487,88 @@ class _ChecklistViewState extends State<ChecklistView> {
         padding: EdgeInsets.fromLTRB(20, 4, 20, 24),
         child: AuditNote(
           icon: Symbols.offline_bolt_rounded,
-          text:
-              'Works offline — steps queue with your ID and timestamps, then sync in order.',
+          text: 'Works offline — steps queue with your ID and timestamps, then sync in order.',
         ),
       ),
     );
 
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: children,
+    return ListView(padding: EdgeInsets.zero, children: children);
+  }
+}
+
+/// "Hand over vehicle" CTA on a verified work order, or the released state
+/// once the customer's OTP was verified.
+class _HandoverCard extends StatelessWidget {
+  const _HandoverCard({
+    required this.collectedAt,
+    required this.onHandover,
+    this.busy = false,
+  });
+
+  final DateTime? collectedAt;
+  final VoidCallback onHandover;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final x = context.sparkling;
+    final at = collectedAt;
+    if (at != null) {
+      return ListTileCard(
+        key: const ValueKey('handover-collected'),
+        borderColor: x.success.withValues(alpha: 0.5),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(color: x.success, shape: BoxShape.circle),
+          child: Icon(Symbols.check_rounded, color: x.onSuccess, weight: 700),
+        ),
+        title: Text('Keys released · collected at ${SparklingDates.hhmm(at)}'),
+        subtitle: const Text('Collection OTP verified at the counter.'),
+      );
+    }
+    return ListTileCard(
+      key: const ValueKey('handover-card'),
+      borderColor: cs.primary.withValues(alpha: 0.5),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Symbols.key_rounded, color: cs.primary, fill: 1),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Awaiting collection',
+                  style: SparklingTypography.titleLarge.copyWith(
+                    fontSize: 17,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Ask the customer for their 5-digit OTP to release the keys.',
+            style: SparklingTypography.bodyMedium.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          PillButton(
+            label: 'Hand over vehicle',
+            icon: Symbols.key_rounded,
+            expand: true,
+            minHeight: 56,
+            onPressed: busy ? null : onHandover,
+          ),
+        ],
+      ),
     );
   }
 }

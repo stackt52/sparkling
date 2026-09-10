@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../tracking/pickup_otp_card.dart';
 
 /// Booking detail: summary, payment, points, track / reschedule / cancel.
 class BookingDetailScreen extends StatefulWidget {
@@ -218,6 +219,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           ),
                         ),
                       if (b.isInService) const SizedBox(height: 14),
+                      if (b.isReadyForCollection) ...[
+                        PickupOtpCard(booking: b, compact: true),
+                        const SizedBox(height: 14),
+                      ],
                       KeyValueTile(
                         label: 'When',
                         value: SparklingDates.long(b.slotStart),
@@ -247,6 +252,16 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                             : '+${b.pointsPending} pts pending completion',
                         helper: 'Points post when the service is verified',
                       ),
+                      if (b.workOrder?.collectedAt != null) ...[
+                        const SizedBox(height: 8),
+                        KeyValueTile(
+                          label: 'Collected',
+                          value: SparklingDates.relativeSlot(
+                            b.workOrder!.collectedAt!,
+                          ),
+                          helper: 'Keys released after OTP verification',
+                        ),
+                      ],
                       if (b.cancelReason != null) ...[
                         const SizedBox(height: 8),
                         KeyValueTile(

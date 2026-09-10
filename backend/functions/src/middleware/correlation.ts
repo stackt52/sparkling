@@ -8,7 +8,7 @@ import { config } from '../config.js';
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? (config.nodeEnv === 'test' ? 'silent' : 'info'),
-  base: { service: 'sparkling-api', version: config.apiVersion },
+  base: { service: 'sparkling-api', version: process.env.API_VERSION ?? '1.0.0' },
   messageKey: 'message',
   formatters: {
     level: (label) => ({ severity: label.toUpperCase(), level: label }),

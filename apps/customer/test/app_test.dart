@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_customer/features/loyalty/loyalty_screen.dart';
+import 'package:sparkling_customer/features/notifications/notifications_screen.dart';
+import 'package:sparkling_customer/features/tracking/pickup_otp_card.dart';
 import 'package:sparkling_customer/features/vehicles/scan_review_screen.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
@@ -22,6 +24,39 @@ void main() {
     expect(find.text('Book a wash'), findsWidgets);
     expect(find.text('Your vehicles'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
+  });
+
+  testWidgets('home hero and tracking show the collection OTP', (
+    tester,
+  ) async {
+    await pumpApp(tester, repos);
+    await settle(tester);
+
+    // SPK-2026-0098 is completed but not collected → hero wins over in-service.
+    expect(find.byKey(const ValueKey('home-ready-hero')), findsOneWidget);
+    expect(find.text('Ready for collection · '), findsOneWidget);
+    expect(find.text('OTP 73104'), findsOneWidget);
+    expect(find.text('Show OTP'), findsOneWidget);
+
+    await tester.tap(find.text('Show OTP'));
+    await settle(tester);
+    expect(find.byType(PickupOtpCard), findsOneWidget);
+    expect(find.byKey(const ValueKey('pickup-otp-digits')), findsOneWidget);
+    expect(find.text('7 3 1 0 4'), findsOneWidget);
+    expect(
+      find.text('Show this at the counter to collect your keys.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('WhatsApp'), findsOneWidget);
+    // "Notify me when ready" is irrelevant once the service is complete.
+    expect(find.text('Notify me when ready'), findsNothing);
+  });
+
+  testWidgets('inbox shows a delivery tick on delivered rows', (tester) async {
+    await pumpScreen(tester, repos, const NotificationsScreen());
+    await settle(tester);
+    expect(find.byKey(const ValueKey('delivered-tick')), findsWidgets);
+    expect(find.textContaining('Collection OTP: 73104'), findsOneWidget);
   });
 
   testWidgets('booking flow reaches confirmation', (tester) async {

@@ -3,6 +3,7 @@
  * Times are relative to "today 10:00" local time so the dashboard always looks live.
  */
 import type {
+  NotificationRow,
   AuditEvent,
   BookingStatus,
   ChecklistTemplate,
@@ -429,4 +430,36 @@ export const AUDIT: AuditEvent[] = [
   { id: 'au-6', actor_id: 'seed_ayesha', actor_name: 'Ayesha Patel', actor_role: 'manager', action: 'customer.view', entity_type: 'profile', entity_id: 'seed_thabo', outlet_id: null, before: null, after: { reason: 'support call' }, correlation_id: 'seed-corr-6', outcome: 'ok', created_at: daysAgo(1) },
   { id: 'au-7', actor_id: 'seed_admin', actor_name: 'Sparkling Admin', actor_role: 'admin', action: 'flag.update', entity_type: 'feature_flag', entity_id: 'auto_assignment', outlet_id: null, before: { enabled: false }, after: { enabled: true }, correlation_id: 'seed-corr-7', outcome: 'ok', created_at: daysAgo(12) },
   { id: 'au-8', actor_id: 'seed_johan', actor_name: 'Johan Botha', actor_role: 'supervisor', action: 'task.transition', entity_type: 'task', entity_id: '40000000-0000-4000-8000-000000000002', outlet_id: OUTLET_SAN, before: { status: 'completed' }, after: { status: 'verified' }, correlation_id: 'seed-corr-8', outcome: 'ok', created_at: rel(-70) },
+];
+
+/* ---------- notifications (NOT-003 / WhatsApp via Twilio) ---------- */
+const note = (
+  id: string, recipient_id: string, channel: NotificationRow['channel'], template_key: string, title: string | null, body: string,
+  status: NotificationRow['status'], minutesAgo: number,
+  extra: Partial<NotificationRow> = {},
+): NotificationRow => ({
+  id, recipient_id, recipient_name: profileName(recipient_id), channel, template_key, title, body, payload: {}, status,
+  provider_status: channel === 'whatsapp' ? (status === 'queued' ? 'queued' : status === 'failed' ? 'undelivered' : status) : null,
+  provider_ref: channel === 'whatsapp' ? `SM${id.replace(/-/g, '').padEnd(32, '0').slice(0, 32)}` : null,
+  provider_error_code: null, error: null, attempts: status === 'queued' ? 0 : 1,
+  sent_at: status === 'queued' ? null : rel(-minutesAgo), delivered_at: status === 'delivered' ? rel(-minutesAgo + 1) : null,
+  read_at: null, created_at: rel(-minutesAgo), ...extra,
+});
+
+/** Mirrors the sparkling_core demo seed plus one failed WhatsApp row (Twilio 63016 — outside the 24 h session). */
+export const NOTIFICATIONS: NotificationRow[] = [
+  note('c0000000-0000-4000-8000-00000000n001', 'seed_thabo', 'push', 'service_started', 'Service started', 'Your Toyota Corolla Cross is now in Bay 2.', 'sent', 25, { payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000001' } }),
+  note('c0000000-0000-4000-8000-00000000n002', 'seed_thabo', 'whatsapp', 'booking_confirmed', null, 'Hi Thabo, your Sparkling booking SPK-2026-0094 is confirmed for tomorrow 09:00 at Sparkling Rosebank.', 'delivered', 180, { read_at: rel(-120), payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000002' } }),
+  note('c0000000-0000-4000-8000-00000000n003', 'seed_thabo', 'whatsapp', 'pickup_otp', 'Ready for collection', 'Your Volkswagen Polo Vivo is ready at Sparkling Sandton. Collection OTP: 73104 — show it at the counter to collect your keys.', 'delivered', 100, { read_at: rel(-95), payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000010' } }),
+  note('c0000000-0000-4000-8000-00000000n004', 'seed_thabo', 'push', 'quote_ready', 'Your quotation is ready', 'QT-2026-0041: R 3 850.00. Accept or decline in the app.', 'sent', 24 * 60, { payload: { type: 'quotation', id: '20000000-0000-4000-8000-000000000001' } }),
+  note('c0000000-0000-4000-8000-00000000n005', 'seed_pieter', 'push', 'task_assigned', 'New task', 'WO-2026-4821 assigned to you · Full Valet · Bay 2.', 'sent', 35, { payload: { type: 'task', id: '40000000-0000-4000-8000-000000000001' } }),
+  note('c0000000-0000-4000-8000-00000000n006', 'seed_ayesha', 'push', 'low_stock', 'Low stock alert', 'Interior shampoo 5L at Sparkling Sandton is out of stock (0/4).', 'sent', 14, { payload: { type: 'inventory_item', id: '70000000-0000-4000-8000-000000000001' } }),
+  note('c0000000-0000-4000-8000-00000000n007', 'seed_naledi', 'whatsapp', 'pickup_otp', 'Ready for collection', 'Your Suzuki Swift is ready at Sparkling Sandton. Collection OTP: 48213 — show it at the counter to collect your keys.', 'delivered', 70, { payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000005' } }),
+  note('c0000000-0000-4000-8000-00000000n008', 'seed_naledi', 'push', 'service_ready', 'Ready for collection', 'Your Suzuki Swift is ready at Sparkling Sandton.', 'delivered', 70, { payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000005' } }),
+  note('c0000000-0000-4000-8000-00000000n009', 'seed_zanele', 'whatsapp', 'booking_reminder', null, 'Reminder: your Premium Detail at Sparkling Sandton starts at 12:00 today. Reply STOP to opt out.', 'failed', 45, {
+    provider_status: 'undelivered', provider_error_code: '63016', error: '63016 outside 24h session — free-form message sent outside the WhatsApp 24 h customer-service window; use an approved template', attempts: 1, delivered_at: null,
+    payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000007' },
+  }),
+  note('c0000000-0000-4000-8000-00000000n010', 'seed_sipho', 'whatsapp', 'booking_cancelled', null, 'Your Sparkling booking SPK-2026-0090 was cancelled. Rebook any time in the app.', 'suppressed', 3 * 60, { provider_status: null, provider_ref: null, attempts: 0, sent_at: null, error: 'whatsapp_opt_in=false', payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000009' } }),
+  note('c0000000-0000-4000-8000-00000000n011', 'seed_lindiwe', 'push', 'service_started', 'Service started', 'Your Ford Ranger is now in Bay 1 at Sparkling Rosebank.', 'queued', 2, { payload: { type: 'booking', id: 'b-0087' } }),
 ];

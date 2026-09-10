@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "za.co.sparkling.customer"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(37, flutter.compileSdkVersion)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -8,6 +8,7 @@ import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requir
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { bookingLimiter } from '../middleware/rateLimit.js';
 import { cancelBooking, checkInBooking, createBooking, rescheduleBooking } from '../services/bookings.js';
+import { canSeePickupOtp } from '../services/pickup.js';
 import { buildTimeline, loadStepResults, loadTemplateForWorkOrder, progress } from '../services/workflow.js';
 import type { Booking, Payment, WorkOrder } from '../types.js';
 
@@ -47,6 +48,9 @@ async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>) 
         assignee_name: w.assignee?.full_name ?? null,
         bay: w.bay,
         blocked_reason: w.blocked_reason,
+        verified_at: w.verified_at ?? null,
+        pickup_otp_verified_at: w.pickup_otp_verified_at ?? null,
+        collected_at: w.collected_at ?? null,
         updated_at: w.updated_at,
       },
     };
@@ -103,6 +107,8 @@ bookingsRouter.get(
       const results = await loadStepResults(wo.id);
       timeline = buildTimeline(wo, template?.steps ?? [], results, booking);
       Object.assign(withWo.work_order as object, progress(template?.steps ?? [], results));
+      // Collection OTP: only the owning customer, only while completed and not yet collected (never staff).
+      if (canSeePickupOtp(req.auth!, wo, booking.status)) Object.assign(withWo.work_order as object, { pickup_otp: wo.pickup_otp, pickup_otp_issued_at: wo.pickup_otp_issued_at });
     } else {
       timeline = [{ key: 'booked', title: 'Booked', state: 'done', at: booking.created_at }, { key: 'checked_in', title: 'Checked in', state: booking.status === 'cancelled' ? 'skipped' : 'pending' }];
     }

@@ -44,7 +44,7 @@ docs/                    This file, API contract, runbooks
 ## Auth flow
 
 1. Client signs in with Firebase Auth and obtains an ID token.
-2. Client calls `POST /v1/auth/session`. The API upserts `profiles` (claiming a seeded profile with the same e-mail on first sign-in), computes `role` + `outlet_ids`, sets them as Firebase custom claims, and returns the profile. Client refreshes the ID token so claims are present.
+2. Client calls `POST /v1/auth/session`. The API upserts `profiles` (claiming a seeded profile with the same e-mail on first sign-in), computes `role` + `outlet_ids`, sets them as Firebase custom claims, and returns the profile. Client refreshes the ID token so claims are present. If the API cannot be reached the client keeps the Firebase session and surfaces `ApiException(code: 'network')` ("Couldn't reach Sparkling servers") with a retry; the staff app additionally requires the *returned profile* (or cached claims when offline) to have a staff role before entering the app, since a first sign-in has no claims until this call completes.
 3. Every API call carries `Authorization: Bearer <idToken>`. Middleware verifies it, loads the profile, and enforces role/outlet/ownership (SEC-003).
 4. Clients create a Supabase client with `accessToken: () => firebaseUser.getIdToken()`. Supabase must have Third-Party Auth → Firebase enabled for project `sparkling-4e89d` (one-time dashboard step; documented in `docs/RUNBOOK.md`). RLS helper `app.role()` reads the `role` claim, `app.outlet_ids()` the `outlet_ids` claim.
 
@@ -65,6 +65,7 @@ Side effects on `work_order → verified`: booking → `completed`, loyalty `ear
 |---|---|---|---|
 | dev | `sparkling-4e89d` | `uicqczgpiqkczwyssdft` | `.env.local`, `--dart-define-from-file=env/dev.json` |
 | prod | (create separate project) | (create separate project) | Secret Manager + App Hosting `apphosting.yaml` |
+| local auth | Firebase Auth emulator (`firebase emulators:start --only auth`, port 9099) | — | `--dart-define-from-file=env/emulator.json` (`AUTH_EMULATOR_HOST=127.0.0.1:9099`; Android AVD: `env/emulator-android.json` → `10.0.2.2:9099`) |
 
 Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `PAYMENT_WEBHOOK_SECRET`, `WHATSAPP_TOKEN`) live in Secret Manager and are never in client bundles (INT-006).
 

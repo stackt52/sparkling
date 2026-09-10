@@ -9,12 +9,18 @@ class AuthScaffold extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.showBack = false,
+    this.showEmulatorNote = false,
   });
 
   final String title;
   final String? subtitle;
   final Widget child;
   final bool showBack;
+
+  /// Shows a small "Firebase Auth emulator" chip (dev builds with
+  /// `AUTH_EMULATOR_HOST` set) so nobody mistakes a throwaway account for a
+  /// real one.
+  final bool showEmulatorNote;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +54,17 @@ class AuthScaffold extends StatelessWidget {
                       subtitle!,
                       style: SparklingTypography.bodyLarge.copyWith(
                         color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  if (showEmulatorNote) ...[
+                    const SizedBox(height: 12),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: StatusChip(
+                        label: 'Firebase Auth emulator',
+                        tone: StatusChipTone.warning,
+                        icon: Symbols.science_rounded,
                       ),
                     ),
                   ],

@@ -229,6 +229,15 @@ class DemoStaffRepository implements StaffRepository {
     () => store.checkinBooking(bookingId, bay: bay, priority: priority),
   );
   @override
+  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
+      _later(
+        () => store.verifyPickupOtp(workOrderId, otp),
+        delay: const Duration(milliseconds: 400),
+      );
+  @override
+  Future<void> resendPickupOtp(String workOrderId) =>
+      _later(() => store.resendPickupOtp(workOrderId));
+  @override
   Future<List<Booking>> outletBookings({
     required String outletId,
     BookingStatus? status,
