@@ -69,7 +69,7 @@ export default function LoginPage() {
             ))}
           </Box>
         </Box>
-        <Typography variant="caption" sx={{ opacity: 0.7 }}>SRS v1.0 · ADM-001 · SEC-003</Typography>
+        <Typography variant="caption" sx={{ opacity: 0.7 }}>v1.0.0</Typography>
       </Box>
 
       <Box sx={{ display: 'grid', placeItems: 'center', p: { xs: 2, md: 4 } }}>
@@ -107,9 +107,6 @@ export default function LoginPage() {
           <Button fullWidth variant="outlined" onClick={google} disabled={busy} startIcon={<MSymbol name="account_circle" size={20} />}>
             Continue with Google
           </Button>
-          <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 2.5 }}>
-            After sign-in we call <code>POST /v1/auth/session</code> to claim your profile and mint role claims. Accounts without an admin role are shown a friendly “not authorised” state.
-          </Typography>
         </Paper>
       </Box>
     </Box>
