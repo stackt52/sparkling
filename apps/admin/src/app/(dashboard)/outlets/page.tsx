@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
+import Link from 'next/link';
 import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -10,25 +10,51 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import type { GridColDef } from '@mui/x-data-grid';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/layout/PageHeader';
 import ConfigTabs from '@/components/layout/ConfigTabs';
+import SectionCard from '@/components/ui/SectionCard';
+import AdminGrid from '@/components/ui/AdminGrid';
 import StatusChip from '@/components/ui/StatusChip';
 import M3Switch from '@/components/ui/M3Switch';
 import IconTile from '@/components/ui/IconTile';
 import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { NavyPill } from '@/components/ui/Pills';
-import { LoadingRows } from '@/components/ui/States';
+import { ErrorState, LoadingRows } from '@/components/ui/States';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
-import { tk } from '@/theme/tokens';
-import type { OpeningHours, Outlet } from '@/lib/types';
+import { fonts, tk } from '@/theme/tokens';
+import type { OpeningHours, Outlet, OutletBankDetails } from '@/lib/types';
 
 const DAYS: (keyof OpeningHours)[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABEL: Record<keyof OpeningHours, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-const blank: Partial<Outlet> = { code: '', name: '', address_line: '', city: '', province: 'Gauteng', phone: '', email: '', bay_count: 3, slot_minutes: 30, is_active: true, opening_hours: { mon: ['07:30', '17:30'], tue: ['07:30', '17:30'], wed: ['07:30', '17:30'], thu: ['07:30', '17:30'], fri: ['07:30', '17:30'], sat: ['08:00', '14:00'], sun: null } };
+const blankBank: OutletBankDetails = { financial_institution: '', account_name: '', branch: '', branch_code: '', account_number: '', account_type: '' };
+const BANK_FIELDS: { key: keyof OutletBankDetails; label: string }[] = [
+  { key: 'financial_institution', label: 'Financial institution' },
+  { key: 'account_name', label: 'Account name' },
+  { key: 'branch', label: 'Branch' },
+  { key: 'branch_code', label: 'Branch code' },
+  { key: 'account_number', label: 'Account number' },
+  { key: 'account_type', label: 'Account type' },
+];
+const blank: Partial<Outlet> = { code: '', name: '', address_line: '', city: '', province: 'Gauteng', phone: '', email: '', bay_count: 3, slot_minutes: 30, is_active: true, legal_name: '', trading_as: '', company_registration_no: '', vat_number: '', registered_office: '', bank_details: { ...blankBank }, opening_hours: { mon: ['07:30', '17:30'], tue: ['07:30', '17:30'], wed: ['07:30', '17:30'], thu: ['07:30', '17:30'], fri: ['07:30', '17:30'], sat: ['08:00', '14:00'], sun: null } };
+
+/** Compact "Mon–Fri 07:30–17:30 · Sat 08:00–14:00" summary for the grid. */
+function hoursSummary(h: OpeningHours): string {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < DAYS.length) {
+    const v = h[DAYS[i]];
+    let j = i;
+    while (j + 1 < DAYS.length && JSON.stringify(h[DAYS[j + 1]]) === JSON.stringify(v)) j += 1;
+    if (v) parts.push(`${DAY_LABEL[DAYS[i]]}${j > i ? `–${DAY_LABEL[DAYS[j]]}` : ''} ${v[0]}–${v[1]}`);
+    i = j + 1;
+  }
+  return parts.join(' · ') || 'Closed';
+}
 
 function OutletDialog({ outlet, open, onClose }: { outlet: Outlet | null; open: boolean; onClose: () => void }) {
   return (
@@ -50,9 +76,14 @@ function OutletForm({ outlet, onClose }: { outlet: Outlet | null; onClose: () =>
   });
   const hours = form.opening_hours ?? blank.opening_hours!;
   const setHours = (d: keyof OpeningHours, v: [string, string] | null) => setForm({ ...form, opening_hours: { ...hours, [d]: v } });
+  const bank = form.bank_details ?? blankBank;
+  const setBank = (k: keyof OutletBankDetails, v: string) => setForm({ ...form, bank_details: { ...blankBank, ...bank, [k]: v } });
   return (
     <>
-      <DialogTitle id="outlet-title">{outlet ? `Edit ${outlet.name}` : 'New outlet'}</DialogTitle>
+      <DialogTitle id="outlet-title" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+        <span>{outlet ? `Edit ${outlet.name}` : 'New outlet'}</span>
+        {outlet && <Button component={Link} href={`/outlets/${outlet.id}/catalogue`} size="small" variant="outlined" startIcon={<MSymbol name="menu_book" size={18} />}>Catalogue</Button>}
+      </DialogTitle>
       <DialogContent sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, pt: '8px !important' }}>
         <TextField label="Code" value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} size="small" required />
         <TextField label="Name" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} size="small" required />
@@ -63,6 +94,16 @@ function OutletForm({ outlet, onClose }: { outlet: Outlet | null; onClose: () =>
         <TextField label="E-mail" value={form.email ?? ''} onChange={(e) => setForm({ ...form, email: e.target.value })} size="small" />
         <TextField label="Bays" type="number" value={form.bay_count ?? 3} onChange={(e) => setForm({ ...form, bay_count: Number(e.target.value) })} size="small" slotProps={{ htmlInput: { min: 1 } }} />
         <TextField label="Slot minutes" type="number" value={form.slot_minutes ?? 30} onChange={(e) => setForm({ ...form, slot_minutes: Number(e.target.value) })} size="small" slotProps={{ htmlInput: { min: 10, max: 240 } }} />
+        <Typography variant="h5" sx={{ gridColumn: '1 / -1', mt: 1 }}>Legal &amp; banking</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ gridColumn: '1 / -1', mt: -1 }}>Printed on quotations — legal entity, VAT registration and the account customers pay into.</Typography>
+        <TextField label="Legal name" value={form.legal_name ?? ''} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} size="small" />
+        <TextField label="Trading as" value={form.trading_as ?? ''} onChange={(e) => setForm({ ...form, trading_as: e.target.value })} size="small" />
+        <TextField label="Company registration no" value={form.company_registration_no ?? ''} onChange={(e) => setForm({ ...form, company_registration_no: e.target.value })} size="small" />
+        <TextField label="VAT number" value={form.vat_number ?? ''} onChange={(e) => setForm({ ...form, vat_number: e.target.value })} size="small" />
+        <TextField label="Registered office" value={form.registered_office ?? ''} onChange={(e) => setForm({ ...form, registered_office: e.target.value })} size="small" sx={{ gridColumn: '1 / -1' }} />
+        {BANK_FIELDS.map((f) => (
+          <TextField key={f.key} label={f.label} value={bank[f.key] ?? ''} onChange={(e) => setBank(f.key, e.target.value)} size="small" />
+        ))}
         <Typography variant="h5" sx={{ gridColumn: '1 / -1', mt: 1 }}>Opening hours</Typography>
         {DAYS.map((d) => {
           const v = hours[d];
@@ -100,44 +141,58 @@ export default function OutletsPage() {
   const [edit, setEdit] = React.useState<Outlet | null>(null);
   const [open, setOpen] = React.useState(false);
   const manage = can(role, 'catalogue:manage');
+
+  const columns = React.useMemo<GridColDef<Outlet>[]>(() => [
+    { field: 'name', headerName: 'Outlet', flex: 1.8, minWidth: 300, renderCell: (p) => (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, py: 0.5 }}>
+        <IconTile icon="storefront" tone={p.row.is_active ? 'primary' : 'neutral'} size={38} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body1" sx={{ fontWeight: 600, lineHeight: 1.25 }} noWrap>{p.row.name}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }} title={p.row.address_line ?? ''}>{p.row.address_line}</Typography>
+        </Box>
+      </Box>
+    ) },
+    { field: 'code', headerName: 'Code', width: 80, cellClassName: 'mono' },
+    { field: 'city', headerName: 'City', width: 140 },
+    { field: 'province', headerName: 'Province', width: 140 },
+    { field: 'bay_count', headerName: 'Bays', width: 70, align: 'center', headerAlign: 'center' },
+    { field: 'opening_hours', headerName: 'Hours', flex: 1.2, minWidth: 220, sortable: false, valueGetter: (_v, r) => hoursSummary(r.opening_hours), renderCell: (p) => <Typography variant="body2" noWrap title={p.value as string}>{p.value as string}</Typography> },
+    { field: 'phone', headerName: 'Contact', flex: 1, minWidth: 200, sortable: false, renderCell: (p) => (
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" noWrap>{p.row.phone ?? '—'}</Typography>
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{p.row.email ?? ''}</Typography>
+      </Box>
+    ) },
+    { field: 'legal_name', headerName: 'Legal entity', width: 150, renderCell: (p) => (p.row.legal_name ? <StatusChip tone="success" label="On file" title={`${p.row.legal_name} · VAT ${p.row.vat_number ?? '—'}`} /> : <StatusChip tone="warning" label="Not captured" title="Legal name, VAT number and banking are printed on quotations — add them in the editor" />) },
+    { field: 'is_active', headerName: 'Status', width: 100, renderCell: (p) => <StatusChip tone={p.row.is_active ? 'success' : 'neutral'} label={p.row.is_active ? 'Active' : 'Inactive'} /> },
+    { field: 'actions', headerName: '', width: manage ? 220 : 130, sortable: false, align: 'right', renderCell: (p) => (
+      <Box sx={{ display: 'flex', gap: 0.75 }} onClick={(e) => e.stopPropagation()}>
+        <Button component={Link} href={`/outlets/${p.row.id}/catalogue`} size="small" variant="outlined" startIcon={<MSymbol name="menu_book" size={18} />} aria-label={`Catalogue for ${p.row.name}`}>Catalogue</Button>
+        {manage && <Button size="small" variant="text" onClick={() => { setEdit(p.row); setOpen(true); }} startIcon={<MSymbol name="edit" size={18} />} aria-label={`Edit ${p.row.name}`}>Edit</Button>}
+      </Box>
+    ) },
+  ], [manage]);
+
   return (
     <>
-      <PageHeader title="Configuration" subtitle="Outlets · opening hours, bays and availability" actions={manage ? <NavyPill icon="add_business" onClick={() => { setEdit(null); setOpen(true); }}>New outlet</NavyPill> : undefined} />
+      <PageHeader title="Configuration" subtitle="Outlets · addresses, opening hours, bays, legal & banking identity — and each outlet's own service catalogue" actions={manage ? <NavyPill icon="add_business" onClick={() => { setEdit(null); setOpen(true); }}>New outlet</NavyPill> : undefined} />
       <ConfigTabs />
-      {q.isLoading && <LoadingRows rows={3} height={140} />}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', xl: 'repeat(3, 1fr)' }, gap: '14px' }}>
-        {(q.data ?? []).map((o) => (
-          <Paper key={o.id} sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.25, opacity: o.is_active ? 1 : 0.7 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <IconTile icon="storefront" tone={o.is_active ? 'primary' : 'neutral'} size={48} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="h4">{o.name}</Typography>
-                <Typography variant="body2" color="text.secondary">{o.address_line} · {o.city}</Typography>
-              </Box>
-              <StatusChip tone={o.is_active ? 'success' : 'neutral'} label={o.is_active ? 'Active' : 'Inactive'} />
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', color: tk.onSurfaceVariant, fontSize: 13.5 }}>
-              <span><b style={{ color: tk.onSurface }}>{o.bay_count}</b> bays</span>
-              <span><b style={{ color: tk.onSurface }}>{o.slot_minutes}</b> min slots</span>
-              <span>★ <b style={{ color: tk.onSurface }}>{o.rating ?? '—'}</b></span>
-              <span className="mono">{o.code}</span>
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-              {DAYS.map((d) => {
-                const v = o.opening_hours[d];
-                return (
-                  <Box key={d} sx={{ textAlign: 'center', borderRadius: '10px', py: 0.5, bgcolor: v ? tk.surfaceContainer : 'transparent', color: v ? tk.onSurface : tk.onSurfaceVariant }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>{DAY_LABEL[d]}</Typography>
-                    <Typography variant="caption" sx={{ fontSize: 10 }}>{v ? `${v[0]}–${v[1]}` : 'Closed'}</Typography>
-                  </Box>
-                );
-              })}
-            </Box>
-            <Typography variant="caption" color="text.secondary">{o.phone} · {o.email}</Typography>
-            {manage && <Button size="small" variant="outlined" onClick={() => { setEdit(o); setOpen(true); }} startIcon={<MSymbol name="edit" size={18} />} sx={{ alignSelf: 'flex-start' }}>Edit</Button>}
-          </Paper>
-        ))}
-      </Box>
+      <SectionCard flush title="Outlets" subtitle={q.data ? `${q.data.length} outlets · ${new Set(q.data.map((o) => o.province)).size} provinces` : undefined}>
+        {q.isLoading && <Box sx={{ px: 2.5, pb: 2.5 }}><LoadingRows rows={5} /></Box>}
+        {q.error && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+        {q.data && (
+          <AdminGrid<Outlet>
+            rows={q.data}
+            columns={columns}
+            getRowId={(r) => r.id}
+            rowHeight={64}
+            getRowClassName={() => (manage ? 'row-clickable' : '')}
+            onRowClick={(p) => { if (manage) { setEdit(p.row); setOpen(true); } }}
+            sx={{ px: 1, '& .mono': { fontFamily: fonts.mono, color: tk.onSurfaceVariant } }}
+            aria-label="Outlets"
+          />
+        )}
+      </SectionCard>
       <OutletDialog outlet={edit} open={open} onClose={() => setOpen(false)} />
     </>
   );

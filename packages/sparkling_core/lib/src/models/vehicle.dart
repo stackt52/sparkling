@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'enums.dart';
 import 'json.dart';
+import 'service.dart';
 
 /// `vehicles` row.
 class Vehicle extends Equatable {
@@ -20,6 +21,7 @@ class Vehicle extends Equatable {
     this.source = VehicleSource.manual,
     this.discVerified = false,
     this.discHash,
+    this.sizeClass = VehicleSize.small,
     this.isActive = true,
     this.createdAt,
     this.updatedAt,
@@ -41,6 +43,9 @@ class Vehicle extends Equatable {
 
   /// sha256 of the raw disc payload (BAR-004: raw never stored).
   final String? discHash;
+
+  /// Pricing size (`size_class`; null in the DB → small).
+  final VehicleSize sizeClass;
   final bool isActive;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -85,6 +90,7 @@ class Vehicle extends Equatable {
     source: VehicleSource.fromDb(strOrNull(json['source'])),
     discVerified: boolOf(json['disc_verified']),
     discHash: strOrNull(json['disc_hash']),
+    sizeClass: VehicleSize.fromDb(strOrNull(json['size_class'])),
     isActive: boolOf(json['is_active'], true),
     createdAt: dtOrNull(json['created_at']),
     updatedAt: dtOrNull(json['updated_at']),
@@ -105,6 +111,7 @@ class Vehicle extends Equatable {
     'source': source.db,
     'disc_verified': discVerified,
     'disc_hash': discHash,
+    'size_class': sizeClass.db,
     'is_active': isActive,
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
@@ -123,6 +130,7 @@ class Vehicle extends Equatable {
     VehicleSource? source,
     bool? discVerified,
     String? discHash,
+    VehicleSize? sizeClass,
     bool? isActive,
     DateTime? updatedAt,
   }) => Vehicle(
@@ -140,6 +148,7 @@ class Vehicle extends Equatable {
     source: source ?? this.source,
     discVerified: discVerified ?? this.discVerified,
     discHash: discHash ?? this.discHash,
+    sizeClass: sizeClass ?? this.sizeClass,
     isActive: isActive ?? this.isActive,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -158,6 +167,7 @@ class Vehicle extends Equatable {
     discExpiry,
     source,
     discVerified,
+    sizeClass,
     isActive,
   ];
 }
@@ -176,6 +186,7 @@ class VehicleInput {
     this.discExpiry,
     this.source = VehicleSource.manual,
     this.discHash,
+    this.sizeClass,
     this.force = false,
   });
 
@@ -190,6 +201,9 @@ class VehicleInput {
   final DateTime? discExpiry;
   final VehicleSource source;
   final String? discHash;
+
+  /// `size_class` — omitted → the API derives it from the disc description.
+  final VehicleSize? sizeClass;
 
   /// Override the duplicate check (CUS-015) after the user confirmed.
   final bool force;
@@ -206,6 +220,7 @@ class VehicleInput {
     'disc_expiry': isoDate(discExpiry),
     'source': source.db,
     'disc_hash': discHash,
+    'size_class': sizeClass?.db,
     'force': force ? true : null,
   });
 
@@ -216,6 +231,7 @@ class VehicleInput {
     String? model,
     String? colour,
     int? year,
+    VehicleSize? sizeClass,
   }) => VehicleInput(
     registrationNo: registrationNo ?? this.registrationNo,
     vin: vin,
@@ -228,6 +244,7 @@ class VehicleInput {
     discExpiry: discExpiry,
     source: source,
     discHash: discHash,
+    sizeClass: sizeClass ?? this.sizeClass,
     force: force ?? this.force,
   );
 }

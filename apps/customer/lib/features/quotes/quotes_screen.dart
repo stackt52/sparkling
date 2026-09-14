@@ -76,9 +76,12 @@ class _QuotesScreenState extends State<QuotesScreen> {
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, i) {
                       final q = sorted[i];
+                      final actionNeeded = q.canDecide;
+                      final amount = q.amountCents ?? (q.items.isEmpty ? null : q.itemsTotalCents);
                       return ListTileCard(
+                        key: ValueKey('quote-row-${q.id}'),
                         onTap: () => context.push(Routes.quote(q.id)),
-                        borderColor: q.status.awaitingDecision
+                        borderColor: actionNeeded
                             ? context.sparkling.gold
                             : null,
                         leading: TintedIconTile(
@@ -87,21 +90,37 @@ class _QuotesScreenState extends State<QuotesScreen> {
                           background: cs.secondaryContainer,
                           foreground: cs.onSecondaryContainer,
                         ),
-                        title: Text('${q.category} · ${q.vehicleLabel ?? ''}'),
+                        title: Text(
+                          amount == null
+                              ? '${q.category} · ${q.vehicleLabel ?? ''}'
+                              : '${Money.formatZar(amount)} · ${q.category}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         subtitle: Text(
                           [
                             q.ref,
-                            if (q.amountCents != null)
-                              Money.formatZar(q.amountCents!),
+                            if (q.vehicleLabel != null) q.vehicleLabel!,
                             if (q.outletName != null)
                               shortOutletName(q.outletName),
                           ].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: StatusChip(
-                          label: q.status.label,
-                          tone: quotationTone(q.status),
-                          dense: true,
-                        ),
+                        trailing: actionNeeded
+                            ? const StatusChip(
+                                label: 'Action needed',
+                                tone: StatusChipTone.gold,
+                                dot: true,
+                                dense: true,
+                              )
+                            : StatusChip(
+                                label: q.isExpired ? 'Expired' : q.status.label,
+                                tone: q.isExpired
+                                    ? StatusChipTone.error
+                                    : quotationTone(q.status),
+                                dense: true,
+                              ),
                       );
                     },
                   );

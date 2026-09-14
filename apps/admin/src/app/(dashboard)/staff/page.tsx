@@ -89,9 +89,12 @@ export default function StaffPage() {
   const manage = can(role, 'user:manage');
   const columns: GridColDef<StaffUser>[] = [
     { field: 'full_name', headerName: 'Name', flex: 1.4, minWidth: 200, renderCell: (p) => (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-        <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 700, bgcolor: tk.primaryContainer, color: tk.onPrimaryContainer }}>{initials(p.row.full_name)}</Avatar>
-        <Box><Typography variant="h6" component="span" sx={{ display: 'block' }}>{p.row.full_name}</Typography><Typography variant="caption" color="text.secondary">{p.row.email}</Typography></Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, width: '100%' }}>
+        <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 700, bgcolor: tk.primaryContainer, color: tk.onPrimaryContainer, flexShrink: 0 }}>{initials(p.row.full_name)}</Avatar>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="h6" component="span" noWrap sx={{ display: 'block', lineHeight: 1.3 }} title={p.row.full_name}>{p.row.full_name}</Typography>
+          <Typography variant="caption" component="span" noWrap color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }} title={p.row.email ?? undefined}>{p.row.email ?? "—"}</Typography>
+        </Box>
       </Box>
     ) },
     { field: 'role', headerName: 'Role', flex: 0.8, minWidth: 120, renderCell: (p) => <StatusChip tone={p.row.role === 'admin' ? 'primary' : p.row.role === 'manager' ? 'secondary' : 'neutral'} label={roleLabel[p.row.role]} /> },

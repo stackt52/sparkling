@@ -8,12 +8,14 @@ import type {
   ActivityItem,
   ApiError,
   AuditEvent,
+  AvailabilitySlot,
   Booking,
   BookingDetail,
   BookingStatus,
   ChecklistTemplate,
   CustomerDetail,
   CustomerSummary,
+  EnrolMembershipInput,
   ExceptionItem,
   FeatureFlag,
   IntegrationStatus,
@@ -23,24 +25,45 @@ import type {
   LoyaltyConfigResponse,
   LoyaltyRules,
   LoyaltyTierConfig,
+  MembershipInvoice,
+  MembershipPlan,
+  MembershipPlanInput,
+  MembershipRow,
+  MembershipStatus,
+  MembershipSummary,
   NotificationRow,
   NotifyChannel,
   NotifyStatus,
   Outlet,
-  OutletService,
+  OutletServiceInput,
+  OutletServiceOffer,
   Page,
   Payment,
   Period,
+  PosPayment,
   QuoteLineItem,
   Quotation,
+  QuotationAttachment,
   QuotationStatus,
+  RaiseQuotationInput,
+  RecordPaymentInput,
+  RenewalRunResult,
   ReportKind,
   ReportSummary,
   Service,
+  ServiceInput,
   SessionResponse,
+  ShareQuotationResult,
   StaffPerformanceRow,
   StaffUser,
   UserRole,
+  Vehicle,
+  VehicleInput,
+  VehicleSize,
+  WalkInBookingInput,
+  WalkInBookingResult,
+  WalkInCustomer,
+  WalkInCustomerInput,
   WorkOrder,
   WorkStatus,
 } from './types';
@@ -54,6 +77,18 @@ export class ApiRequestError extends Error {
     this.status = status;
     this.error = error;
   }
+}
+
+/** Reads a keyed value out of a 409 `conflict` payload (`details.existing_customer`, `details.existing_vehicle_id`, …). */
+export function conflictDetail<T>(e: unknown, key: string): T | undefined {
+  if (!(e instanceof ApiRequestError) || e.status !== 409) return undefined;
+  const d = e.error.details;
+  if (Array.isArray(d)) {
+    const hit = d.find((x) => x && typeof x === 'object' && key in (x as object)) as Record<string, T> | undefined;
+    return hit?.[key];
+  }
+  if (d && typeof d === 'object' && key in d) return (d as Record<string, T>)[key];
+  return undefined;
 }
 
 export interface OutletScoped {
@@ -89,6 +124,13 @@ export interface NotificationFilters {
   limit?: number;
   cursor?: string | null;
 }
+export interface MembershipFilters {
+  status?: MembershipStatus | 'all';
+  plan_code?: string;
+  q?: string;
+  limit?: number;
+  cursor?: string | null;
+}
 export interface TeamMember {
   id: string;
   name: string;
@@ -100,6 +142,13 @@ export interface TeamMember {
 }
 
 export type LiveEvent = { table: string; at: string };
+
+export interface OutletOfferFilters {
+  /** Adds `price_cents` resolved for this size. */
+  vehicleSize?: VehicleSize;
+  /** Admin: include unavailable (switched-off) bindings. */
+  includeUnavailable?: boolean;
+}
 
 export interface AdminApi {
   readonly mode: 'http' | 'demo';
@@ -116,8 +165,19 @@ export interface AdminApi {
   /* quotations */
   listQuotations(filters: QuotationFilters): Promise<Quotation[]>;
   getQuotation(id: string): Promise<Quotation>;
-  submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string }): Promise<Quotation>;
+  submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }): Promise<Quotation>;
   convertQuotation(id: string): Promise<Quotation>;
+  /** Staff-raised quote (`POST /quotations`, staff shape) → status `quoted` with a fresh public link. */
+  raiseQuotation(input: RaiseQuotationInput): Promise<Quotation>;
+  /** Rotates / creates the public token and re-sends the `quote_ready` WhatsApp + push (1/min). */
+  shareQuotation(id: string): Promise<ShareQuotationResult>;
+  /** `multipart/form-data` upload of one damage photo (jpeg/png/heic ≤ 10 MB, ≤ 10 per quote). */
+  uploadQuotationPhoto(id: string, file: File, caption?: string): Promise<QuotationAttachment>;
+  deleteQuotationPhoto(id: string, attachmentId: string): Promise<void>;
+  /** Signed-in image fetch (bearer token) — callers turn the Blob into an object URL. */
+  fetchQuotationPhoto(id: string, attachmentId: string): Promise<Blob>;
+  /** Signed-in PDF fetch (`GET /quotations/:id/pdf`). */
+  fetchQuotationPdf(id: string): Promise<Blob>;
   /* work orders */
   listWorkOrders(filters: WorkOrderFilters): Promise<WorkOrder[]>;
   getWorkOrder(id: string): Promise<WorkOrder>;
@@ -132,15 +192,29 @@ export interface AdminApi {
   /* customers */
   searchCustomers(search: string): Promise<CustomerSummary[]>;
   getCustomer(id: string): Promise<CustomerDetail>;
+  /* walk-in (staff on behalf of a customer; STF-010/012) */
+  searchWalkInCustomers(search: string): Promise<WalkInCustomer[]>;
+  createWalkInCustomer(input: WalkInCustomerInput): Promise<WalkInCustomer>;
+  createCustomerVehicle(customerId: string, input: VehicleInput, force?: boolean): Promise<{ vehicle: Vehicle; duplicate: boolean }>;
+  /** `GET /outlets/:id/services` — available offers with resolved prices (customer / walk-in view). */
+  listOutletServicesFor(outletId: string, vehicleSize?: VehicleSize): Promise<OutletServiceOffer[]>;
+  availability(outletId: string, serviceId: string, dateISO: string): Promise<AvailabilitySlot[]>;
+  createWalkInBooking(input: WalkInBookingInput): Promise<WalkInBookingResult>;
+  recordPayment(input: RecordPaymentInput): Promise<PosPayment>;
   /* catalogue */
   listOutlets(): Promise<Outlet[]>;
   createOutlet(body: Partial<Outlet>): Promise<Outlet>;
   updateOutlet(id: string, patch: Partial<Outlet>): Promise<Outlet>;
+  /** `GET /admin/services` — canonical catalogue with global `components`. */
   listServices(): Promise<Service[]>;
-  createService(body: Partial<Service>): Promise<Service>;
-  updateService(id: string, patch: Partial<Service>): Promise<Service>;
-  listOutletServices(): Promise<OutletService[]>;
-  setOutletService(outletId: string, serviceId: string, patch: Partial<OutletService>): Promise<OutletService>;
+  createService(body: ServiceInput): Promise<Service>;
+  updateService(id: string, patch: ServiceInput): Promise<Service>;
+  /** `GET /admin/outlets/:id/services` — the outlet's offers with resolved composition (admin matrix). */
+  listOutletOffers(outletId: string, filters?: OutletOfferFilters): Promise<OutletServiceOffer[]>;
+  /** `PUT /admin/outlets/:id/services/:serviceId` — bind / update an outlet offer (`components: null` = use global). */
+  upsertOutletService(outletId: string, serviceId: string, body: OutletServiceInput): Promise<OutletServiceOffer>;
+  /** `DELETE /admin/outlets/:id/services/:serviceId` — unbind. */
+  removeOutletService(outletId: string, serviceId: string): Promise<void>;
   /* templates */
   listTemplates(): Promise<ChecklistTemplate[]>;
   createTemplate(body: Pick<ChecklistTemplate, 'name' | 'category' | 'steps'>): Promise<ChecklistTemplate>;
@@ -150,6 +224,23 @@ export interface AdminApi {
   saveLoyaltyDraft(body: { tiers: LoyaltyTierConfig[]; rules: LoyaltyRules; change_note: string }): Promise<LoyaltyConfig>;
   publishLoyalty(): Promise<LoyaltyConfig>;
   discardLoyalty(): Promise<void>;
+  /* memberships (docs/MEMBERSHIPS.md; managerPlus) */
+  /** `GET /admin/memberships/plans` — plans with `member_count` / `mrr_cents`. */
+  membershipPlans(): Promise<MembershipPlan[]>;
+  /** `PUT /admin/memberships/plans/:code` — full replace of groups / entitlements by code. */
+  saveMembershipPlan(code: string, body: MembershipPlanInput): Promise<MembershipPlan>;
+  /** `GET /admin/memberships?status&plan_code&q&limit&cursor`. */
+  listMemberships(params: MembershipFilters): Promise<Page<MembershipRow>>;
+  /** `GET /staff/customers/:id/membership` — same shape as `/memberships/me` for that customer. */
+  customerMembership(customerId: string): Promise<MembershipSummary>;
+  /** `POST /admin/customers/:id/membership` — enrol at the counter (active immediately, invoice paid). */
+  enrolMembership(customerId: string, body: EnrolMembershipInput): Promise<MembershipSummary>;
+  /** `POST /admin/memberships/:id/cancel` — `at_period_end` (default) or immediate. */
+  cancelMembership(id: string, body: { at_period_end: boolean; reason?: string }): Promise<MembershipSummary>;
+  /** `POST /admin/memberships/:id/invoices/:invoiceId/record-payment` — pays a pending renewal (rolls the period). */
+  recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }): Promise<{ invoice: MembershipInvoice; membership: MembershipSummary }>;
+  /** `POST /admin/memberships/run-renewals` — the daily job, on demand. */
+  runMembershipRenewals(): Promise<RenewalRunResult>;
   /* inventory */
   listInventory(params: OutletScoped & { alerts_first?: boolean }): Promise<InventoryItem[]>;
   updateInventoryItem(id: string, patch: { reorder_threshold?: number; name?: string; unit?: string }): Promise<InventoryItem>;
@@ -175,7 +266,7 @@ export interface AdminApi {
 
 type TokenGetter = () => Promise<string | null>;
 
-function uuid(): string {
+export function uuid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -191,6 +282,56 @@ function qs(params: object): string {
   }
   const s = sp.toString();
   return s ? `?${s}` : '';
+}
+
+/** Turns a non-2xx response into an `ApiRequestError` carrying the API error envelope. */
+async function throwFromResponse(res: Response): Promise<never> {
+  let err: ApiError = { code: 'internal', message: `HTTP ${res.status}` };
+  try {
+    const json = (await res.json()) as { error?: ApiError };
+    if (json.error) err = json.error;
+  } catch {
+    /* non-JSON error body */
+  }
+  throw new ApiRequestError(res.status, err);
+}
+
+/**
+ * Absolute URL for an API-relative path returned by the server (`/v1/...`).
+ * Already-absolute URLs and same-origin assets (demo `/demo/...`) are returned unchanged.
+ */
+export function resolveApiUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (/^(https?:)?\/\//.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path;
+  if (path.startsWith('/v1/')) return `${env.apiBaseUrl}${path}`;
+  return path;
+}
+
+/**
+ * Unauthenticated request against `NEXT_PUBLIC_API_BASE_URL` for the token-scoped public
+ * endpoints (`/v1/public/...`). No Firebase token, no auth provider — safe to call from the
+ * standalone `/q/[token]` page. `path` is relative to `/v1`.
+ */
+export async function publicFetch<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Client-App': 'public-web',
+    'X-Client-Version': env.clientVersion,
+    'X-Correlation-Id': uuid(),
+  };
+  if (method !== 'GET') {
+    headers['Idempotency-Key'] = uuid();
+    headers['Content-Type'] = 'application/json';
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${env.apiBaseUrl}/v1${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    throw new ApiRequestError(0, { code: 'network', message: (e as Error).message });
+  }
+  if (!res.ok) await throwFromResponse(res);
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
 }
 
 export class HttpApi implements AdminApi {
@@ -226,18 +367,39 @@ export class HttpApi implements AdminApi {
     } catch (e) {
       throw new ApiRequestError(0, { code: 'network', message: (e as Error).message });
     }
-    if (!res.ok) {
-      let err: ApiError = { code: 'internal', message: `HTTP ${res.status}` };
-      try {
-        const json = (await res.json()) as { error?: ApiError };
-        if (json.error) err = json.error;
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new ApiRequestError(res.status, err);
-    }
+    if (!res.ok) await throwFromResponse(res);
     if (raw) return (await res.text()) as unknown as T;
     if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
+
+  /** Authenticated binary GET (images, PDFs) — returns the response body as a Blob. */
+  private async blob(path: string, accept: string): Promise<Blob> {
+    const headers: Record<string, string> = { Accept: accept, 'X-Client-App': 'admin', 'X-Client-Version': env.clientVersion, 'X-Correlation-Id': uuid() };
+    const token = await this.getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1${path}`, { headers });
+    } catch (e) {
+      throw new ApiRequestError(0, { code: 'network', message: (e as Error).message });
+    }
+    if (!res.ok) await throwFromResponse(res);
+    return res.blob();
+  }
+
+  /** Authenticated `multipart/form-data` POST (the browser sets the boundary). */
+  private async upload<T>(path: string, form: FormData): Promise<T> {
+    const headers: Record<string, string> = { Accept: 'application/json', 'X-Client-App': 'admin', 'X-Client-Version': env.clientVersion, 'X-Correlation-Id': uuid(), 'Idempotency-Key': uuid() };
+    const token = await this.getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1${path}`, { method: 'POST', headers, body: form });
+    } catch (e) {
+      throw new ApiRequestError(0, { code: 'network', message: (e as Error).message });
+    }
+    if (!res.ok) await throwFromResponse(res);
     return (await res.json()) as T;
   }
 
@@ -268,11 +430,33 @@ export class HttpApi implements AdminApi {
   getQuotation(id: string) {
     return this.request<Quotation>('GET', `/quotations/${id}`);
   }
-  submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string }) {
+  submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }) {
     return this.request<Quotation>('POST', `/quotations/${id}/quote`, body);
   }
   convertQuotation(id: string) {
     return this.request<Quotation>('POST', `/quotations/${id}/convert`, {});
+  }
+  async raiseQuotation(input: RaiseQuotationInput) {
+    const res = await this.request<{ quotation: Quotation } | Quotation>('POST', '/quotations', input);
+    return 'quotation' in res ? res.quotation : res;
+  }
+  shareQuotation(id: string) {
+    return this.request<ShareQuotationResult>('POST', `/quotations/${id}/share`, {});
+  }
+  uploadQuotationPhoto(id: string, file: File, caption?: string) {
+    const form = new FormData();
+    form.append('photo', file, file.name);
+    if (caption) form.append('caption', caption);
+    return this.upload<QuotationAttachment>(`/quotations/${id}/photos`, form);
+  }
+  deleteQuotationPhoto(id: string, attachmentId: string) {
+    return this.request<void>('DELETE', `/quotations/${id}/photos/${attachmentId}`);
+  }
+  fetchQuotationPhoto(id: string, attachmentId: string) {
+    return this.blob(`/quotations/${id}/photos/${attachmentId}`, 'image/*');
+  }
+  fetchQuotationPdf(id: string) {
+    return this.blob(`/quotations/${id}/pdf`, 'application/pdf');
   }
   listWorkOrders(f: WorkOrderFilters) {
     return this.list<WorkOrder>(`/tasks${qs({ scope: 'queue', ...f })}`);
@@ -307,6 +491,29 @@ export class HttpApi implements AdminApi {
   getCustomer(id: string) {
     return this.request<CustomerDetail>('GET', `/admin/customers/${id}`);
   }
+  searchWalkInCustomers(search: string) {
+    return this.list<WalkInCustomer>(`/staff/customers${qs({ search, limit: 20 })}`);
+  }
+  async createWalkInCustomer(input: WalkInCustomerInput) {
+    const res = await this.request<{ customer: WalkInCustomer }>('POST', '/staff/customers', input);
+    return res.customer;
+  }
+  createCustomerVehicle(customerId: string, input: VehicleInput, force = false) {
+    return this.request<{ vehicle: Vehicle; duplicate: boolean }>('POST', `/staff/customers/${customerId}/vehicles`, force ? { ...input, force: true } : input);
+  }
+  listOutletServicesFor(outletId: string, vehicleSize?: VehicleSize) {
+    return this.list<OutletServiceOffer>(`/outlets/${outletId}/services${qs({ vehicle_size: vehicleSize })}`);
+  }
+  availability(outletId: string, serviceId: string, dateISO: string) {
+    return this.list<AvailabilitySlot>(`/availability${qs({ outlet_id: outletId, service_id: serviceId, date: dateISO })}`);
+  }
+  createWalkInBooking(input: WalkInBookingInput) {
+    return this.request<WalkInBookingResult>('POST', '/bookings', input);
+  }
+  async recordPayment(input: RecordPaymentInput) {
+    const res = await this.request<{ payment: PosPayment }>('POST', '/payments/record', input);
+    return res.payment;
+  }
   listOutlets() {
     return this.list<Outlet>('/admin/outlets');
   }
@@ -319,17 +526,20 @@ export class HttpApi implements AdminApi {
   listServices() {
     return this.list<Service>('/admin/services');
   }
-  createService(body: Partial<Service>) {
+  createService(body: ServiceInput) {
     return this.request<Service>('POST', '/admin/services', body);
   }
-  updateService(id: string, patch: Partial<Service>) {
-    return this.request<Service>('PATCH', `/admin/services/${id}`, patch);
+  updateService(id: string, patch: ServiceInput) {
+    return this.request<Service>('PUT', `/admin/services/${id}`, patch);
   }
-  listOutletServices() {
-    return this.list<OutletService>('/admin/outlet-services');
+  listOutletOffers(outletId: string, f: OutletOfferFilters = {}) {
+    return this.list<OutletServiceOffer>(`/admin/outlets/${outletId}/services${qs({ vehicle_size: f.vehicleSize, include_unavailable: f.includeUnavailable ? 'true' : undefined })}`);
   }
-  setOutletService(outletId: string, serviceId: string, patch: Partial<OutletService>) {
-    return this.request<OutletService>('PUT', `/admin/outlets/${outletId}/services/${serviceId}`, patch);
+  upsertOutletService(outletId: string, serviceId: string, body: OutletServiceInput) {
+    return this.request<OutletServiceOffer>('PUT', `/admin/outlets/${outletId}/services/${serviceId}`, body);
+  }
+  removeOutletService(outletId: string, serviceId: string) {
+    return this.request<void>('DELETE', `/admin/outlets/${outletId}/services/${serviceId}`);
   }
   listTemplates() {
     return this.list<ChecklistTemplate>('/admin/templates');
@@ -351,6 +561,30 @@ export class HttpApi implements AdminApi {
   }
   discardLoyalty() {
     return this.request<void>('POST', '/admin/loyalty/config/discard', {});
+  }
+  membershipPlans() {
+    return this.list<MembershipPlan>('/admin/memberships/plans');
+  }
+  saveMembershipPlan(code: string, body: MembershipPlanInput) {
+    return this.request<MembershipPlan>('PUT', `/admin/memberships/plans/${code}`, body);
+  }
+  listMemberships(p: MembershipFilters) {
+    return this.request<Page<MembershipRow>>('GET', `/admin/memberships${qs(p)}`);
+  }
+  customerMembership(customerId: string) {
+    return this.request<MembershipSummary>('GET', `/staff/customers/${customerId}/membership`);
+  }
+  enrolMembership(customerId: string, body: EnrolMembershipInput) {
+    return this.request<MembershipSummary>('POST', `/admin/customers/${customerId}/membership`, body);
+  }
+  cancelMembership(id: string, body: { at_period_end: boolean; reason?: string }) {
+    return this.request<MembershipSummary>('POST', `/admin/memberships/${id}/cancel`, body);
+  }
+  recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }) {
+    return this.request<{ invoice: MembershipInvoice; membership: MembershipSummary }>('POST', `/admin/memberships/${id}/invoices/${invoiceId}/record-payment`, body);
+  }
+  runMembershipRenewals() {
+    return this.request<RenewalRunResult>('POST', '/admin/memberships/run-renewals', {});
   }
   listInventory(p: OutletScoped & { alerts_first?: boolean }) {
     return this.list<InventoryItem>(`/admin/inventory${qs(p)}`);

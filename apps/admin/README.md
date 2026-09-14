@@ -20,6 +20,41 @@ npx tsc --noEmit
 npm run build
 ```
 
+## Membership plans (`/loyalty`, "Memberships" in the rail)
+
+Tier = plan (docs/MEMBERSHIPS.md): Gold R295 · Platinum R475 · Black R850 per month; a customer without a
+live membership is Silver (free, earns points only) and every tier's booking discount is 0 % — discounts and
+included washes come from the plan.
+
+* **Plans tab** — one card per plan (`GET /admin/memberships/plans`): fee, entitlement groups with their
+  options (OR = choose one, AND = all included), the discount rule and scope, live member count and MRR. **Edit
+  plan** (`memberships:manage`, manager+) opens a drawer (`PUT /admin/memberships/plans/:code`): name, tagline,
+  fee, discount % / scope / note, active flag, and groups → options with quantity, month/year period and a
+  service picker from the catalogue (first service = primary). Options that members have already redeemed
+  cannot be deleted (409). The earn rules card keeps points per R1, expiry, referral / birthday bonuses and the
+  per-tier earn multiplier (versioned draft → publish flow as before); the per-tier "Qualify" / "Booking
+  discount" rows are replaced by "Tier = plan" copy.
+* **Members tab** — `GET /admin/memberships?status&plan_code&q` grid: member, plan chip, status chip, period +
+  selections, washes used / remaining per entitlement, open invoice. Row actions **Record payment**
+  (`…/invoices/:id/record-payment`, cash / card terminal / EFT — rolls the period, lifts past-due) and
+  **Cancel** (at period end or immediately). **Run renewals** calls `POST /admin/memberships/run-renewals`
+  (expire cancel-at-period-end, invoice 3 days ahead, mark past due, sandbox card auto-charge).
+* **Customers** — the grid shows the plan ("Gold · 3 left"); the drawer's first tab is **Membership**: plan
+  header in the plan colour, status, period, allowance bars per entitlement, discount rule, invoices, with
+  **Enrol in a plan** (plan → option picker → cash / card terminal / EFT, `POST /admin/customers/:id/membership`),
+  Record payment and Cancel.
+* **Walk-in** — the customer step shows the plan pill ("Gold · 3 washes left"); the service step marks covered
+  services **Included in Gold · 2 of 4 left** (R 0, add-ons still charged) and the plan discount ("Gold −10%")
+  on eligible services per scope; payment / summary / success reflect the R 0 base (no counter payment is
+  recorded when nothing is due); non-members get an **Enrol in a plan** shortcut on the payment step.
+* **Overview** adds "Active members" and "Membership MRR" tiles; **Reports → Exports** adds the memberships CSV.
+* Demo API: the three plans (stable ids from migration 0010), Thabo Gold/G1, Naledi Gold/G2 (cash), Sipho
+  Platinum/P1, Zanele Black/B1+B3+B5 (renewal due in 3 days) with usage, invoices and payments; pricing follows
+  the doc's rules (included → discount = base, scope discounts, past_due = no benefits) and posts / releases
+  usage on booking create / cancel; loyalty tiers are derived from the memberships.
+* Tokens: `tk.platinumGradient`, `tk.blackGradient` (navy → black) + `tk.onBlack` (gold text); `TierChip`
+  paints Silver / Gold / Platinum / Black.
+
 ## Messages (notifications) and WhatsApp
 
 * **/notifications** ("Messages" in the rail, under Loyalty) — DataGrid of
@@ -39,12 +74,46 @@ npm run build
 * Demo API: seed-mirroring rows plus one failed WhatsApp row (`63016 outside
   24h session`) that Resend flips to `sent`.
 
+## Public quotation page (`/q/<token>`)
+
+The link customers receive on WhatsApp (`quote_ready`) opens **this app's** origin at `/q/<public_token>` — a
+standalone, unauthenticated route outside the `(dashboard)` group (no Firebase sign-in, no nav rail, mobile-first).
+It talks only to the token-scoped public API (`GET|POST /v1/public/quotations/:token[/decision|/photos/:id|/pdf]`)
+through `publicFetch` in `src/lib/api.ts`, never with a staff token. States: loading, not found (404), expired (410),
+quoted (accept / decline — one-time, 409 refreshes to the decided view), decided (accepted / declined / converted),
+plus "Download PDF", photo lightbox, `tel:` link and "Save link".
+
+* **Backend config:** the API's `PUBLIC_WEB_BASE_URL` must be this app's origin (e.g.
+  `https://sparkling-admin-….hosted.app`, or `http://localhost:3000` against the emulator) — the public link is
+  `${PUBLIC_WEB_BASE_URL}/q/<token>`.
+* **Twilio:** the `quote_ready` Content template's button URL must be `<PUBLIC_WEB_BASE_URL>/q/{{2}}`
+  (variable 2 = `public_token`; migration 0006 updates the `provider_variables` binding).
+* **Routing:** there is no `src/middleware.ts`; auth gating lives in `src/app/(dashboard)/layout.tsx`, so `/q/*`
+  needs no exclusion. `AuthProvider` skips Firebase initialisation on `/q/*`. If a middleware or redirect rule is
+  added later, keep `/q/:path*` (and `/demo/*` assets) public.
+* **Demo mode:** `/q/demo-quoted`, `/q/demo-accepted`, `/q/demo-expired` and `/q/demo-missing` are served from
+  `src/lib/demo/publicQuotes.ts` (mirrors QT-2026-0041 for Thabo, placeholder photos in `public/demo/`). Decisions
+  persist in `localStorage`, so the dashboard drawer shows "Accepted via link by …" after a reload; the PDF is
+  generated client-side with `jspdf` (demo only — live mode streams the API's PDF).
+
+## Quotations (dashboard)
+
+* **Drawer:** items with category chips + descriptions, dashed total, damage-photo grid (images are fetched
+  through `GET /quotations/:id/photos/:attachmentId` with the bearer token → object URLs, never a bucket URL),
+  decision line ("Accepted via link by Thabo N. on …"), **Public link** row (Copy · Open · Resend WhatsApp →
+  `POST /quotations/:id/share`, 60 s cooldown / 429-aware), **Download PDF** (`GET /quotations/:id/pdf`).
+* **Quote form:** per-item category chips, description, optional auto-body service (outlet services filtered to
+  `auto_body`), amount; notes; photo dropzone (`multipart/form-data` → `POST /quotations/:id/photos`).
+* **Raise quote** (header pill, `quote:write`): customer search / register and vehicle pick / add reuse the walk-in
+  components, then items + photos + validity → `POST /quotations` (staff shape, `send_to_customer`) → success with
+  the public link.
+
 ## Environment
 
 | Variable | Purpose |
 |---|---|
 | `NEXT_PUBLIC_DEMO_MODE` | `true` = in-memory demo API; `false` = real REST API + Firebase Auth + Supabase realtime |
-| `NEXT_PUBLIC_API_BASE_URL` | Cloud Functions REST base without `/v1` (emulator: `http://127.0.0.1:5001/sparkling-4e89d/europe-west1/api`) |
+| `NEXT_PUBLIC_API_BASE_URL` | Cloud Functions REST base without `/v1` (emulator: `http://127.0.0.1:5001/sparkling-4e89d/europe-west1/api`). Also used, without a token, by the public quote page |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (default `https://uicqczgpiqkczwyssdft.supabase.co`) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key — realtime subscriptions use the Firebase ID token via Third-Party Auth |
 
@@ -55,7 +124,9 @@ Firebase web config for `sparkling-4e89d` is committed in `src/lib/firebaseConfi
 ```
 src/app/login                 Firebase Auth (email/password + Google) → POST /v1/auth/session → role gate
 src/app/(dashboard)/…         Authenticated routes: /, bookings, quotations, work-orders, staff, staff/performance,
-                              customers, outlets, services, templates, loyalty, notifications, inventory, reports, audit, settings
+                              customers, outlets, services, templates, loyalty (Membership plans), notifications, inventory, reports, audit, settings
+src/components/memberships    PlanCard, PlanEditorDrawer, MembersGrid, EnrolDialog, MembershipBlock, record-payment / cancel dialogs
+src/app/q/[token]             Public quotation page (unauthenticated; see above) → src/components/public, src/lib/publicQuote.ts
 src/theme                     tokens.ts (design tokens → CSS variables), theme.ts (MUI colorSchemes light/dark)
 src/components                MSymbol (Material Symbols Rounded), layout (nav rail / drawer / header), ui, ops
 src/lib/api.ts                AdminApi interface + HttpApi (error envelope, Idempotency-Key, X-Correlation-Id, X-Client-App)
@@ -76,3 +147,16 @@ firebase apphosting:backends:create --project sparkling-4e89d   # pick region, c
 `apphosting.yaml` uses `runConfig.minInstances: 0` and exposes the `NEXT_PUBLIC_*` variables with `BUILD` + `RUNTIME` availability; secret references are shown commented out. The default Next.js output is used (App Hosting does not require `output: 'standalone'`).
 
 Before going live, enable **Supabase → Authentication → Third-Party Auth → Firebase** for project `sparkling-4e89d` so RLS-scoped realtime subscriptions accept Firebase ID tokens.
+
+## Screenshots
+
+`screenshots/` (demo mode, dark scheme, 1440×1000):
+
+| File | What it shows |
+|---|---|
+| `memberships-plans.png` | Membership plans — Gold / Platinum / Black cards with OR / AND entitlement groups, discount rule, members and MRR |
+| `memberships-editor.png` | Plan editor drawer — fee, discount scope, groups → options → service picker |
+| `memberships-members.png` | Members tab after "Run renewals" — Zanele's renewal invoice open, row actions |
+| `memberships-customer.png` | Customer drawer → Membership tab (Black plan: allowances, invoices, enrol / cancel) |
+| `memberships-walkin.png` | Walk-in service step for a Gold member — "Included in Gold · 2 of 4 left" at R 0, plan discount on other services |
+| `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |

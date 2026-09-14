@@ -10,8 +10,14 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 /// Per-test demo repositories. Bootstrapping does real file I/O (Hive), so it
 /// must run in [setUp] (outside the FakeAsync zone of `testWidgets`).
 class DemoHarness {
+  DemoHarness({this.storeBuilder});
+
+  /// Optional custom [DemoStore] per test (e.g. to shrink an outlet's bays).
+  final DemoStore Function()? storeBuilder;
+
   late Directory _dir;
   late Repositories repos;
+  DemoStore? store;
 
   /// Registers setUp/tearDown for the enclosing group / file.
   void install() {
@@ -19,11 +25,13 @@ class DemoHarness {
       SparklingTypography.useGoogleFonts = false;
       _dir = await Directory.systemTemp.createTemp('sparkling_staff_test_');
       HiveStore.reset();
+      store = storeBuilder?.call();
       repos = await SparklingCore.bootstrap(
         demo: true,
         clientApp: 'staff',
         hivePath: _dir.path,
         demoUser: DemoPersonas.technician,
+        demoStore: store,
       );
     });
     tearDown(() async {
@@ -78,6 +86,7 @@ Future<void> scrollTo(
   WidgetTester tester,
   Finder finder, {
   Finder? scrollable,
+  double delta = 160,
 }) async {
   // Single-line text fields carry a horizontal Scrollable; skip those.
   final target =
@@ -88,9 +97,9 @@ Future<void> scrollTo(
           )
           .last;
   try {
-    await tester.scrollUntilVisible(finder, 160, scrollable: target);
+    await tester.scrollUntilVisible(finder, delta, scrollable: target);
   } catch (_) {
-    await tester.scrollUntilVisible(finder, -160, scrollable: target);
+    await tester.scrollUntilVisible(finder, -delta, scrollable: target);
   }
   await tester.pump(const Duration(milliseconds: 200));
 }

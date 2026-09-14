@@ -7,6 +7,16 @@ export type UserRole = 'customer' | 'technician' | 'supervisor' | 'manager' | 'a
 export const ADMIN_ROLES: UserRole[] = ['manager', 'admin', 'finance', 'supervisor'];
 
 export type ServiceCategory = 'car_wash' | 'auto_body';
+/** Price-sheet groups (migration 0008). */
+export type ServiceGroup = 'Car Wash Options' | 'Combinations' | 'Auto Body Repair';
+export const SERVICE_GROUPS: ServiceGroup[] = ['Car Wash Options', 'Combinations', 'Auto Body Repair'];
+export type PricingMode = 'from' | 'fixed' | 'by_quote';
+export type VatMode = 'incl' | 'excl';
+/** Vehicle size class used for pricing (`vehicles.size_class`; null → small). */
+export type VehicleSize = 'small' | 'large' | 'bike';
+export const VEHICLE_SIZES: VehicleSize[] = ['small', 'large', 'bike'];
+/** VAT rate applied on top of `vat_mode: excl` prices. */
+export const VAT_RATE = 0.15;
 export type BookingStatus = 'draft' | 'pending' | 'confirmed' | 'in_service' | 'completed' | 'cancelled';
 export type QuotationStatus =
   | 'requested'
@@ -25,7 +35,9 @@ export type WorkStatus =
   | 'verified'
   | 'cancelled';
 export type PaymentStatus = 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded';
-export type LoyaltyTier = 'silver' | 'gold' | 'platinum';
+/** Loyalty tier = membership plan tier (docs/MEMBERSHIPS.md): silver is the free default. */
+export type LoyaltyTier = 'silver' | 'gold' | 'platinum' | 'black';
+export const LOYALTY_TIERS: LoyaltyTier[] = ['silver', 'gold', 'platinum', 'black'];
 export type LedgerType = 'earn' | 'redeem' | 'adjust' | 'expire' | 'bonus';
 export type AlertLevel = 'low' | 'out';
 export type StepType = 'confirm' | 'text' | 'numeric' | 'select' | 'photo' | 'ack' | 'supervisor_verify';
@@ -40,10 +52,12 @@ export interface ApiError {
     | 'conflict'
     | 'invalid_transition'
     | 'rate_limited'
+    | 'gone'
     | 'internal'
     | 'network';
   message: string;
-  details?: unknown[];
+  /** Validation issues (array) or a conflict payload such as `{ existing_customer }` / `{ existing_vehicle_id }`. */
+  details?: unknown;
   correlation_id?: string;
 }
 
@@ -83,7 +97,27 @@ export interface StaffUser extends Profile {
 /* ---------- catalogue ---------- */
 export type OpeningHours = Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', [string, string] | null>;
 
-export interface Outlet {
+/** `outlets.bank_details` JSON (migration 0007) — printed under "Our banking details" on quotes. */
+export interface OutletBankDetails {
+  financial_institution: string | null;
+  account_name: string | null;
+  branch: string | null;
+  branch_code: string | null;
+  account_number: string | null;
+  account_type: string | null;
+}
+
+/** Per-outlet legal / billing identity (migration 0007) as embedded on quotations. */
+export interface OutletLegal {
+  legal_name: string | null;
+  trading_as: string | null;
+  company_registration_no: string | null;
+  vat_number: string | null;
+  registered_office: string | null;
+  bank_details: OutletBankDetails | null;
+}
+
+export interface Outlet extends OutletLegal {
   id: string;
   code: string;
   name: string;
@@ -100,27 +134,58 @@ export interface Outlet {
   is_active: boolean;
 }
 
+/** One row of a composite's "includes" set (`service_components`). */
+export interface ServiceComponent {
+  child_service_id: string;
+  quantity: number;
+  sort_order: number;
+}
+
+/** Canonical service (`services`, migration 0008) as returned by `GET /admin/services` (with `components`). */
 export interface Service {
   id: string;
   code: string;
   name: string;
   description: string | null;
   category: ServiceCategory;
+  group_name: ServiceGroup;
   duration_minutes: number;
+  /** Legacy: mirrors `price_small_cents ?? price_general_cents ?? 0` for old readers. */
   base_price_cents: number;
+  /** Legacy: `pricing_mode === 'by_quote'`. */
   is_quote_based: boolean;
+  pricing_mode: PricingMode;
+  vat_mode: VatMode;
+  price_small_cents: number | null;
+  price_large_cents: number | null;
+  price_general_cents: number | null;
+  is_addon: boolean;
+  addon_group_name: string | null;
+  notes: string | null;
   points_per_rand: number;
   icon: string;
   checklist_template_id: string | null;
   is_active: boolean;
   sort_order: number;
+  /** Global default composition (outlets may override). */
+  components: ServiceComponent[];
 }
 
-export interface OutletService {
-  outlet_id: string;
-  service_id: string;
-  price_cents: number | null;
-  is_available: boolean;
+/** `POST/PUT /admin/services` body. */
+export type ServiceInput = Partial<Omit<Service, 'id' | 'components'>> & { components?: ServiceComponent[] };
+
+/** `PUT /admin/outlets/:id/services/:serviceId` body (`components: null` = use the global set). */
+export interface OutletServiceInput {
+  display_name?: string | null;
+  price_small_cents?: number | null;
+  price_large_cents?: number | null;
+  price_general_cents?: number | null;
+  pricing_mode?: PricingMode | null;
+  vat_mode?: VatMode | null;
+  is_available?: boolean;
+  sort_order?: number | null;
+  notes?: string | null;
+  components?: ServiceComponent[] | null;
 }
 
 export interface ChecklistStep {
@@ -161,6 +226,8 @@ export interface Vehicle {
   disc_expiry: string | null;
   source: 'manual' | 'scan';
   disc_verified: boolean;
+  /** Pricing size class (null = unknown → small). */
+  size_class?: VehicleSize | null;
 }
 
 export interface LoyaltyAccount {
@@ -169,6 +236,14 @@ export interface LoyaltyAccount {
   balance_points: number;
   lifetime_points: number;
   tier_since: string;
+}
+
+/** Loyalty summary on customer rows: the live plan (docs/MEMBERSHIPS.md "customer summary"). */
+export interface LoyaltySummary extends LoyaltyAccount {
+  plan_code: string | null;
+  plan_name: string | null;
+  /** Sum of remaining monthly washes across the selected entitlements (0 for non-members). */
+  included_remaining: number;
 }
 
 export interface LedgerEntry {
@@ -185,13 +260,15 @@ export interface LedgerEntry {
 export interface CustomerSummary extends Profile {
   vehicle_count: number;
   booking_count: number;
-  loyalty?: LoyaltyAccount;
+  loyalty?: LoyaltySummary;
 }
 
 export interface CustomerDetail extends CustomerSummary {
   vehicles: Vehicle[];
   bookings: Booking[];
   ledger: LedgerEntry[];
+  /** `GET /admin/customers/:id` adds the membership summary (same shape as `/memberships/me`). */
+  membership?: MembershipSummary | null;
 }
 
 /* ---------- bookings / work ---------- */
@@ -229,8 +306,31 @@ export interface Booking {
   vehicle: { id: string; registration_no: string; make: string | null; model: string | null };
   customer: { id: string; full_name: string; email: string | null; phone: string | null };
   work_order: WorkOrderSummary | null;
-  payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number } | null;
+  payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number; method?: PosPaymentMethod | null; provider?: string | null } | null;
   quotation_id: string | null;
+  /** Staff-created walk-in (STF-010/012). */
+  walk_in?: boolean;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  /* ---- catalogue pricing (migration 0008) ---- */
+  /** Size the price was resolved for. */
+  vehicle_size?: VehicleSize | null;
+  pricing_mode?: PricingMode | null;
+  vat_mode?: VatMode | null;
+  addon_service_ids?: string[];
+  /** Sum of the add-on prices (already inside `price_cents`). */
+  addons_cents?: number;
+  /** "From R x" / "R x" / "By quote" as shown at booking time. */
+  price_label?: string | null;
+  addons?: { service_id: string; name: string; price_cents: number }[];
+  /** 15 % VAT added on top when `vat_mode === 'excl'` (0 otherwise). */
+  vat_cents?: number;
+  /* ---- membership plans (migration 0010) ---- */
+  membership_id?: string | null;
+  entitlement_id?: string | null;
+  membership_benefit?: MembershipBenefit | null;
+  /** Pricing response block: which plan / entitlement priced this booking. */
+  membership?: MembershipPricing | null;
 }
 
 export interface TimelineStage {
@@ -245,9 +345,34 @@ export interface BookingDetail extends Booking {
   timeline: TimelineStage[];
 }
 
+/** Attention-area categories used on quote items (staff app + admin chips). */
+export const QUOTE_ITEM_CATEGORIES = ['dent', 'scratch', 'bumper', 'panel', 'paint', 'glass', 'other'] as const;
+export type QuoteItemCategory = (typeof QUOTE_ITEM_CATEGORIES)[number];
+
+/** One attention area on a quotation (docs/API.md "Staff-raised quotations"). */
 export interface QuoteLineItem {
   label: string;
+  description?: string | null;
+  category?: QuoteItemCategory | string | null;
+  service_id?: string | null;
   amount_cents: number;
+  quantity?: number | null;
+}
+
+export type QuotationDecisionSource = 'app' | 'public_link' | 'staff';
+
+/** Attachment as served by `GET /quotations/:id` — images are always streamed through the API. */
+export interface QuotationAttachment {
+  id: string;
+  /** `/v1/quotations/:id/photos/:attachmentId` (signed-in) — resolve against the API base. */
+  url?: string | null;
+  kind?: 'damage_photo' | 'document';
+  caption?: string | null;
+  width?: number | null;
+  height?: number | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  storage_path?: string | null;
 }
 
 export interface Quotation {
@@ -255,22 +380,84 @@ export interface Quotation {
   ref: string;
   customer_id: string;
   customer_name: string;
-  vehicle: { id: string; registration_no: string; make: string | null; model: string | null };
-  outlet: { id: string; name: string };
+  vehicle: { id: string; registration_no: string; make: string | null; model: string | null; colour?: string | null };
+  outlet: { id: string; name: string; code?: string | null; phone?: string | null; email?: string | null; address_line?: string | null; city?: string | null } & Partial<OutletLegal>;
   category: string;
   description: string;
   status: QuotationStatus;
   amount_cents: number | null;
   line_items: QuoteLineItem[];
+  /** Alias of `line_items` (newer API responses carry both). */
+  items?: QuoteLineItem[];
+  items_note?: string | null;
   assessor_id: string | null;
   assessor_name: string | null;
   valid_until: string | null;
   quoted_at: string | null;
   decided_at: string | null;
   decision_note: string | null;
-  attachments: { id: string; storage_path: string; mime_type: string }[];
+  decision_source?: QuotationDecisionSource | null;
+  decision_by_name?: string | null;
+  attachments: QuotationAttachment[];
   created_at: string;
   work_order_ref?: string | null;
+  /** Staff only: `<PUBLIC_WEB_BASE_URL>/q/<token>`; null until the quote has been shared. */
+  public_url?: string | null;
+  public_token_expires_at?: string | null;
+  /** `/v1/quotations/:id/pdf` (signed-in). */
+  pdf_url?: string | null;
+  /** Standard terms printed on the quote (see `QUOTE_TERMS`). */
+  terms?: string;
+}
+
+/** `POST /quotations` (staff shape): raise a quote for a walk-in customer in one step. */
+export interface RaiseQuotationInput {
+  customer_id: string;
+  vehicle_id: string;
+  outlet_id: string;
+  category: string;
+  description: string;
+  items: QuoteLineItem[];
+  valid_until: string;
+  items_note?: string | null;
+  client_op_id: string;
+  send_to_customer?: boolean;
+}
+
+export interface ShareQuotationResult {
+  public_url: string;
+  expires_at: string;
+}
+
+/** `GET /public/quotations/:token` — the customer-facing view, no PII beyond what the quote needs. */
+export interface PublicQuotation {
+  ref: string;
+  status: QuotationStatus;
+  outlet: { name: string; code?: string | null; phone: string | null; email?: string | null; address_line: string | null; city?: string | null } & Partial<OutletLegal>;
+  customer: { first_name: string };
+  vehicle: { registration_no: string; make: string | null; model: string | null; colour: string | null };
+  items: QuoteLineItem[];
+  amount_cents: number;
+  currency: string;
+  valid_until: string | null;
+  quoted_at: string | null;
+  decided_at: string | null;
+  decision_source: QuotationDecisionSource | null;
+  decision_by_name?: string | null;
+  expired: boolean;
+  can_decide: boolean;
+  attachments: { id: string; url: string; caption: string | null; width: number | null; height: number | null }[];
+  /** `/v1/public/quotations/:token/pdf` — resolve against the API base. */
+  pdf_url: string;
+  notes: string | null;
+  /** Standard terms printed on the quote (see `QUOTE_TERMS`). */
+  terms?: string;
+}
+
+export interface PublicDecisionInput {
+  decision: 'accept' | 'decline';
+  note?: string;
+  accepted_by_name?: string;
 }
 
 export interface TaskEvent {
@@ -308,10 +495,182 @@ export interface WorkOrder {
   updated_at: string;
 }
 
+/* ---------- walk-in (staff on behalf of a customer) ---------- */
+export interface WalkInVehicle {
+  id: string;
+  registration_no: string;
+  make: string | null;
+  model: string | null;
+  colour: string | null;
+  disc_verified: boolean;
+  size_class?: VehicleSize | null;
+}
+
+/** `GET /staff/customers` row. */
+export interface WalkInCustomer {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  marketing_opt_in: boolean;
+  whatsapp_opt_in: boolean;
+  /** `discount_pct` is always 0 now — discounts come from the plan (`plan_code`). */
+  loyalty: { tier: LoyaltyTier; balance_points: number; discount_pct: number; plan_code: string | null; plan_name: string | null; included_remaining: number } | null;
+  vehicles: WalkInVehicle[];
+}
+
+export interface WalkInCustomerInput {
+  full_name: string;
+  phone: string;
+  email?: string | null;
+  marketing_opt_in?: boolean;
+  whatsapp_opt_in?: boolean;
+  client_op_id: string;
+}
+
+export interface VehicleInput {
+  registration_no: string;
+  vin?: string | null;
+  make?: string | null;
+  model?: string | null;
+  colour?: string | null;
+  year?: number | null;
+  source: 'manual' | 'scan';
+  size_class?: VehicleSize | null;
+  client_op_id: string;
+}
+
+export type WalkInPriority = 1 | 2 | 3;
+
+export interface WalkInBookingInput {
+  customer_id: string;
+  vehicle_id: string;
+  outlet_id: string;
+  service_id: string;
+  walk_in: true;
+  /** Size used for pricing (defaults to the vehicle's `size_class`, else small). */
+  vehicle_size?: VehicleSize;
+  /** Add-ons (`is_addon` services of the chosen service's group) priced and summed into `addons_cents`. */
+  addon_service_ids?: string[];
+  /** Omit to book "now" (server rounds up to the outlet's slot grid). */
+  slot_start?: string;
+  notes?: string | null;
+  client_op_id: string;
+  checkin?: { bay?: string | null; priority?: WalkInPriority };
+}
+
+export interface WalkInBookingResult {
+  booking: Booking;
+  duplicate: boolean;
+  work_order?: WorkOrderSummary | null;
+  task?: { id: string; status: WorkStatus } | null;
+}
+
+export type PosPaymentMethod = 'cash' | 'card_terminal';
+
+export interface RecordPaymentInput {
+  booking_id: string;
+  method: PosPaymentMethod;
+  reference?: string | null;
+  amount_cents: number;
+  idempotency_key: string;
+}
+
+/** `payments` row created by `POST /payments/record` (provider `pos`). */
+export interface PosPayment {
+  id: string;
+  booking_id: string;
+  method: PosPaymentMethod;
+  provider: string;
+  amount_cents: number;
+  status: PaymentStatus;
+  receipt_no: string | null;
+  provider_ref: string | null;
+  verified_at: string | null;
+  created_at: string;
+}
+
+/** `GET /availability` row (wraps `get_available_slots`). */
+export interface AvailabilitySlot {
+  slot_start: string;
+  slot_end: string;
+  capacity: number;
+  booked: number;
+  available: boolean;
+}
+
+/** `GET /outlets/:id/services` row — the outlet's offer with resolved prices and composition (docs/API.md "Catalogue pricing model"). */
+export interface OutletServiceOffer {
+  /** Alias of `service_id` so offers can be used where a `Service`-like `id` is expected. */
+  id: string;
+  service_id: string;
+  code: string;
+  /** `display_name ?? services.name`. */
+  name: string;
+  /** Canonical name (for "also known as"). */
+  service_name: string;
+  display_name: string | null;
+  description: string | null;
+  group_name: ServiceGroup;
+  category: ServiceCategory;
+  duration_minutes: number;
+  icon: string;
+  /** Effective (outlet override ?? service default). */
+  pricing_mode: PricingMode;
+  vat_mode: VatMode;
+  /** Raw outlet overrides (null = inherit). */
+  pricing_mode_override: PricingMode | null;
+  vat_mode_override: VatMode | null;
+  price_small_cents: number | null;
+  price_large_cents: number | null;
+  price_general_cents: number | null;
+  /** Lowest non-null price; null when by-quote. */
+  price_from_cents: number | null;
+  /** Resolved per size (null when by-quote / no price). */
+  price_for: Record<VehicleSize, number | null>;
+  /** Resolved for `?vehicle_size` when requested. */
+  price_cents?: number | null;
+  is_addon: boolean;
+  addon_group_name: string | null;
+  includes: { service_id: string; code: string; name: string; quantity: number }[];
+  included_in: string[];
+  /** Whether `includes` comes from an outlet-specific set or the global default. */
+  components_source: 'outlet' | 'global';
+  is_available: boolean;
+  sort_order: number | null;
+  notes: string | null;
+  points_estimate: number;
+  /** Legacy alias of `pricing_mode === 'by_quote'`. */
+  is_quote_based: boolean;
+}
+
+/** Derives the pricing size from a vehicle (disc description mapping; null → small). */
+export function vehicleSizeOf(v: { size_class?: VehicleSize | null; model?: string | null } | null | undefined): VehicleSize {
+  if (v?.size_class) return v.size_class;
+  const m = (v?.model ?? '').toLowerCase();
+  if (/hilux|ranger|bakkie|pick-?up|suv|x-?trail|fortuner|everest|amarok|navara|d-?max|cx-?5|tucson|sportage|rav4|kuga|tiguan|q5|x3|x5|glc|discovery|defender|bus|quantum|hiace|wagon/.test(m)) return 'large';
+  return 'small';
+}
+
+/** Price shown for an offer at a size: outlet/service price per size (bike → small, general when size-independent). */
+export function offerPrice(o: OutletServiceOffer, size: VehicleSize): number | null {
+  if (o.pricing_mode === 'by_quote') return null;
+  return o.price_for[size] ?? null;
+}
+
+/** "From R x" / "R x" / "By quote" (+ "excl. VAT" for excl offers). */
+export function priceLabel(o: Pick<OutletServiceOffer, 'pricing_mode' | 'vat_mode'>, cents: number | null, fmt: (c: number) => string): string {
+  if (o.pricing_mode === 'by_quote' || cents === null) return 'By quote';
+  const base = o.pricing_mode === 'from' ? `From ${fmt(cents)}` : fmt(cents);
+  return o.vat_mode === 'excl' ? `${base} excl. VAT` : base;
+}
+
 /* ---------- payments ---------- */
 export interface Payment {
   id: string;
   booking_ref: string | null;
+  /** Set for membership invoice payments (`booking_ref` is null for these). */
+  membership_invoice_id?: string | null;
   customer_name: string;
   provider: string;
   amount_cents: number;
@@ -419,6 +778,10 @@ export interface Kpis {
   top_staff: { staff_id: string; name: string; initials: string; points: number; tier: 'gold' | 'silver' | 'bronze' }[];
   services_count: number;
   outlets_count: number;
+  /** Live memberships (active + past_due). */
+  active_members: number;
+  /** Monthly recurring revenue of active memberships. */
+  membership_mrr_cents: number;
 }
 
 export type ExceptionKind = 'blocked' | 'overdue' | 'low_stock' | 'out_of_stock' | 'failed_payment';
@@ -508,7 +871,7 @@ export interface NotificationRow {
   created_at: string;
 }
 
-export type ReportKind = 'bookings' | 'payments' | 'inventory' | 'staff_performance' | 'loyalty';
+export type ReportKind = 'bookings' | 'payments' | 'inventory' | 'staff_performance' | 'loyalty' | 'memberships';
 
 export interface ReportSummary {
   financial: {
@@ -529,4 +892,174 @@ export interface ReportSummary {
     checklist_compliance_pct: number;
     quotes: { requested: number; quoted: number; accepted: number; converted: number };
   };
+}
+
+/* ---------- membership plans (docs/MEMBERSHIPS.md, migration 0010) ---------- */
+export type MembershipStatus = 'pending' | 'active' | 'past_due' | 'cancelled' | 'expired';
+export const MEMBERSHIP_STATUSES: MembershipStatus[] = ['pending', 'active', 'past_due', 'cancelled', 'expired'];
+export type MembershipPaymentMethod = 'card' | 'cash' | 'eft' | 'sandbox' | 'card_terminal';
+/** Counter enrolment methods (`POST /admin/customers/:id/membership`). */
+export type CounterPaymentMethod = 'cash' | 'card_terminal' | 'eft';
+export type DiscountScope = 'plan_services' | 'other_services' | 'all_services' | 'none';
+export const DISCOUNT_SCOPES: DiscountScope[] = ['plan_services', 'other_services', 'all_services', 'none'];
+export type EntitlementPeriod = 'month' | 'year';
+export type GroupSelection = 'choose_one' | 'all';
+export type MembershipBenefit = 'included' | 'discount';
+export type MembershipInvoiceStatus = 'pending' | 'paid' | 'failed' | 'void';
+
+export interface EntitlementService {
+  id: string;
+  code: string;
+  name: string;
+  is_primary: boolean;
+}
+
+export interface PlanEntitlement {
+  id: string;
+  code: string;
+  label: string;
+  quantity: number;
+  period: EntitlementPeriod;
+  services: EntitlementService[];
+}
+
+export interface PlanGroup {
+  id: string;
+  code: string;
+  name: string;
+  selection: GroupSelection;
+  entitlements: PlanEntitlement[];
+}
+
+/** `GET /admin/memberships/plans` row (`member_count` / `mrr_cents` are admin-only extras). */
+export interface MembershipPlan {
+  id: string;
+  code: string;
+  tier: LoyaltyTier;
+  name: string;
+  tagline: string | null;
+  monthly_fee_cents: number;
+  discount_pct: number;
+  discount_scope: DiscountScope;
+  discount_note: string | null;
+  color: string | null;
+  sort_order: number;
+  is_active: boolean;
+  groups: PlanGroup[];
+  member_count?: number;
+  mrr_cents?: number;
+}
+
+/** `PUT /admin/memberships/plans/:code` body — full replace of groups / entitlements by code. */
+export interface MembershipPlanInput {
+  name: string;
+  tagline: string | null;
+  monthly_fee_cents: number;
+  discount_pct: number;
+  discount_scope: DiscountScope;
+  discount_note: string | null;
+  is_active: boolean;
+  groups: {
+    code: string;
+    name: string;
+    selection: GroupSelection;
+    entitlements: { code: string; label: string; quantity: number; period: EntitlementPeriod; service_codes: string[] }[];
+  }[];
+}
+
+export interface Membership {
+  id: string;
+  ref: string;
+  customer_id: string;
+  plan_id: string;
+  status: MembershipStatus;
+  started_at: string;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  cancelled_at: string | null;
+  ended_at: string | null;
+  next_plan_id: string | null;
+  payment_method: MembershipPaymentMethod;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface MembershipInvoice {
+  id: string;
+  ref: string;
+  membership_id: string;
+  customer_id: string;
+  period_start: string;
+  period_end: string;
+  amount_cents: number;
+  status: MembershipInvoiceStatus;
+  due_at: string;
+  paid_at: string | null;
+  payment_id: string | null;
+}
+
+/** Remaining allowance of one entitlement for its current period. */
+export interface MembershipAllowance {
+  entitlement_id: string;
+  entitlement_code: string;
+  group_code: string;
+  label: string;
+  quantity: number;
+  used: number;
+  remaining: number;
+  period: EntitlementPeriod;
+  period_start: string;
+  period_end: string;
+}
+
+/** `GET /memberships/me` / `GET /staff/customers/:id/membership` / `customer.membership`. */
+export interface MembershipSummary {
+  membership: Membership | null;
+  plan: MembershipPlan | null;
+  /** Chosen option per `choose_one` group: `{ [group_code]: entitlement_code }`. */
+  selections: Record<string, string>;
+  allowances: MembershipAllowance[];
+  open_invoice: MembershipInvoice | null;
+  /** Last 12. */
+  invoices: MembershipInvoice[];
+  next_renewal_at: string | null;
+  benefits_summary: string;
+}
+
+/** `GET /admin/memberships` row. */
+export interface MembershipRow extends Membership {
+  customer: { id: string; full_name: string; email: string | null; phone: string | null };
+  plan: { id: string; code: string; name: string; tier: LoyaltyTier; monthly_fee_cents: number };
+  selections: Record<string, string>;
+  allowances: MembershipAllowance[];
+  /** Monthly washes used / remaining (sum over month-period entitlements). */
+  used: number;
+  remaining: number;
+  open_invoice: MembershipInvoice | null;
+}
+
+export interface EnrolMembershipInput {
+  plan_code: string;
+  selections: Record<string, string>;
+  payment_method: CounterPaymentMethod;
+  client_op_id: string;
+}
+
+/** Pricing response block added to bookings priced for a member. */
+export interface MembershipPricing {
+  plan_code: string;
+  plan_name: string;
+  benefit: MembershipBenefit | null;
+  entitlement_code: string | null;
+  /** Remaining for the entitlement *after* this booking (included only). */
+  remaining_after: number | null;
+  period_end: string | null;
+}
+
+export interface RenewalRunResult {
+  expired: number;
+  invoiced: number;
+  past_due: number;
+  renewed: number;
 }

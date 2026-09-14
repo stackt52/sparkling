@@ -72,6 +72,7 @@ abstract final class SparklingCore {
         customer: DemoCustomerRepository(store),
         catalogue: DemoCatalogueRepository(store),
         loyalty: DemoLoyaltyRepository(store),
+        membership: DemoMembershipRepository(store),
         staff: DemoStaffRepository(store),
         inventory: DemoInventoryRepository(store),
         notifications: DemoNotificationsRepository(store),
@@ -131,6 +132,12 @@ abstract final class SparklingCore {
         uidProvider: uid,
       ),
       loyalty: ApiLoyaltyRepository(
+        api: api,
+        realtime: realtime,
+        cache: cache,
+        uidProvider: uid,
+      ),
+      membership: ApiMembershipRepository(
         api: api,
         realtime: realtime,
         cache: cache,

@@ -19,6 +19,7 @@ class Repositories {
     required this.customer,
     required this.catalogue,
     required this.loyalty,
+    required this.membership,
     required this.staff,
     required this.inventory,
     required this.notifications,
@@ -36,6 +37,7 @@ class Repositories {
   final CustomerRepository customer;
   final CatalogueRepository catalogue;
   final LoyaltyRepository loyalty;
+  final MembershipRepository membership;
   final StaffRepository staff;
   final InventoryRepository inventory;
   final NotificationsRepository notifications;

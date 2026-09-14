@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../models/models.dart';
 
 /// Customer-facing data (CUS-*): profile, vehicles, bookings, quotations,
@@ -26,11 +28,21 @@ abstract interface class CustomerRepository {
   Future<List<Quotation>> quotations();
   Future<Quotation> quotation(String id);
   Future<Quotation> createQuotation(QuotationInput input);
+  /// One-time decision (CUS-033): a second call throws [ApiException]
+  /// `conflict` (409, `data.decided_at` / `data.status`); an expired quote
+  /// throws `gone` (410).
   Future<Quotation> decideQuotation(
     String id, {
     required bool accept,
     String? note,
   });
+
+  /// `GET /quotations/:id/pdf` → PDF bytes.
+  Future<Uint8List> quotationPdf(String id);
+
+  /// Loads an attachment's bytes with the bearer token (`AuthedImage`).
+  /// Demo `demo://photo/<id>` urls are served from memory.
+  Future<Uint8List> photoBytes(String url);
 
   Future<List<PaymentMethod>> paymentMethods();
   Future<PaymentIntentResult> createPaymentIntent({
@@ -52,7 +64,13 @@ abstract interface class CustomerRepository {
 abstract interface class CatalogueRepository {
   Future<List<Outlet>> outlets({double? lat, double? lng});
   Future<Outlet?> outlet(String id);
-  Future<List<OutletService>> outletServices(String outletId);
+  /// The outlet's catalogue: offers grouped by `group_name` with per-size
+  /// prices, composition and add-ons. [vehicleSize] resolves `price_cents`
+  /// for that size (`?vehicle_size`).
+  Future<OutletCatalogue> outletServices(
+    String outletId, {
+    VehicleSize? vehicleSize,
+  });
   Future<List<AvailabilitySlot>> availability({
     required String outletId,
     required String serviceId,
@@ -71,6 +89,42 @@ abstract interface class LoyaltyRepository {
 
   Stream<LoyaltyAccountSummary> watchAccount();
   Stream<List<LedgerEntry>> watchLedger();
+}
+
+/// Membership plans (docs/MEMBERSHIPS.md) — the customer's own plan.
+abstract interface class MembershipRepository {
+  /// The three plans with their groups / entitlements (+ current plan code).
+  Future<MembershipPlanList> plans();
+
+  /// `GET /memberships/me` — [MembershipSummary.none] without a plan.
+  Future<MembershipSummary> me();
+
+  /// `POST /memberships` → pending membership + first invoice + sandbox
+  /// payment intent; confirm it with [CustomerRepository.confirmSandboxPayment]
+  /// to activate. 409 `conflict` when a live membership exists.
+  Future<SubscribeResult> subscribe({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+  });
+
+  /// Sandbox payment intent for a pending (renewal) invoice.
+  Future<PaymentIntentResult> payInvoice(String invoiceId);
+
+  /// 409 `conflict` once anything was redeemed this period.
+  Future<MembershipSummary> changeSelections(Map<String, String> selections);
+
+  /// Upgrade: invoice + payment to confirm now; downgrade: applied at renewal.
+  Future<SubscribeResult> changePlan({
+    required String planCode,
+    required Map<String, String> selections,
+  });
+
+  Future<MembershipSummary> cancel({bool atPeriodEnd = true});
+
+  /// Emits now and after every `memberships` / `membership_usage` /
+  /// `membership_invoices` change.
+  Stream<MembershipSummary> watchMe();
 }
 
 /// Staff operations (STF-*): tasks, checklists, ops summary, team,
@@ -114,6 +168,51 @@ abstract interface class StaffRepository {
     BookingStatus? status,
   });
 
+  // ---- Walk-in customers & bookings (STF-010/012) ---------------------------
+
+  /// Search customers by name, phone, e-mail or plate (min 2 chars).
+  Future<List<CustomerSummary>> searchCustomers(String query, {int? limit});
+
+  /// Registers a walk-in customer. Throws [ApiException] `conflict` with
+  /// `existingCustomer` when the phone / e-mail is already registered.
+  Future<CustomerSummary> createCustomer(CustomerInput input);
+
+  /// Adds a vehicle for [customerId]. 409 `conflict` + `existingVehicleId`
+  /// on a duplicate plate / VIN unless [force].
+  Future<Vehicle> createCustomerVehicle(
+    String customerId,
+    VehicleInput input, {
+    bool force = false,
+  });
+
+  /// Creates a `confirmed` walk-in booking (optionally checked in). When
+  /// offline the operation is queued and an optimistic `pendingSync` copy is
+  /// returned. Throws `conflict` when no bay is free.
+  Future<Booking> createWalkInBooking(WalkInBookingInput input);
+
+  /// Records a cash / card-terminal payment. Queued offline like
+  /// [createWalkInBooking]; the receipt number arrives on sync.
+  Future<Payment> recordPayment(RecordPaymentInput input);
+
+  // ---- Memberships at the counter (docs/MEMBERSHIPS.md) ---------------------
+
+  /// `GET /staff/customers/:id/membership` — same shape as `/memberships/me`.
+  Future<MembershipSummary> customerMembership(String customerId);
+
+  /// Enrols the customer at the counter: active immediately, invoice paid,
+  /// POS payment recorded. Offline the operation is queued
+  /// (`membership.enrol`) and a `pendingSync` summary is returned. 409
+  /// `conflict` when a live membership exists.
+  Future<MembershipSummary> enrolMembership(EnrolMembershipInput input);
+
+  /// Pays a pending renewal invoice at the counter (rolls the period).
+  Future<MembershipSummary> recordMembershipInvoicePayment({
+    required String membershipId,
+    required String invoiceId,
+    required CounterPaymentMethod method,
+    required String clientOpId,
+  });
+
   Future<OpsSummary> opsSummary({required String outletId});
   Future<List<StaffMember>> team({required String outletId});
   Future<LeaderboardResult> leaderboard({
@@ -122,8 +221,42 @@ abstract interface class StaffRepository {
   });
 
   Future<List<Quotation>> quotations({String? outletId});
+  Future<Quotation> quotation(String id);
   Future<Quotation> quoteQuotation(String id, QuoteInput input);
   Future<Quotation> convertQuotation(String id);
+
+  // ---- Staff-raised quotations (STF-010/012, CUS-030..034) ----------------
+
+  /// Raises a `quoted` quotation for a walk-in customer in one step. Offline
+  /// the operation is queued (`quotation.raise`) and an optimistic
+  /// `pendingSync` copy is returned; [deferredPhotos] (local file paths +
+  /// captions) are uploaded once the queued operation is applied.
+  Future<Quotation> raiseQuotation(
+    StaffQuotationInput input, {
+    List<DeferredPhoto> deferredPhotos = const [],
+  });
+
+  /// `POST /quotations/:id/photos` (multipart). Up to 10 per quotation.
+  Future<Attachment> uploadQuotationPhoto(
+    String quotationId,
+    Uint8List bytes, {
+    String? caption,
+    String? mimeType,
+    String? filename,
+  });
+
+  Future<void> deleteQuotationPhoto(String quotationId, String attachmentId);
+
+  /// Rotates the public token and re-sends the WhatsApp/push. Throws
+  /// `rate_limited` within the 60 s cooldown.
+  Future<SharedQuoteLink> shareQuotation(String quotationId);
+
+  Future<Uint8List> quotationPdf(String quotationId);
+
+  /// Attachment bytes with auth (see [CustomerRepository.photoBytes]).
+  Future<Uint8List> photoBytes(String url);
+
+  Stream<List<Quotation>> watchQuotations({String? outletId});
 
   Stream<List<Task>> watchTasks({required TaskScope scope, String? outletId});
   Stream<WorkOrderDetail> watchWorkOrder(String id);
@@ -157,4 +290,18 @@ abstract interface class NotificationsRepository {
   Future<void> markRead(String id);
   Future<int> unreadCount();
   Stream<List<AppNotification>> watch();
+}
+
+/// A damage photo kept on the device until a queued `quotation.raise` is
+/// applied by the server.
+class DeferredPhoto {
+  const DeferredPhoto({required this.path, this.caption});
+  final String path;
+  final String? caption;
+
+  Json toJson() => {'path': path, if (caption != null) 'caption': caption};
+  factory DeferredPhoto.fromJson(Json json) => DeferredPhoto(
+    path: json['path']?.toString() ?? '',
+    caption: json['caption']?.toString(),
+  );
 }

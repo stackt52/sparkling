@@ -6,15 +6,18 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../quotes/quote_request_screen.dart';
 import 'booking_flow.dart';
 import 'booking_widgets.dart';
 
 /// Step 3 of 3 — order summary + payment method + pay (1f).
 ///
-/// Price shown here is an estimate from the catalogue and published tier
-/// discount; the server recomputes it on `POST /bookings` (CUS-022/023) and
-/// the payment is only shown as paid after the (sandbox) webhook confirms it
-/// (CUS-041/042).
+/// Price shown here is an estimate from the catalogue and the customer's
+/// membership benefit (covered service → "Included in your plan", R 0 base;
+/// otherwise the plan discount); the server recomputes it on `POST /bookings`
+/// (CUS-022/023) and the payment is only shown as paid after the (sandbox)
+/// webhook confirms it (CUS-041/042). A booking with nothing to pay is
+/// confirmed without a payment.
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
 
@@ -23,7 +26,7 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  Future<(List<PaymentMethod>, LoyaltyAccountSummary?)>? _data;
+  Future<List<PaymentMethod>>? _data;
   bool _paying = false;
   String? _stage;
 
@@ -35,21 +38,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _data ??= _load();
   }
 
-  Future<(List<PaymentMethod>, LoyaltyAccountSummary?)> _load() async {
+  Future<List<PaymentMethod>> _load() async {
     final repos = context.repos;
+    await _flow.loadMembership();
     final methods = await repos.customer.paymentMethods();
-    LoyaltyAccountSummary? loyalty;
-    try {
-      loyalty = await repos.loyalty.account();
-    } catch (_) {
-      loyalty = null;
-    }
     if (mounted && _flow.methodId == null && methods.isNotEmpty) {
       final def =
           methods.where((m) => m.isDefault).firstOrNull ?? methods.first;
       _flow.setMethod(def.id);
     }
-    return (methods, loyalty);
+    return methods;
   }
 
   Future<void> _pay(int totalCents) async {
@@ -62,6 +60,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       final booking = await repos.customer.createBooking(flow.toInput());
       if (!mounted) return;
+      if (booking.totalCents <= 0) {
+        // Included in the plan — nothing to pay, the booking is confirmed.
+        final detail = await repos.customer.booking(booking.id);
+        if (!mounted) return;
+        AppHaptics.success(context);
+        flow.reset();
+        context.go(Routes.bookDone(booking.id), extra: detail);
+        return;
+      }
       setState(() => _stage = 'Contacting payment provider…');
       final intent = await repos.customer.createPaymentIntent(
         bookingId: booking.id,
@@ -88,7 +95,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
       context.go(Routes.bookDone(booking.id), extra: detail);
     } on ApiException catch (e) {
       if (!mounted) return;
-      if (e.isConflict && e.message.toLowerCase().contains('slot')) {
+      if (e.isByQuote) {
+        // Quote-only service (409 validation_error {reason: by_quote}).
+        showSnack(context, '${e.message} Opening a quote request.');
+        final args = QuoteRequestArgs(
+          service: flow.service,
+          outlet: flow.outlet,
+          vehicle: flow.vehicle,
+        );
+        flow.reset();
+        context.go(Routes.quoteNew, extra: args);
+      } else if (e.isConflict && e.message.toLowerCase().contains('slot')) {
         showSnack(context, '${e.message} Please pick another time.');
         flow.setSlot(null);
         context.go(Routes.bookSlot);
@@ -156,16 +173,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 onBack: _paying ? () {} : null,
               ),
               Expanded(
-                child: AsyncView<(List<PaymentMethod>, LoyaltyAccountSummary?)>(
+                child: AsyncView<List<PaymentMethod>>(
                   future: _data!,
                   onRetry: () => setState(() => _data = _load()),
-                  builder: (context, data) {
-                    final (methods, loyalty) = data;
-                    final price = flow.service!.priceCents;
-                    final tierCfg = loyalty?.currentTierConfig;
-                    final pct = tierCfg?.discountPct ?? 0;
-                    final discount = (price * pct / 100).round();
-                    final total = price - discount;
+                  builder: (context, methods) {
+                    final price = flow.baseCents;
+                    final discount = flow.membershipDiscountCents;
+                    final vat = flow.estimatedVatCents;
+                    final total = flow.estimatedTotalCents;
+                    final nothingToPay = flow.nothingToPay;
                     final selectedMethod = methods
                         .where((m) => m.id == flow.methodId)
                         .firstOrNull;
@@ -180,12 +196,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                 flow: flow,
                                 price: price,
                                 discount: discount,
+                                vat: vat,
                                 total: total,
-                                tierLabel: loyalty?.tier.label,
-                                pct: pct,
                               ),
                               const SizedBox(height: 22),
-                              const SectionHeader(title: 'Payment method'),
+                              if (nothingToPay)
+                                InfoBanner(
+                                  tone: InfoTone.success,
+                                  icon: Symbols.workspace_premium_rounded,
+                                  title: 'Nothing to pay',
+                                  text:
+                                      'This ${flow.service!.name} is included in your ${flow.membership?.planName ?? ''} plan. Confirm to reserve the slot.',
+                                )
+                              else
+                                const SectionHeader(title: 'Payment method'),
+                              if (!nothingToPay)
                               for (final m in methods) ...[
                                 RadioCard(
                                   selected: m.id == flow.methodId,
@@ -283,13 +308,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                     ),
                                   ),
                                 PillButton(
-                                  label:
-                                      'Pay ${Money.formatZar(total)} securely',
-                                  icon: Symbols.lock_rounded,
+                                  label: nothingToPay
+                                      ? 'Confirm booking · included'
+                                      : 'Pay ${Money.formatZar(total)} securely',
+                                  icon: nothingToPay
+                                      ? Symbols.check_rounded
+                                      : Symbols.lock_rounded,
                                   expand: true,
                                   minHeight: 56,
                                   loading: _paying,
-                                  onPressed: selectedMethod == null
+                                  onPressed: selectedMethod == null &&
+                                          !nothingToPay
                                       ? null
                                       : () => _pay(total),
                                 ),
@@ -315,17 +344,15 @@ class _SummaryCard extends StatelessWidget {
     required this.flow,
     required this.price,
     required this.discount,
+    required this.vat,
     required this.total,
-    required this.tierLabel,
-    required this.pct,
   });
 
   final BookingFlowController flow;
   final int price;
   final int discount;
+  final int vat;
   final int total;
-  final String? tierLabel;
-  final int pct;
 
   @override
   Widget build(BuildContext context) {
@@ -378,22 +405,75 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(child: Text(s.name, style: rowStyle)),
+              Expanded(
+                child: Text(
+                  '${s.name} · ${flow.vehicleSize.label.toLowerCase()}',
+                  style: rowStyle,
+                ),
+              ),
               Text(
                 Money.formatZar(price),
                 style: rowStyle.copyWith(color: cs.onSurface),
               ),
             ],
           ),
+          for (final a in flow.addons) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Symbols.add_circle_rounded,
+                  size: 18,
+                  color: cs.onSurfaceVariant,
+                  fill: 1,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(a.name, style: rowStyle)),
+                Text(
+                  Money.formatZar(a.priceFor(flow.vehicleSize) ?? 0),
+                  style: rowStyle.copyWith(color: cs.onSurface),
+                ),
+              ],
+            ),
+          ],
+          if (flow.addons.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Subtotal',
+                    style: rowStyle.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Text(
+                  Money.formatZar(flow.subtotalCents),
+                  style: rowStyle.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (discount > 0) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Symbols.sell_rounded, size: 18, color: x.success, fill: 1),
+                Icon(
+                  flow.isIncluded
+                      ? Symbols.workspace_premium_rounded
+                      : Symbols.sell_rounded,
+                  size: 18,
+                  color: x.success,
+                  fill: 1,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${tierLabel ?? 'Loyalty'} reward · $pct% off',
+                    flow.isIncluded
+                        ? 'Included in your plan · ${flow.membershipLabel?.split(' · ').last ?? ''}'
+                        : '${flow.membershipLabel ?? 'Plan discount'} on this booking',
                     style: rowStyle.copyWith(color: x.success),
                   ),
                 ),
@@ -403,6 +483,20 @@ class _SummaryCard extends StatelessWidget {
                     color: x.success,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+              ],
+            ),
+          ],
+          if (vat > 0) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('VAT ${VatMode.vatPct}%', style: rowStyle),
+                ),
+                Text(
+                  Money.formatZar(vat),
+                  style: rowStyle.copyWith(color: cs.onSurface),
                 ),
               ],
             ),

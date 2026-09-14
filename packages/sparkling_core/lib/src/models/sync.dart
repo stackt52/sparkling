@@ -18,6 +18,20 @@ abstract final class SyncKinds {
   static const String vehicleCreate = 'vehicle.create';
   static const String taskAssign = 'task.assign';
   static const String notificationRead = 'notification.read';
+
+  /// Staff walk-in booking (`POST /bookings` with `walk_in: true`).
+  static const String bookingCreateWalkIn = 'booking.create_walk_in';
+
+  /// Staff POS payment attestation (`POST /payments/record`).
+  static const String paymentRecord = 'payment.record';
+
+  /// Staff-raised quotation (`POST /quotations` with `items`); damage photos
+  /// are uploaded after the operation is applied.
+  static const String quotationRaise = 'quotation.raise';
+
+  /// Counter enrolment in a membership plan
+  /// (`POST /staff/customers/:id/membership`).
+  static const String membershipEnrol = 'membership.enrol';
 }
 
 /// Per-operation result of `POST /sync/batch`.

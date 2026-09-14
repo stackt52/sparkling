@@ -27,3 +27,7 @@ export const pagination = z.object({
   sort: z.string().optional(),
 });
 export const nonEmpty = z.string().trim().min(1);
+/** Catalogue pricing model enums (migration 0008). */
+export const vehicleSize = z.enum(['small', 'large', 'bike']);
+export const pricingMode = z.enum(['from', 'fixed', 'by_quote']);
+export const vatMode = z.enum(['incl', 'excl']);

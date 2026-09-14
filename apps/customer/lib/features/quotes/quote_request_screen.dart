@@ -11,9 +11,20 @@ import '../../app/router.dart';
 import '../../widgets/common.dart';
 import '../booking/booking_widgets.dart';
 
+/// Prefill for [QuoteRequestScreen] when a by-quote catalogue offer was
+/// tapped on the service list (`extra` of `/quotes/new`).
+class QuoteRequestArgs {
+  const QuoteRequestArgs({this.service, this.outlet, this.vehicle});
+  final OutletService? service;
+  final Outlet? outlet;
+  final Vehicle? vehicle;
+}
+
 /// Repair quote request (1j, CUS-030..033).
 class QuoteRequestScreen extends StatefulWidget {
-  const QuoteRequestScreen({super.key});
+  const QuoteRequestScreen({super.key, this.args});
+
+  final QuoteRequestArgs? args;
 
   static const int maxPhotos = 6;
 
@@ -67,17 +78,26 @@ class _QuoteRequestScreenState extends State<QuoteRequestScreen> {
       final vehicles = results[0] as List<Vehicle>;
       final outlets = results[1] as List<Outlet>;
       final draft = repos.drafts.load(_draftKey);
+      final args = widget.args;
+      final preselected = args?.service;
       setState(() {
         _vehicles = vehicles;
         _outlets = outlets;
         _vehicle =
+            vehicles.where((v) => v.id == args?.vehicle?.id).firstOrNull ??
             vehicles.where((v) => v.id == draft?['vehicle_id']).firstOrNull ??
             vehicles.firstOrNull;
         _outlet =
+            outlets.where((o) => o.id == args?.outlet?.id).firstOrNull ??
             outlets.where((o) => o.id == draft?['outlet_id']).firstOrNull ??
             context.bookingFlow.outlet ??
             outlets.firstOrNull;
-        if (draft != null) {
+        if (preselected != null) {
+          // A by-quote offer was tapped: preselect the category and start
+          // the description with the requested service.
+          _categories.add(QuoteCategories.categoryForServiceCode(preselected.code));
+          _description.text = 'Quote for ${preselected.name}. ';
+        } else if (draft != null) {
           _description.text = draft['description']?.toString() ?? '';
           _categories.addAll(
             (draft['categories'] as List?)?.map((e) => e.toString()) ??
@@ -234,6 +254,17 @@ class _QuoteRequestScreenState extends State<QuoteRequestScreen> {
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                       children: [
+                        if (widget.args?.service case final s?) ...[
+                          InfoBanner(
+                            key: const ValueKey('quote-preselected-service'),
+                            tone: InfoTone.azure,
+                            icon: Symbols.request_quote_rounded,
+                            title: s.name,
+                            text:
+                                'Priced by quote${s.isExclVat ? ' (excl. VAT)' : ''} — an estimator confirms the price after looking at your ${_vehicle?.shortName ?? 'vehicle'}.',
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         ListTileCard(
                           onTap: _pickVehicle,
                           leading: Icon(

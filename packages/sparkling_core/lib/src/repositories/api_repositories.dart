@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import '../api/api_exception.dart';
 import '../api/sparkling_api.dart';
@@ -114,6 +116,21 @@ abstract class _ApiRepositoryBase {
   }
 }
 
+/// Attachment bytes via the API (bearer auth). `demo://` urls only exist on
+/// demo data and cannot be fetched live.
+Future<Uint8List> _photoBytes(SparklingApi api, String url) {
+  if (url.startsWith('demo://')) {
+    return Future.error(
+      const ApiException(
+        code: 'not_found',
+        message: 'Demo photo not available in live mode.',
+        statusCode: 404,
+      ),
+    );
+  }
+  return api.quotationPhotoBytes(url);
+}
+
 class ApiCustomerRepository extends _ApiRepositoryBase
     implements CustomerRepository {
   ApiCustomerRepository({
@@ -218,6 +235,12 @@ class ApiCustomerRepository extends _ApiRepositoryBase
   );
 
   @override
+  Future<Uint8List> quotationPdf(String id) => api.quotationPdf(id);
+
+  @override
+  Future<Uint8List> photoBytes(String url) => _photoBytes(api, url);
+
+  @override
   Future<List<PaymentMethod>> paymentMethods() => api.paymentMethods();
 
   @override
@@ -301,13 +324,17 @@ class ApiCatalogueRepository extends _ApiRepositoryBase
       (await outlets()).where((o) => o.id == id).firstOrNull;
 
   @override
-  Future<List<OutletService>> outletServices(String outletId) => cached(
-    'outlet_services:$outletId',
-    () => api.outletServices(outletId),
-    encode: (l) => l.map((s) => s.toJson()).toList(),
-    decode: (d) => (d as List)
-        .map((m) => OutletService.fromJson(Map<String, dynamic>.from(m as Map)))
-        .toList(),
+  Future<OutletCatalogue> outletServices(
+    String outletId, {
+    VehicleSize? vehicleSize,
+  }) => cached(
+    'outlet_services:$outletId:${vehicleSize?.db ?? 'any'}',
+    () => api.outletServices(outletId, vehicleSize: vehicleSize),
+    encode: (c) => c.toJson(),
+    decode: (d) => OutletCatalogue.fromJson(
+      Map<String, dynamic>.from(d as Map),
+      outletId: outletId,
+    ),
   );
 
   @override
@@ -356,13 +383,78 @@ class ApiLoyaltyRepository extends _ApiRepositoryBase
 
   @override
   Stream<LoyaltyAccountSummary> watchAccount() =>
-      refetchOn(realtime?.loyaltyLedger(uid), account);
+      refetchOn(realtime?.loyaltyActivity(uid), account);
 
   @override
   Stream<List<LedgerEntry>> watchLedger() => refetchOn(
     realtime?.loyaltyLedger(uid),
     () async => (await ledger(limit: 50)).items,
   );
+}
+
+class ApiMembershipRepository extends _ApiRepositoryBase
+    implements MembershipRepository {
+  ApiMembershipRepository({
+    required super.api,
+    super.realtime,
+    super.cache,
+    required super.uidProvider,
+  });
+
+  @override
+  Future<MembershipPlanList> plans() => cached(
+    'membership:plans',
+    api.membershipPlans,
+    encode: (p) => p.toJson(),
+    decode: (d) =>
+        MembershipPlanList.fromJson(Map<String, dynamic>.from(d as Map)),
+  );
+
+  @override
+  Future<MembershipSummary> me() => cached(
+    'membership:me',
+    api.membershipMe,
+    encode: (m) => m.toJson(),
+    decode: (d) =>
+        MembershipSummary.fromJson(Map<String, dynamic>.from(d as Map)),
+  );
+
+  @override
+  Future<SubscribeResult> subscribe({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+  }) => api.subscribeMembership(
+    planCode: planCode,
+    selections: selections,
+    clientOpId: clientOpId,
+  );
+
+  @override
+  Future<PaymentIntentResult> payInvoice(String invoiceId) =>
+      api.payMembershipInvoice(invoiceId, idempotencyKey: SparklingApi.newOpId());
+
+  @override
+  Future<MembershipSummary> changeSelections(Map<String, String> selections) =>
+      api.updateMembershipSelections(selections);
+
+  @override
+  Future<SubscribeResult> changePlan({
+    required String planCode,
+    required Map<String, String> selections,
+  }) => api.changeMembershipPlan(
+    planCode: planCode,
+    selections: selections,
+    idempotencyKey: SparklingApi.newOpId(),
+  );
+
+  @override
+  Future<MembershipSummary> cancel({bool atPeriodEnd = true}) =>
+      api.cancelMembership(atPeriodEnd: atPeriodEnd);
+
+  @override
+  Stream<MembershipSummary> watchMe() =>
+      refetchOn(realtime?.membershipActivity(uid), api.membershipMe);
 }
 
 class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
@@ -373,7 +465,65 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     super.queue,
     super.connectivity,
     required super.uidProvider,
-  });
+  }) {
+    _deferredSub = queue?.changes.listen((_) => unawaited(_uploadDeferred()));
+  }
+
+  StreamSubscription<List<QueuedOperation>>? _deferredSub;
+  final Set<String> _deferredInFlight = {};
+
+  static String _deferredKey(String clientOpId) => 'deferred_photos:$clientOpId';
+
+  /// Damage photos kept locally for queued `quotation.raise` operations are
+  /// uploaded (best effort, sequentially) once the server has applied the
+  /// operation and handed back the quotation id.
+  Future<void> _uploadDeferred() async {
+    final q = queue;
+    final c = cache;
+    if (q == null || c == null) return;
+    for (final op in q.all) {
+      if (op.kind != SyncKinds.quotationRaise ||
+          op.status != QueuedOpStatus.succeeded) {
+        continue;
+      }
+      final key = _deferredKey(op.clientOpId);
+      final entry = c.get(key);
+      if (entry == null || _deferredInFlight.contains(op.clientOpId)) continue;
+      final quotationId =
+          op.result?['id']?.toString() ??
+          (op.result?['quotation'] is Map
+              ? (op.result!['quotation'] as Map)['id']?.toString()
+              : null);
+      if (quotationId == null) continue;
+      _deferredInFlight.add(op.clientOpId);
+      try {
+        final photos = (entry.data as List? ?? const [])
+            .map((m) => DeferredPhoto.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList();
+        for (final p in photos) {
+          try {
+            final file = File(p.path);
+            if (!file.existsSync()) continue;
+            await api.uploadQuotationPhoto(
+              quotationId,
+              path: p.path,
+              caption: p.caption,
+            );
+          } on ApiException catch (e) {
+            if (e.isNetwork) return; // try again on the next queue change
+            // Rejected (too large / limit reached): skip this photo.
+          }
+        }
+        await c.remove(key);
+        await cache?.remove('quotation:$quotationId');
+      } finally {
+        _deferredInFlight.remove(op.clientOpId);
+      }
+    }
+  }
+
+  /// Stops the deferred-photo listener (tests).
+  Future<void> dispose() async => _deferredSub?.cancel();
 
   @override
   Future<List<Task>> tasks({required TaskScope scope, String? outletId}) =>
@@ -518,6 +668,130 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   )).items;
 
   @override
+  Future<List<CustomerSummary>> searchCustomers(String query, {int? limit}) =>
+      api.searchCustomers(query, limit: limit);
+
+  @override
+  Future<CustomerSummary> createCustomer(CustomerInput input) =>
+      api.createCustomer(input);
+
+  @override
+  Future<Vehicle> createCustomerVehicle(
+    String customerId,
+    VehicleInput input, {
+    bool force = false,
+  }) => api.createCustomerVehicle(customerId, input, force: force);
+
+  @override
+  Future<Booking> createWalkInBooking(WalkInBookingInput input) {
+    final now = DateTime.now();
+    final start = input.slotStart ?? now;
+    final optimistic = Booking(
+      id: 'pending_${input.clientOpId}',
+      ref: 'Pending sync',
+      customerId: input.customerId,
+      status: BookingStatus.confirmed,
+      slotStart: start,
+      slotEnd: start.add(const Duration(minutes: 30)),
+      vehicleId: input.vehicleId,
+      outletId: input.outletId,
+      serviceId: input.serviceId,
+      clientOpId: input.clientOpId,
+      createdAt: now,
+      updatedAt: now,
+      pendingSync: true,
+    );
+    return queueIfOffline(
+      call: () => api.createWalkInBooking(input),
+      kind: SyncKinds.bookingCreateWalkIn,
+      payload: input.toJson(),
+      clientOpId: input.clientOpId,
+      optimistic: optimistic,
+      label: 'Walk-in booking${input.checksIn ? ' + check-in' : ''}',
+    );
+  }
+
+  @override
+  Future<Payment> recordPayment(RecordPaymentInput raw) {
+    // A booking id of `pending_<op>` means the walk-in itself is still in the
+    // queue — carry its op id so the batch can resolve the server row.
+    final input = raw.bookingId.startsWith('pending_')
+        ? raw.copyWith(
+            bookingClientOpId: raw.bookingId.substring('pending_'.length),
+          )
+        : raw;
+    final now = DateTime.now();
+    final optimistic = Payment(
+      id: 'pending_${input.idempotencyKey}',
+      bookingId: input.bookingId,
+      customerId: '',
+      provider: 'pos',
+      amountCents: input.amountCents,
+      status: PaymentStatus.pending,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: now,
+      updatedAt: now,
+      pendingSync: true,
+    );
+    return queueIfOffline(
+      call: () => api.recordPayment(input),
+      kind: SyncKinds.paymentRecord,
+      payload: input.toJson(),
+      clientOpId: input.idempotencyKey,
+      optimistic: optimistic,
+      label: '${input.method.label} payment ${Money.formatZar(input.amountCents)}',
+    );
+  }
+
+  @override
+  Future<MembershipSummary> customerMembership(String customerId) =>
+      api.staffCustomerMembership(customerId);
+
+  @override
+  Future<MembershipSummary> enrolMembership(EnrolMembershipInput input) {
+    final now = DateTime.now();
+    final optimistic = MembershipSummary(
+      membership: Membership(
+        id: 'pending_${input.clientOpId}',
+        ref: 'Pending sync',
+        customerId: input.customerId,
+        planId: '',
+        planCode: input.planCode,
+        status: MembershipStatus.active,
+        startedAt: now,
+        currentPeriodStart: now,
+        paymentMethod: input.paymentMethod.stored,
+        clientOpId: input.clientOpId,
+        createdAt: now,
+        updatedAt: now,
+        pendingSync: true,
+      ),
+      selections: input.selections,
+    );
+    return queueIfOffline(
+      call: () => api.staffEnrolMembership(input),
+      kind: SyncKinds.membershipEnrol,
+      payload: input.toJson(),
+      clientOpId: input.clientOpId,
+      optimistic: optimistic,
+      label: 'Enrol in ${input.planCode} plan (${input.paymentMethod.label})',
+    );
+  }
+
+  @override
+  Future<MembershipSummary> recordMembershipInvoicePayment({
+    required String membershipId,
+    required String invoiceId,
+    required CounterPaymentMethod method,
+    required String clientOpId,
+  }) => api.staffRecordMembershipInvoicePayment(
+    membershipId: membershipId,
+    invoiceId: invoiceId,
+    method: method,
+    clientOpId: clientOpId,
+  );
+
+  @override
   Future<OpsSummary> opsSummary({required String outletId}) => cached(
     'ops:$outletId',
     () => api.opsSummary(outletId: outletId),
@@ -546,12 +820,120 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
       (await api.quotations(outletId: outletId, limit: 100)).items;
 
   @override
+  Future<Quotation> quotation(String id) => cached(
+    'quotation:$id',
+    () => api.quotation(id),
+    encode: (q) => q.toJson(),
+    decode: (d) => Quotation.fromJson(Map<String, dynamic>.from(d as Map)),
+  );
+
+  @override
   Future<Quotation> quoteQuotation(String id, QuoteInput input) =>
       api.quoteQuotation(id, input, idempotencyKey: SparklingApi.newOpId());
 
   @override
   Future<Quotation> convertQuotation(String id) =>
       api.convertQuotation(id, idempotencyKey: SparklingApi.newOpId());
+
+  @override
+  Future<Quotation> raiseQuotation(
+    StaffQuotationInput input, {
+    List<DeferredPhoto> deferredPhotos = const [],
+  }) async {
+    final now = DateTime.now();
+    final optimistic = Quotation(
+      id: 'pending_${input.clientOpId}',
+      ref: 'Pending sync',
+      customerId: input.customerId,
+      vehicleId: input.vehicleId,
+      outletId: input.outletId,
+      category: input.category,
+      description: input.description,
+      status: QuotationStatus.quoted,
+      amountCents: input.totalCents,
+      lineItems: input.items.map((i) => i.toLineItem()).toList(),
+      assessorId: uid,
+      validUntil: input.validUntil,
+      quotedAt: now,
+      itemsNote: input.itemsNote,
+      clientOpId: input.clientOpId,
+      createdAt: now,
+      updatedAt: now,
+      pendingSync: true,
+    );
+    // Photos travel with the queued op only locally (never in the batch).
+    if (deferredPhotos.isNotEmpty && queue != null) {
+      await cache?.put(
+        _deferredKey(input.clientOpId),
+        deferredPhotos.map((p) => p.toJson()).toList(),
+      );
+    }
+    final result = await queueIfOffline(
+      call: () => api.raiseQuotation(input),
+      kind: SyncKinds.quotationRaise,
+      payload: input.toJson(),
+      clientOpId: input.clientOpId,
+      optimistic: optimistic,
+      label: 'Quote ${Money.formatZar(input.totalCents)}',
+    );
+    if (!result.pendingSync) {
+      await cache?.remove(_deferredKey(input.clientOpId));
+    }
+    return result;
+  }
+
+  @override
+  Future<Attachment> uploadQuotationPhoto(
+    String quotationId,
+    Uint8List bytes, {
+    String? caption,
+    String? mimeType,
+    String? filename,
+  }) async {
+    final a = await api.uploadQuotationPhoto(
+      quotationId,
+      bytes: bytes,
+      caption: caption,
+      mimeType: mimeType,
+      filename: filename,
+    );
+    await cache?.remove('quotation:$quotationId');
+    return a;
+  }
+
+  @override
+  Future<void> deleteQuotationPhoto(
+    String quotationId,
+    String attachmentId,
+  ) async {
+    await api.deleteQuotationPhoto(quotationId, attachmentId);
+    await cache?.remove('quotation:$quotationId');
+  }
+
+  @override
+  Future<SharedQuoteLink> shareQuotation(String quotationId) =>
+      api.shareQuotation(quotationId);
+
+  @override
+  Future<Uint8List> quotationPdf(String quotationId) =>
+      api.quotationPdf(quotationId);
+
+  @override
+  Future<Uint8List> photoBytes(String url) => _photoBytes(api, url);
+
+  @override
+  Stream<List<Quotation>> watchQuotations({String? outletId}) {
+    final rt = realtime;
+    Stream<RealtimeChange>? trigger;
+    if (rt != null) {
+      trigger = rt.watchTable(
+        'quotations',
+        filterColumn: outletId == null ? null : 'outlet_id',
+        value: outletId,
+      );
+    }
+    return refetchOn(trigger, () => quotations(outletId: outletId));
+  }
 
   @override
   Stream<List<Task>> watchTasks({required TaskScope scope, String? outletId}) {

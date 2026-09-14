@@ -5,6 +5,50 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../../widgets/vehicle_size_selector.dart';
+
+/// `R 198.00` → `R 198` style compact amount used in bottom bars.
+String compactZar(int cents) =>
+    Money.formatZarCompact(cents).replaceFirst('R', 'R ');
+
+/// "Earn 22 pts" white/high-surface chip shown on the selected service (1b).
+class PointsChip extends StatelessWidget {
+  const PointsChip({super.key, required this.points});
+  final int points;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: ShapeDecoration(
+        color: context.isDark ? cs.surfaceContainerHigh : Colors.white,
+        shape: const StadiumBorder(),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Symbols.sell_rounded,
+            size: 15,
+            color: context.sparkling.gold,
+            fill: 1,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Earn $points pts',
+            style: SparklingTypography.labelLarge.copyWith(
+              fontSize: 13,
+              color: context.isDark
+                  ? SparklingColors.goldLight
+                  : SparklingColors.onGold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Header + 3-segment progress strip shared by the booking steps.
 class BookingStepHeader extends StatelessWidget {
@@ -292,17 +336,25 @@ Future<Vehicle?> showVehiclePicker(
                         v.displayName.isEmpty ? v.shortName : v.displayName,
                       ),
                       subtitle: Text(
-                        v.registrationNo,
+                        '${v.registrationNo} · ${v.sizeClass.label.toLowerCase()} vehicle',
                         style: SparklingTypography.monoBody.copyWith(
                           letterSpacing: 1.2,
                         ),
                       ),
-                      trailing: StatusChip(
-                        label: v.discVerified ? 'Disc verified' : 'Manual',
-                        tone: v.discVerified
-                            ? StatusChipTone.success
-                            : StatusChipTone.neutral,
-                        dense: true,
+                      trailing: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          StatusChip(
+                            label: v.discVerified ? 'Disc verified' : 'Manual',
+                            tone: v.discVerified
+                                ? StatusChipTone.success
+                                : StatusChipTone.neutral,
+                            dense: true,
+                          ),
+                          const SizedBox(height: 4),
+                          VehicleSizeChip(size: v.sizeClass),
+                        ],
                       ),
                     );
                   },

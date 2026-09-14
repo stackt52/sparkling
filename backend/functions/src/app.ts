@@ -15,13 +15,17 @@ import { bookingsRouter } from './routes/bookings.js';
 import { catalogueRouter } from './routes/catalogue.js';
 import { inventoryRouter } from './routes/inventory.js';
 import { loyaltyRouter } from './routes/loyalty.js';
+import { membershipsRouter } from './routes/memberships.js';
+import { staffMembershipsRouter } from './routes/staffMemberships.js';
 import { notificationsRouter, twilioStatusRouter } from './routes/notifications.js';
 import { paymentsRouter, paymentsWebhookRouter } from './routes/payments.js';
+import { publicQuotationsRouter } from './routes/publicQuotations.js';
 import { quotationsRouter } from './routes/quotations.js';
 import { staffRouter } from './routes/staff.js';
 import { syncRouter } from './routes/sync.js';
 import { tasksRouter } from './routes/tasks.js';
 import { vehiclesRouter } from './routes/vehicles.js';
+import { walkInRouter } from './routes/walkIn.js';
 import { workOrdersRouter } from './routes/workOrders.js';
 
 export function createApp(): Express {
@@ -47,6 +51,8 @@ export function createApp(): Express {
   });
   v1.use(paymentsWebhookRouter);
   v1.use(twilioStatusRouter);
+  // Public quote page (token link; rate-limited per IP + token; no auth).
+  v1.use('/public/quotations', publicQuotationsRouter);
 
   // Everything else: JSON body, Firebase auth, idempotency.
   v1.use(express.json({ limit: '1mb' }));
@@ -59,8 +65,11 @@ export function createApp(): Express {
   v1.use(quotationsRouter);
   v1.use(paymentsRouter);
   v1.use(loyaltyRouter);
+  v1.use(membershipsRouter);
   v1.use(tasksRouter);
   v1.use(workOrdersRouter);
+  v1.use(walkInRouter);
+  v1.use(staffMembershipsRouter);
   v1.use(staffRouter);
   v1.use(inventoryRouter);
   v1.use(adminRouter);

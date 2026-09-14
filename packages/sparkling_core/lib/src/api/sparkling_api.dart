@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
@@ -277,20 +278,18 @@ class SparklingApi {
     map: (d) => _list(d).map(Outlet.fromJson).toList(),
   );
 
-  /// `GET /outlets/:id/services`
-  Future<List<OutletService>> outletServices(String outletId) => get(
+  /// `GET /outlets/:id/services?vehicle_size` → `{ data: [offer], groups }`
+  Future<OutletCatalogue> outletServices(
+    String outletId, {
+    VehicleSize? vehicleSize,
+  }) => get(
     '/outlets/$outletId/services',
-    map: (d) {
-      final list = _list(d);
-      return list
-          .map(
-            (m) => OutletService.fromJson({
-              ...m,
-              'outlet_id': m['outlet_id'] ?? outletId,
-            }),
-          )
-          .toList();
-    },
+    query: {'vehicle_size': vehicleSize?.db},
+    map: (d) => OutletCatalogue.fromJson({
+      ..._obj(d),
+      if (d is List) 'data': d,
+      if (vehicleSize != null) 'vehicle_size': vehicleSize.db,
+    }, outletId: outletId),
   );
 
   /// `GET /availability?outlet_id&service_id&date`
@@ -473,6 +472,108 @@ class SparklingApi {
         map: (d) => Quotation.fromJson(_obj(d)),
       );
 
+  // ---- Staff-raised quotations, damage photos & public link ------------------
+
+  static Quotation _quotationOf(dynamic d) {
+    final m = _obj(d);
+    return Quotation.fromJson(m['quotation'] is Map ? _obj(m['quotation']) : m);
+  }
+
+  /// Staff `POST /quotations` — raises a `quoted` quotation (amount = sum of
+  /// items) with a fresh public link; sends `quote_ready` when
+  /// `send_to_customer`.
+  Future<Quotation> raiseQuotation(StaffQuotationInput input) => post(
+    '/quotations',
+    body: input.toJson(),
+    idempotencyKey: input.clientOpId,
+    map: _quotationOf,
+  );
+
+  /// `POST /quotations/:id/photos` (multipart field `photo` + `caption`).
+  /// Pass either [bytes] or a file [path]. → attachment with `url`.
+  Future<Attachment> uploadQuotationPhoto(
+    String id, {
+    Uint8List? bytes,
+    String? path,
+    String? caption,
+    String? mimeType,
+    String? filename,
+  }) async {
+    assert(bytes != null || path != null, 'bytes or path required');
+    final type = mimeType ?? _mimeFor(filename ?? path);
+    final name = filename ?? (path == null ? 'photo.jpg' : path.split('/').last);
+    final media = DioMediaType.parse(type);
+    final file = bytes != null
+        ? MultipartFile.fromBytes(bytes, filename: name, contentType: media)
+        : await MultipartFile.fromFile(path!, filename: name, contentType: media);
+    final form = FormData.fromMap({
+      'photo': file,
+      if (caption != null && caption.trim().isNotEmpty) 'caption': caption.trim(),
+    });
+    return _run(
+      () => dio.post('/quotations/$id/photos', data: form, options: _opts()),
+      (d) {
+        final m = _obj(d);
+        return Attachment.fromJson(
+          m['attachment'] is Map ? _obj(m['attachment']) : m,
+        );
+      },
+    );
+  }
+
+  static String _mimeFor(String? name) {
+    final ext = (name ?? '').split('.').last.toLowerCase();
+    return switch (ext) {
+      'png' => 'image/png',
+      'heic' || 'heif' => 'image/heic',
+      'webp' => 'image/webp',
+      _ => 'image/jpeg',
+    };
+  }
+
+  /// Resolves an API-relative attachment/PDF url against the base URL
+  /// (`/v1/quotations/…` when the base already ends in `/v1`).
+  String resolveApiUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final base = baseUrl;
+    var path = url.startsWith('/') ? url : '/$url';
+    final baseUri = Uri.tryParse(base);
+    final basePath = baseUri?.path ?? '';
+    if (basePath.isNotEmpty && basePath != '/' && path.startsWith(basePath)) {
+      path = path.substring(basePath.length);
+    }
+    return path;
+  }
+
+  /// Streams an attachment (`GET /quotations/:id/photos/:attachmentId`) with
+  /// the bearer token → raw bytes for an `AuthedImage`.
+  Future<Uint8List> quotationPhotoBytes(String url) => _bytes(resolveApiUrl(url));
+
+  /// `DELETE /quotations/:id/photos/:attachmentId` (staff, before decision).
+  Future<void> deleteQuotationPhoto(String id, String attachmentId) =>
+      delete('/quotations/$id/photos/$attachmentId', map: _void);
+
+  /// `POST /quotations/:id/share` → rotates the public token and re-sends the
+  /// `quote_ready` WhatsApp/push. 429 `rate_limited` (1/min).
+  Future<SharedQuoteLink> shareQuotation(String id) => post(
+    '/quotations/$id/share',
+    map: (d) => SharedQuoteLink.fromJson(_obj(d)),
+  );
+
+  /// `GET /quotations/:id/pdf` → PDF bytes (A4 quotation).
+  Future<Uint8List> quotationPdf(String id) => _bytes('/quotations/$id/pdf');
+
+  Future<Uint8List> _bytes(String path) => _run(
+    () => dio.get<List<int>>(
+      path,
+      options: Options(
+        responseType: ResponseType.bytes,
+        headers: {'Accept': '*/*'},
+      ),
+    ),
+    (d) => d is Uint8List ? d : Uint8List.fromList((d as List).cast<int>()),
+  );
+
   // ---------------------------------------------------------------------------
   // Payments
   // ---------------------------------------------------------------------------
@@ -610,6 +711,178 @@ class SparklingApi {
   /// 429 `rate_limited` when re-sent too quickly.
   Future<void> resendPickupOtp(String workOrderId) =>
       post('/work-orders/$workOrderId/pickup/resend', map: _void);
+
+  // ---------------------------------------------------------------------------
+  // Memberships (docs/MEMBERSHIPS.md)
+  // ---------------------------------------------------------------------------
+
+  /// `GET /memberships/plans` → `{ data: Plan[], current_plan_code }`.
+  Future<MembershipPlanList> membershipPlans() => get(
+    '/memberships/plans',
+    map: (d) => MembershipPlanList.fromJson(_obj(d)),
+  );
+
+  /// `GET /memberships/me`.
+  Future<MembershipSummary> membershipMe() => get(
+    '/memberships/me',
+    map: (d) => MembershipSummary.fromJson(_obj(d)),
+  );
+
+  /// `POST /memberships` → 201 `{ membership (pending), invoice, payment }`;
+  /// 409 `conflict` when a live membership exists.
+  Future<SubscribeResult> subscribeMembership({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+    String paymentMethod = 'card',
+  }) => post(
+    '/memberships',
+    body: {
+      'plan_code': planCode,
+      'selections': selections,
+      'payment_method': paymentMethod,
+      'client_op_id': clientOpId,
+    },
+    idempotencyKey: clientOpId,
+    map: (d) => SubscribeResult.fromJson(_obj(d)),
+  );
+
+  /// `POST /memberships/me/invoices/:id/pay` → sandbox payment intent.
+  Future<PaymentIntentResult> payMembershipInvoice(
+    String invoiceId, {
+    String? idempotencyKey,
+  }) => post(
+    '/memberships/me/invoices/$invoiceId/pay',
+    idempotencyKey: idempotencyKey,
+    map: (d) {
+      final m = _obj(d);
+      return PaymentIntentResult.fromJson(
+        m['payment'] is Map ? {...m, ...(_obj(m['payment']))} : m,
+      );
+    },
+  );
+
+  /// `PUT /memberships/me/selections` — 409 when the period has usage.
+  Future<MembershipSummary> updateMembershipSelections(
+    Map<String, String> selections,
+  ) => put(
+    '/memberships/me/selections',
+    body: {'selections': selections},
+    map: (d) => MembershipSummary.fromJson(_obj(d)),
+  );
+
+  /// `POST /memberships/me/change-plan` — upgrade returns an invoice +
+  /// payment to confirm now; a downgrade applies at renewal.
+  Future<SubscribeResult> changeMembershipPlan({
+    required String planCode,
+    required Map<String, String> selections,
+    String? idempotencyKey,
+  }) => post(
+    '/memberships/me/change-plan',
+    body: {'plan_code': planCode, 'selections': selections},
+    idempotencyKey: idempotencyKey,
+    map: (d) => SubscribeResult.fromJson(_obj(d)),
+  );
+
+  /// `POST /memberships/me/cancel { at_period_end }`.
+  Future<MembershipSummary> cancelMembership({bool atPeriodEnd = true}) => post(
+    '/memberships/me/cancel',
+    body: {'at_period_end': atPeriodEnd},
+    map: (d) => MembershipSummary.fromJson(_obj(d)),
+  );
+
+  /// `GET /staff/customers/:id/membership`.
+  Future<MembershipSummary> staffCustomerMembership(String customerId) => get(
+    '/staff/customers/$customerId/membership',
+    map: (d) => MembershipSummary.fromJson(_obj(d)),
+  );
+
+  /// `POST /staff/customers/:id/membership` — counter enrolment; the
+  /// membership is active immediately. 409 `conflict` if one exists.
+  Future<MembershipSummary> staffEnrolMembership(EnrolMembershipInput input) =>
+      post(
+        '/staff/customers/${input.customerId}/membership',
+        body: input.toJson()..remove('customer_id'),
+        idempotencyKey: input.clientOpId,
+        map: (d) => MembershipSummary.fromJson(_obj(d)),
+      );
+
+  /// `POST /staff/memberships/:id/invoices/:invoiceId/record-payment`.
+  Future<MembershipSummary> staffRecordMembershipInvoicePayment({
+    required String membershipId,
+    required String invoiceId,
+    required CounterPaymentMethod method,
+    required String clientOpId,
+  }) => post(
+    '/staff/memberships/$membershipId/invoices/$invoiceId/record-payment',
+    body: {'method': method.db, 'client_op_id': clientOpId},
+    idempotencyKey: clientOpId,
+    map: (d) => MembershipSummary.fromJson(_obj(d)),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Staff — walk-in customers & bookings (STF-010/012)
+  // ---------------------------------------------------------------------------
+
+  /// `GET /staff/customers?search&limit` — name, phone, e-mail or plate
+  /// (min 2 chars).
+  Future<List<CustomerSummary>> searchCustomers(String query, {int? limit}) =>
+      get(
+        '/staff/customers',
+        query: {'search': query.trim(), 'limit': limit},
+        map: (d) => _list(d).map(CustomerSummary.fromJson).toList(),
+      );
+
+  /// `POST /staff/customers` → 201 customer; 409 `conflict` with
+  /// `details.existing_customer` when the phone / e-mail is registered
+  /// (see [ApiException.existingCustomer]).
+  Future<CustomerSummary> createCustomer(CustomerInput input) => post(
+    '/staff/customers',
+    body: input.toJson(),
+    idempotencyKey: input.clientOpId,
+    map: (d) => CustomerSummary.fromJson(_obj(d)),
+  );
+
+  /// `POST /staff/customers/:id/vehicles` — 409 with `existing_vehicle_id`
+  /// on a duplicate plate / VIN unless `force`.
+  Future<Vehicle> createCustomerVehicle(
+    String customerId,
+    VehicleInput input, {
+    bool force = false,
+    String? clientOpId,
+  }) {
+    final opId = clientOpId ?? newOpId();
+    return post(
+      '/staff/customers/$customerId/vehicles',
+      body: {
+        ...input.copyWith(force: force || input.force).toJson(),
+        'client_op_id': opId,
+      },
+      idempotencyKey: opId,
+      map: (d) => Vehicle.fromJson(_obj(d)),
+    );
+  }
+
+  /// `POST /bookings` with `customer_id` + `walk_in: true` (staff). 409
+  /// `conflict` when no bay is free for the slot.
+  Future<Booking> createWalkInBooking(WalkInBookingInput input) => post(
+    '/bookings',
+    body: input.toJson(),
+    idempotencyKey: input.clientOpId,
+    map: (d) => Booking.fromJson(_obj(d)),
+  );
+
+  /// `POST /payments/record` — cash / card-terminal attestation; idempotent
+  /// on `idempotency_key`; amount must equal the booking total.
+  Future<Payment> recordPayment(RecordPaymentInput input) => post(
+    '/payments/record',
+    body: input.toJson(),
+    idempotencyKey: input.idempotencyKey,
+    map: (d) {
+      final m = _obj(d);
+      return Payment.fromJson(m['payment'] is Map ? _obj(m['payment']) : m);
+    },
+  );
 
   /// `POST /sync/batch` (ARC-004)
   Future<List<SyncOperationResult>> syncBatch(List<j.Json> operations) => post(

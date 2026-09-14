@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600" role="img" aria-label="Demo photo: close-up of cracked paint">
+  <defs>
+    <radialGradient id="paint" cx="0.5" cy="0.4" r="0.8"><stop offset="0" stop-color="#9AA5B1"/><stop offset="1" stop-color="#55616D"/></radialGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#paint)"/>
+  <!-- reflection band -->
+  <path d="M0 120 C 200 80, 600 200, 800 140 L 800 200 C 600 260, 200 150, 0 190 Z" fill="#FFFFFF" opacity="0.18"/>
+  <!-- scuff area -->
+  <ellipse cx="420" cy="330" rx="230" ry="120" fill="#C9B79A" opacity="0.85"/>
+  <ellipse cx="420" cy="330" rx="150" ry="70" fill="#B39B78" opacity="0.7"/>
+  <!-- cracks -->
+  <g fill="none" stroke="#2F2418" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M250 300 l 60 20 l 30 -25 l 50 30 l 40 -10 l 60 35 l 45 -15"/>
+    <path d="M330 320 l -20 45 l 30 20"/>
+    <path d="M470 335 l 25 40 l -15 30"/>
+    <path d="M400 305 l 10 -40"/>
+  </g>
+  <circle cx="420" cy="330" r="190" fill="none" stroke="#BA1A1A" stroke-width="5" stroke-dasharray="12 9"/>
+  <rect x="24" y="24" width="330" height="46" rx="23" fill="#203060"/>
+  <text x="189" y="54" font-family="Outfit, system-ui, sans-serif" font-size="20" font-weight="600" text-anchor="middle" fill="#FFFFFF">Demo photo · cracked paint</text>
+</svg>

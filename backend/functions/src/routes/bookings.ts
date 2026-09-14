@@ -3,21 +3,21 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult, parseSort } from '../lib/refs.js';
-import { clientOpId, isoDateTime, pagination, parseBody, parseQuery, uuid } from '../lib/validate.js';
+import { clientOpId, isoDateTime, pagination, parseBody, parseQuery, uuid, vehicleSize } from '../lib/validate.js';
 import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { bookingLimiter } from '../middleware/rateLimit.js';
-import { cancelBooking, checkInBooking, createBooking, rescheduleBooking } from '../services/bookings.js';
+import { attachPricing, cancelBooking, checkInBooking, createBooking, rescheduleBooking } from '../services/bookings.js';
 import { canSeePickupOtp } from '../services/pickup.js';
 import { buildTimeline, loadStepResults, loadTemplateForWorkOrder, progress } from '../services/workflow.js';
-import type { Booking, Payment, WorkOrder } from '../types.js';
+import type { Booking, Payment, Task, WorkOrder } from '../types.js';
 
 export const bookingsRouter = Router();
 bookingsRouter.use('/bookings', requireProfile);
 
 const EXPAND = '*, outlet:outlets(id, name, rating, city, timezone), service:services(id, name, duration_minutes, category, icon), vehicle:vehicles(id, registration_no, make, model, colour)';
 
-async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>) {
+async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>): Promise<Array<Booking & Record<string, unknown>>> {
   if (rows.length === 0) return rows;
   const db = getSupabase();
   const ids = rows.map((r) => r.id);
@@ -30,7 +30,8 @@ async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>) 
   const templateIds = [...new Set(wos.map((w) => w.checklist_template_id).filter(Boolean))] as string[];
   const templates = templateIds.length ? unwrap<Array<{ id: string; steps: unknown[] }>>(await db.from('checklist_templates').select('id, steps').in('id', templateIds), 'templates') : [];
   const stepCount = new Map(templates.map((t) => [t.id, t.steps.length]));
-  return rows.map((b) => {
+  const priced = await attachPricing(rows);
+  return priced.map((b) => {
     const w = byBooking.get(b.id);
     if (!w) return { ...b, work_order: null };
     const done = results.filter((r) => r.work_order_id === w.id && r.status === 'done').length;
@@ -116,14 +117,24 @@ bookingsRouter.get(
   }),
 );
 
+const checkinSchema = z.object({ bay: z.string().trim().max(32).nullable().optional(), priority: z.number().int().min(1).max(3).optional() });
+
 const createSchema = z.object({
   vehicle_id: uuid,
   outlet_id: uuid,
   service_id: uuid,
-  slot_start: isoDateTime,
+  /** Optional for staff walk-ins (defaults to now rounded up to the outlet slot grid). */
+  slot_start: isoDateTime.optional(),
   client_op_id: clientOpId,
   notes: z.string().trim().max(500).nullable().optional(),
-  customer_id: z.string().optional(),
+  customer_id: z.string().min(1).max(128).optional(),
+  walk_in: z.boolean().optional(),
+  /** Staff only: check the walk-in in immediately (work order + task). */
+  checkin: checkinSchema.optional(),
+  /** Pricing size; defaults to the vehicle's size_class (null → small). */
+  vehicle_size: vehicleSize.optional(),
+  /** Add-ons (`is_addon`, same group as the service) priced into the booking. */
+  addon_service_ids: z.array(uuid).max(10).optional(),
 });
 
 bookingsRouter.post(
@@ -131,16 +142,33 @@ bookingsRouter.post(
   bookingLimiter,
   asyncHandler(async (req, res) => {
     const body = parseBody(createSchema, req.body);
-    const { booking, duplicate } = await createBooking(req.ctx, {
+    const staff = isStaff(req.auth!.role);
+    if ((body.walk_in || body.checkin) && !staff) throw ApiError.forbidden('walk_in and checkin are staff-only options');
+    const created = await createBooking(req.ctx, {
       vehicleId: body.vehicle_id,
       outletId: body.outlet_id,
       serviceId: body.service_id,
-      slotStart: body.slot_start,
+      slotStart: body.slot_start ?? null,
       clientOpId: body.client_op_id,
       notes: body.notes,
       customerId: body.customer_id,
+      walkIn: body.walk_in,
+      vehicleSize: body.vehicle_size,
+      addonServiceIds: body.addon_service_ids,
     });
-    res.status(duplicate ? 200 : 201).json({ booking, duplicate });
+    let booking: Booking = created.booking;
+    let work_order: WorkOrder | null = null;
+    let task: Task | null = null;
+    if (body.checkin && ['pending', 'confirmed', 'in_service'].includes(booking.status)) {
+      const checked = await checkInBooking(req.ctx, booking.id, body.checkin);
+      booking = checked.booking;
+      work_order = checked.work_order;
+      task = checked.task;
+    }
+    const db = getSupabase();
+    const full = unwrap<Booking & Record<string, unknown>>(await db.from('bookings').select(EXPAND).eq('id', booking.id).single(), 'booking');
+    const [expanded] = await attachWorkOrders([full]);
+    res.status(created.duplicate ? 200 : 201).json({ booking: expanded, duplicate: created.duplicate, ...(body.checkin ? { work_order, task } : {}) });
   }),
 );
 
@@ -168,7 +196,7 @@ bookingsRouter.post(
   requireStaff,
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
-    const body = parseBody(z.object({ bay: z.string().trim().max(32).nullable().optional(), priority: z.number().int().min(1).max(3).optional() }), req.body);
+    const body = parseBody(checkinSchema, req.body);
     const result = await checkInBooking(req.ctx, id, body);
     res.status(result.created ? 201 : 200).json(result);
   }),

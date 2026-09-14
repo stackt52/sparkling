@@ -2,6 +2,9 @@ import 'package:equatable/equatable.dart';
 
 import 'enums.dart';
 import 'json.dart';
+import 'membership.dart';
+import 'money.dart';
+import 'service.dart';
 
 /// Nested `outlet` in booking payloads.
 class OutletSummary extends Equatable {
@@ -326,6 +329,124 @@ class PaymentSummary extends Equatable {
   List<Object?> get props => [id, status, amountCents, receiptNo];
 }
 
+/// An add-on attached to a booking (`addon_service_ids` expanded).
+class BookingAddon extends Equatable {
+  const BookingAddon({
+    required this.serviceId,
+    required this.name,
+    required this.priceCents,
+  });
+  final String serviceId;
+  final String name;
+  final int priceCents;
+
+  factory BookingAddon.fromJson(Json json) => BookingAddon(
+    serviceId: str(json['service_id'] ?? json['id']),
+    name: str(json['name']),
+    priceCents: intOf(json['price_cents']),
+  );
+  Json toJson() => {
+    'service_id': serviceId,
+    'name': name,
+    'price_cents': priceCents,
+  };
+  @override
+  List<Object?> get props => [serviceId, name, priceCents];
+}
+
+/// Server-side price of a booking before it is created (`priceService`):
+/// base for the vehicle size, add-ons, plan / tier discount, VAT, total,
+/// points and the `membership` block (docs/MEMBERSHIPS.md "Pricing rules").
+class PriceQuote extends Equatable {
+  const PriceQuote({
+    required this.priceCents,
+    required this.totalCents,
+    this.addons = const [],
+    this.addonsCents = 0,
+    this.discountCents = 0,
+    this.discountLabel,
+    this.vatCents = 0,
+    this.pointsPending = 0,
+    this.vehicleSize,
+    this.pricingMode,
+    this.vatMode,
+    this.membership,
+  });
+
+  final int priceCents;
+  final List<BookingAddon> addons;
+  final int addonsCents;
+  final int discountCents;
+
+  /// "Included in Gold · 2 of 4 left" / "Platinum −10%"
+  final String? discountLabel;
+  final int vatCents;
+  final int totalCents;
+  final int pointsPending;
+  final VehicleSize? vehicleSize;
+  final PricingMode? pricingMode;
+  final VatMode? vatMode;
+
+  /// `null` when the customer has no active plan.
+  final BookingMembership? membership;
+
+  int get subtotalCents => priceCents + addonsCents;
+  bool get isIncluded => membership?.isIncluded ?? false;
+  MembershipBenefit? get membershipBenefit => membership?.benefit;
+
+  factory PriceQuote.fromJson(Json json) => PriceQuote(
+    priceCents: intOf(json['price_cents']),
+    addons: asJsonList(json['addons']).map(BookingAddon.fromJson).toList(),
+    addonsCents: intOf(json['addons_cents']),
+    discountCents: intOf(json['discount_cents']),
+    discountLabel: strOrNull(json['discount_label']),
+    vatCents: intOf(json['vat_cents']),
+    totalCents: intOf(json['total_cents']),
+    pointsPending: intOf(json['points_pending']),
+    vehicleSize: json['vehicle_size'] == null
+        ? null
+        : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
+    pricingMode: json['pricing_mode'] == null
+        ? null
+        : PricingMode.fromDb(strOrNull(json['pricing_mode'])),
+    vatMode: json['vat_mode'] == null
+        ? null
+        : VatMode.fromDb(strOrNull(json['vat_mode'])),
+    membership: json['membership'] is Map
+        ? BookingMembership.fromJson(asJson(json['membership']))
+        : null,
+  );
+
+  Json toJson() => compact({
+    'price_cents': priceCents,
+    'addons': addons.map((a) => a.toJson()).toList(),
+    'addons_cents': addonsCents,
+    'discount_cents': discountCents,
+    'discount_label': discountLabel,
+    'vat_cents': vatCents,
+    'total_cents': totalCents,
+    'points_pending': pointsPending,
+    'vehicle_size': vehicleSize?.db,
+    'pricing_mode': pricingMode?.db,
+    'vat_mode': vatMode?.db,
+    'membership': membership?.toJson(),
+  });
+
+  @override
+  List<Object?> get props => [
+    priceCents,
+    addons,
+    addonsCents,
+    discountCents,
+    discountLabel,
+    vatCents,
+    totalCents,
+    pointsPending,
+    vehicleSize,
+    membership,
+  ];
+}
+
 /// `bookings` row plus the expansions from `GET /bookings` and `GET /bookings/:id`
 /// (see the reference payload in docs/API.md).
 class Booking extends Equatable {
@@ -344,6 +465,12 @@ class Booking extends Equatable {
     this.discountCents = 0,
     this.totalCents = 0,
     this.discountLabel,
+    this.vehicleSize,
+    this.pricingMode,
+    this.vatMode,
+    this.addons = const [],
+    this.addonsCents = 0,
+    this.vatCents = 0,
     this.pointsPending = 0,
     this.notes,
     this.cancelReason,
@@ -356,6 +483,11 @@ class Booking extends Equatable {
     this.workOrder,
     this.timeline = const [],
     this.payment,
+    this.pendingSync = false,
+    this.membershipId,
+    this.entitlementId,
+    this.membershipBenefit,
+    this.membership,
   });
 
   final String id;
@@ -375,6 +507,22 @@ class Booking extends Equatable {
   /// e.g. "Gold −10%"
   final String? discountLabel;
 
+  /// Size the price was resolved for (`vehicle_size`).
+  final VehicleSize? vehicleSize;
+
+  /// Pricing basis recorded at booking time.
+  final PricingMode? pricingMode;
+  final VatMode? vatMode;
+
+  /// Add-ons attached to the booking (`addon_service_ids` expanded).
+  final List<BookingAddon> addons;
+
+  /// Sum of the add-on prices (`addons_cents`).
+  final int addonsCents;
+
+  /// VAT added on `excl` totals (`vat_cents`).
+  final int vatCents;
+
   /// Points that post on completion (CUS-064).
   final int pointsPending;
   final String? notes;
@@ -391,6 +539,23 @@ class Booking extends Equatable {
   final List<TimelineEntry> timeline;
   final PaymentSummary? payment;
 
+  /// `true` for the optimistic copy returned while the create is queued
+  /// offline (`booking.create_walk_in`); the server row replaces it on sync.
+  final bool pendingSync;
+
+  /// Plan redemption recorded on the booking (`bookings.membership_id`,
+  /// `entitlement_id`, `membership_benefit`) and the expanded `membership`
+  /// block (docs/MEMBERSHIPS.md).
+  final String? membershipId;
+  final String? entitlementId;
+  final MembershipBenefit? membershipBenefit;
+  final BookingMembership? membership;
+
+  /// The service was covered by the customer's plan (base price waived).
+  bool get isIncluded =>
+      membershipBenefit == MembershipBenefit.included ||
+      (membership?.isIncluded ?? false);
+
   bool get isPaid => payment?.status.isVerified ?? false;
   bool get canCancel => status.canCancel;
   bool get isUpcoming =>
@@ -405,6 +570,20 @@ class Booking extends Equatable {
 
   /// Collection OTP to show at the counter, when [isReadyForCollection].
   String? get pickupOtp => isReadyForCollection ? workOrder!.pickupOtp : null;
+
+  /// Base + add-ons before the tier discount and VAT.
+  int get subtotalCents => priceCents + addonsCents;
+
+  /// `From R 150` / `R 400 excl. VAT` style label for the base price.
+  String get priceLabel {
+    final amount = Money.formatZarCompact(priceCents).replaceFirst('R', 'R ');
+    final prefix = pricingMode == PricingMode.from ? 'From ' : '';
+    final suffix = vatMode == VatMode.excl ? ' excl. VAT' : '';
+    return '$prefix$amount$suffix';
+  }
+
+  bool get hasAddons => addons.isNotEmpty || addonsCents > 0;
+  bool get hasVat => vatCents > 0 || vatMode == VatMode.excl;
 
   /// "Full Valet — Corolla Cross"
   String get title => [
@@ -433,6 +612,18 @@ class Booking extends Equatable {
     discountCents: intOf(json['discount_cents']),
     totalCents: intOf(json['total_cents']),
     discountLabel: strOrNull(json['discount_label']),
+    vehicleSize: json['vehicle_size'] == null
+        ? null
+        : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
+    pricingMode: json['pricing_mode'] == null
+        ? null
+        : PricingMode.fromDb(strOrNull(json['pricing_mode'])),
+    vatMode: json['vat_mode'] == null
+        ? null
+        : VatMode.fromDb(strOrNull(json['vat_mode'])),
+    addons: asJsonList(json['addons']).map(BookingAddon.fromJson).toList(),
+    addonsCents: intOf(json['addons_cents']),
+    vatCents: intOf(json['vat_cents']),
     pointsPending: intOf(json['points_pending']),
     notes: strOrNull(json['notes']),
     cancelReason: strOrNull(json['cancel_reason']),
@@ -455,6 +646,19 @@ class Booking extends Equatable {
     payment: json['payment'] is Map
         ? PaymentSummary.fromJson(asJson(json['payment']))
         : null,
+    pendingSync: boolOf(json['pending_sync']),
+    membershipId: strOrNull(json['membership_id']),
+    entitlementId: strOrNull(json['entitlement_id']),
+    membershipBenefit:
+        MembershipBenefit.fromDb(strOrNull(json['membership_benefit'])) ??
+        (json['membership'] is Map
+            ? MembershipBenefit.fromDb(
+                strOrNull(asJson(json['membership'])['benefit']),
+              )
+            : null),
+    membership: json['membership'] is Map
+        ? BookingMembership.fromJson(asJson(json['membership']))
+        : null,
   );
 
   Json toJson() => compact({
@@ -472,6 +676,15 @@ class Booking extends Equatable {
     'discount_cents': discountCents,
     'total_cents': totalCents,
     'discount_label': discountLabel,
+    'vehicle_size': vehicleSize?.db,
+    'pricing_mode': pricingMode?.db,
+    'vat_mode': vatMode?.db,
+    'addons': addons.isEmpty ? null : addons.map((a) => a.toJson()).toList(),
+    'addon_service_ids': addons.isEmpty
+        ? null
+        : addons.map((a) => a.serviceId).toList(),
+    'addons_cents': addonsCents,
+    'vat_cents': vatCents,
     'points_pending': pointsPending,
     'notes': notes,
     'cancel_reason': cancelReason,
@@ -486,6 +699,11 @@ class Booking extends Equatable {
         ? null
         : timeline.map((t) => t.toJson()).toList(),
     'payment': payment?.toJson(),
+    'pending_sync': pendingSync ? true : null,
+    'membership_id': membershipId,
+    'entitlement_id': entitlementId,
+    'membership_benefit': membershipBenefit?.db,
+    'membership': membership?.toJson(),
   });
 
   Booking copyWith({
@@ -507,6 +725,7 @@ class Booking extends Equatable {
     List<TimelineEntry>? timeline,
     PaymentSummary? payment,
     bool clearWorkOrder = false,
+    bool? pendingSync,
   }) => Booking(
     id: id,
     ref: ref,
@@ -522,6 +741,12 @@ class Booking extends Equatable {
     discountCents: discountCents ?? this.discountCents,
     totalCents: totalCents ?? this.totalCents,
     discountLabel: discountLabel ?? this.discountLabel,
+    vehicleSize: vehicleSize,
+    pricingMode: pricingMode,
+    vatMode: vatMode,
+    addons: addons,
+    addonsCents: addonsCents,
+    vatCents: vatCents,
     pointsPending: pointsPending ?? this.pointsPending,
     notes: notes ?? this.notes,
     cancelReason: cancelReason ?? this.cancelReason,
@@ -534,6 +759,11 @@ class Booking extends Equatable {
     workOrder: clearWorkOrder ? null : (workOrder ?? this.workOrder),
     timeline: timeline ?? this.timeline,
     payment: payment ?? this.payment,
+    pendingSync: pendingSync ?? this.pendingSync,
+    membershipId: membershipId,
+    entitlementId: entitlementId,
+    membershipBenefit: membershipBenefit,
+    membership: membership,
   );
 
   @override
@@ -544,11 +774,15 @@ class Booking extends Equatable {
     slotStart,
     slotEnd,
     totalCents,
+    addonsCents,
+    vatCents,
     pointsPending,
     workOrder,
     timeline,
     payment,
     updatedAt,
+    pendingSync,
+    membershipBenefit,
   ];
 }
 
@@ -561,6 +795,8 @@ class BookingInput {
     required this.slotStart,
     required this.clientOpId,
     this.notes,
+    this.vehicleSize,
+    this.addonServiceIds = const [],
   });
 
   final String vehicleId;
@@ -570,6 +806,12 @@ class BookingInput {
   final String clientOpId;
   final String? notes;
 
+  /// Size to price for (defaults to the vehicle's `size_class` server-side).
+  final VehicleSize? vehicleSize;
+
+  /// Add-ons (`is_addon` services of the service's group).
+  final List<String> addonServiceIds;
+
   Json toJson() => compact({
     'vehicle_id': vehicleId,
     'outlet_id': outletId,
@@ -577,6 +819,8 @@ class BookingInput {
     'slot_start': iso(slotStart),
     'client_op_id': clientOpId,
     'notes': notes,
+    'vehicle_size': vehicleSize?.db,
+    'addon_service_ids': addonServiceIds.isEmpty ? null : addonServiceIds,
   });
 
   factory BookingInput.fromJson(Json json) => BookingInput(
@@ -586,5 +830,9 @@ class BookingInput {
     slotStart: dt(json['slot_start']),
     clientOpId: str(json['client_op_id']),
     notes: strOrNull(json['notes']),
+    vehicleSize: json['vehicle_size'] == null
+        ? null
+        : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
+    addonServiceIds: asStringList(json['addon_service_ids']),
   );
 }

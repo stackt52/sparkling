@@ -10,7 +10,11 @@ import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/
 import { ApiError } from '../middleware/errors.js';
 import { logger } from '../middleware/correlation.js';
 import { canTransitionBooking, canTransitionPayment } from '../domain/stateMachines.js';
-import type { Booking, Payment, PaymentStatus } from '../types.js';
+import { assertOutlet } from '../middleware/auth.js';
+import type { Booking, Payment, PaymentStatus, PosPaymentMethod, RequestContext } from '../types.js';
+import { audit } from './audit.js';
+import { getBookingOrThrow } from './bookings.js';
+import { applyMembershipInvoicePaid } from './memberships.js';
 import { formatRand, notify } from './notifications.js';
 
 export type ProviderEventType = 'payment.succeeded' | 'payment.failed' | 'payment.refunded' | 'payment.cancelled';
@@ -181,6 +185,8 @@ async function runSideEffects(payment: Payment, target: PaymentStatus): Promise<
     booking = unwrap<Booking | null>(await db.from('bookings').select('*').eq('id', payment.booking_id).maybeSingle(), 'booking');
   }
   if (target === 'successful') {
+    // Membership invoice settled → invoice paid, membership activated / period rolled (idempotent).
+    if (payment.membership_invoice_id) await applyMembershipInvoicePaid(payment);
     if (booking && booking.status === 'pending' && canTransitionBooking(booking.status, 'confirmed')) {
       await db.from('bookings').update({ status: 'confirmed' }).eq('id', booking.id);
       const [outlet, service] = await Promise.all([
@@ -206,7 +212,7 @@ async function runSideEffects(payment: Payment, target: PaymentStatus): Promise<
       templateKey: 'payment_successful',
       vars: { amount: formatRand(payment.amount_cents), receipt: payment.receipt_no ?? '' },
       dedupeKey: `payment_successful:${payment.id}`,
-      payload: { type: 'payment', payment_id: payment.id, booking_id: payment.booking_id },
+      payload: { type: 'payment', payment_id: payment.id, booking_id: payment.booking_id, membership_invoice_id: payment.membership_invoice_id ?? null },
     });
   } else if (target === 'failed') {
     await notify({
@@ -236,4 +242,112 @@ export async function sandboxConfirm(payment: Payment, outcome: 'succeeded' | 'f
   const ok = provider.verifyWebhook(raw, signature);
   if (!ok) throw ApiError.internal('Sandbox signature verification failed');
   return handleProviderEvent(provider.name, provider.parseEvent(raw), true, event);
+}
+
+// ---------------------------------------------------------------------------
+// POS attestation (STF-012): in-person payments recorded by staff
+// ---------------------------------------------------------------------------
+
+export const POS_PROVIDER = 'pos';
+export const POS_EVENT_TYPE = 'pos.recorded';
+
+export interface RecordPosPaymentInput {
+  bookingId: string;
+  method: PosPaymentMethod;
+  reference?: string | null;
+  amountCents: number;
+  idempotencyKey: string;
+}
+
+/** Payment idempotency keys are scoped per actor, like `/payments/intents`. */
+export function posIdempotencyKey(uid: string, key: string): string {
+  return `${uid}:${key}`;
+}
+
+/**
+ * Records a cash / card-terminal payment for a booking at the staff member's
+ * outlet. Amount must equal the booking total; a booking that already has a
+ * successful payment is refused (409) unless the same idempotency key replays.
+ * Writes `payments` (provider `pos`, `successful`, receipt from
+ * `next_receipt_no()`), a `payment_events` row `pos.recorded`, confirms a
+ * pending booking, sends `payment_successful` and audits `payment.record`.
+ */
+export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaymentInput): Promise<{ payment: Payment; duplicate: boolean }> {
+  const db = getSupabase();
+  const key = posIdempotencyKey(ctx.auth.uid, input.idempotencyKey);
+  const replay = unwrap<Payment | null>(await db.from('payments').select('*').eq('idempotency_key', key).maybeSingle(), 'payment');
+  if (replay) return { payment: replay, duplicate: true };
+
+  const booking = await getBookingOrThrow(input.bookingId);
+  assertOutlet(ctx.auth, booking.outlet_id);
+  if (booking.status === 'cancelled') throw ApiError.conflict('Booking is cancelled', { booking_id: booking.id, status: booking.status });
+  if (input.amountCents !== booking.total_cents) {
+    throw ApiError.validation('amount_cents must equal the booking total', [{ path: 'amount_cents', message: `Expected ${booking.total_cents}`, expected: booking.total_cents, received: input.amountCents }]);
+  }
+  const paid = unwrap<Payment[]>(await db.from('payments').select('*').eq('booking_id', booking.id).eq('status', 'successful'), 'payments');
+  if (paid.length) throw ApiError.conflict('Booking is already paid', { payment: paid[0], payment_id: paid[0].id });
+
+  const now = new Date().toISOString();
+  let payment: Payment | null = null;
+  for (let attempt = 0; attempt < 3 && !payment; attempt++) {
+    const receipt = await nextReceiptNo(db);
+    const res = await db
+      .from('payments')
+      .insert({
+        booking_id: booking.id,
+        customer_id: booking.customer_id,
+        provider: POS_PROVIDER,
+        method: input.method,
+        provider_ref: input.reference?.trim() || null,
+        amount_cents: input.amountCents,
+        currency: 'ZAR',
+        status: 'successful',
+        receipt_no: receipt,
+        idempotency_key: key,
+        verified_at: now,
+        recorded_by: ctx.auth.uid,
+      })
+      .select('*')
+      .single();
+    if (!res.error) {
+      payment = res.data as Payment;
+      break;
+    }
+    if (res.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(res.error, 'record pos payment');
+    if (`${res.error.message} ${res.error.details ?? ''}`.includes('idempotency_key')) {
+      const dup = unwrap<Payment | null>(await db.from('payments').select('*').eq('idempotency_key', key).maybeSingle(), 'payment');
+      if (dup) return { payment: dup, duplicate: true };
+    }
+    // receipt_no raced — allocate another one
+  }
+  if (!payment) throw ApiError.internal('Could not allocate a receipt number');
+
+  const event = await db.from('payment_events').insert({
+    payment_id: payment.id,
+    provider: POS_PROVIDER,
+    provider_event_id: key,
+    event_type: POS_EVENT_TYPE,
+    signature_ok: true,
+    payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, booking_id: booking.id },
+  });
+  if (event.error && event.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(event.error, 'pos payment event');
+
+  if (booking.status === 'pending' && canTransitionBooking(booking.status, 'confirmed')) {
+    await db.from('bookings').update({ status: 'confirmed' }).eq('id', booking.id);
+  }
+  await notify({
+    recipientId: payment.customer_id,
+    templateKey: 'payment_successful',
+    vars: { amount: formatRand(payment.amount_cents), receipt: payment.receipt_no ?? '', method: input.method },
+    dedupeKey: `payment_successful:${payment.id}`,
+    payload: { type: 'payment', payment_id: payment.id, booking_id: payment.booking_id },
+  });
+  await audit(ctx, {
+    action: 'payment.record',
+    entity_type: 'payment',
+    entity_id: payment.id,
+    outlet_id: booking.outlet_id,
+    after: { booking_id: booking.id, booking_ref: booking.ref, amount_cents: payment.amount_cents, method: input.method, reference: payment.provider_ref, receipt_no: payment.receipt_no },
+  });
+  return { payment, duplicate: false };
 }

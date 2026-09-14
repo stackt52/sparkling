@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sparkling_core/sparkling_core.dart';
-import 'package:sparkling_customer/features/loyalty/loyalty_screen.dart';
+import 'package:sparkling_customer/features/membership/membership_screen.dart';
 import 'package:sparkling_customer/features/notifications/notifications_screen.dart';
 import 'package:sparkling_customer/features/tracking/pickup_otp_card.dart';
 import 'package:sparkling_customer/features/vehicles/scan_review_screen.dart';
@@ -96,7 +96,6 @@ void main() {
     await settle(tester);
     expect(find.text('Step 3 of 3 · Payment'), findsOneWidget);
     expect(find.text('Total due'), findsOneWidget);
-    expect(find.textContaining('Gold reward'), findsOneWidget);
 
     await tester.tap(find.textContaining('securely'));
     await settle(tester, total: const Duration(seconds: 4));
@@ -122,28 +121,41 @@ void main() {
       find.textContaining('nothing is committed silently'),
       findsOneWidget,
     );
-    // Thabo already owns KL 45 MN GP → duplicate banner (CUS-015).
+    // Thabo already owns KL 45 MN GP → duplicate banner (CUS-015), below
+    // the size selector in the lazy list.
+    await tester.scrollUntilVisible(
+      find.textContaining('already exists'),
+      160,
+      scrollable: find
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
+          .first,
+    );
     expect(find.textContaining('already exists'), findsOneWidget);
     expect(find.text('Save vehicle'), findsOneWidget);
     expect(find.text('Rescan'), findsOneWidget);
   });
 
-  testWidgets('loyalty screen shows balance and tier', (tester) async {
-    await pumpScreen(tester, repos, const LoyaltyScreen());
+  testWidgets('membership tab shows the plan card and points below', (
+    tester,
+  ) async {
+    await pumpScreen(tester, repos, const MembershipScreen());
     await settle(tester);
 
-    final account = (await tester.runAsync(() => repos.loyalty.account()))!;
-    expect(find.text(Money.formatPoints(account.balance)), findsOneWidget);
-    expect(find.text('Points balance'), findsOneWidget);
-    expect(find.textContaining('to Platinum'), findsOneWidget);
-    expect(find.text('Redeem points'), findsOneWidget);
-    // Ledger sits below the fold of the lazy ListView.
+    expect(find.text('Membership'), findsOneWidget);
+    expect(find.text('Gold member'), findsOneWidget);
+    expect(find.byKey(const ValueKey('allowance-G1')), findsOneWidget);
+    expect(find.textContaining('3 of 4 left'), findsOneWidget);
+    // Points stay below as a secondary section (lazy list → scroll).
     await tester.scrollUntilVisible(
-      find.text('Points activity'),
+      find.text('Points & rewards'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
     await settle(tester, total: const Duration(milliseconds: 500));
-    expect(find.text('Points activity'), findsOneWidget);
+    final account = (await tester.runAsync(() => repos.loyalty.account()))!;
+    expect(find.text('Points balance'), findsOneWidget);
+    expect(find.text(Money.formatPointsLabel(account.balance)), findsOneWidget);
   });
 }

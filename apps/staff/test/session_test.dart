@@ -148,6 +148,7 @@ void main() {
       customer: base.customer,
       catalogue: base.catalogue,
       loyalty: base.loyalty,
+      membership: base.membership,
       staff: base.staff,
       inventory: base.inventory,
       notifications: base.notifications,

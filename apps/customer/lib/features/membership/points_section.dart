@@ -5,21 +5,21 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../widgets/common.dart';
 
-/// Rewards tab (1i): tier card, tier pills, redeemable rewards, ledger.
-class LoyaltyScreen extends StatefulWidget {
-  const LoyaltyScreen({super.key});
+/// Points balance, redeemable rewards and the ledger — the secondary section
+/// of the Membership tab (CUS-060..064; formerly the Rewards tab 1i).
+class PointsSection extends StatefulWidget {
+  const PointsSection({super.key});
 
   @override
-  State<LoyaltyScreen> createState() => _LoyaltyScreenState();
+  State<PointsSection> createState() => _PointsSectionState();
 }
 
-class _LoyaltyScreenState extends State<LoyaltyScreen> {
+class _PointsSectionState extends State<PointsSection> {
   Stream<LoyaltyAccountSummary>? _account;
   Future<List<Reward>>? _rewards;
   Page<LedgerEntry>? _ledger;
   Object? _ledgerError;
   bool _loadingMore = false;
-  int? _tierSegment;
 
   @override
   void didChangeDependencies() {
@@ -82,7 +82,7 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Show this code at the outlet:'),
+              const Text('Show this code at the outlet:'),
               const SizedBox(height: 10),
               KeyValueTile(label: 'Code', value: r.code, mono: true),
               if (r.balanceAfter != null) ...[
@@ -108,198 +108,127 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = context.colors;
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: () async => setState(_init),
-          child: StreamBuilder<LoyaltyAccountSummary>(
-            stream: _account,
-            builder: (context, snap) {
-              final acc = snap.data;
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                children: [
-                  Text(
-                    'Rewards',
-                    style: SparklingTypography.headlineLarge.copyWith(
-                      fontSize: 30,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (snap.hasError && acc == null)
-                    ErrorView(
-                      error: snap.error,
+    return StreamBuilder<LoyaltyAccountSummary>(
+      stream: _account,
+      builder: (context, snap) {
+        final acc = snap.data;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionHeader(title: 'Points & rewards'),
+            if (snap.hasError && acc == null)
+              ErrorView(
+                error: snap.error,
+                compact: true,
+                onRetry: () => setState(_init),
+              )
+            else if (acc == null)
+              const LoadingView(compact: true)
+            else ...[
+              _BalanceCard(account: acc),
+              const SizedBox(height: 18),
+              const SectionHeader(title: 'Redeem points'),
+              FutureBuilder<List<Reward>>(
+                future: _rewards,
+                builder: (context, rs) {
+                  if (rs.hasError) {
+                    return ErrorView(
+                      error: rs.error,
                       compact: true,
-                      onRetry: () => setState(_init),
-                    )
-                  else if (acc == null)
-                    const HeroCard.gold(
-                      child: SizedBox(height: 150, child: LoadingView()),
-                    )
-                  else ...[
-                    _TierCard(account: acc),
-                    const SizedBox(height: 14),
-                    SegmentedPills(
-                      labels: LoyaltyTier.values.map((t) => t.label).toList(),
-                      selected: _tierSegment ?? acc.tier.index,
-                      onSelected: (i) => setState(() => _tierSegment = i),
-                    ),
-                    const SizedBox(height: 10),
-                    _TierBenefits(
-                      account: acc,
-                      tier: LoyaltyTier.values[_tierSegment ?? acc.tier.index],
-                    ),
-                    const SizedBox(height: 22),
-                    const SectionHeader(title: 'Redeem points'),
-                    FutureBuilder<List<Reward>>(
-                      future: _rewards,
-                      builder: (context, rs) {
-                        if (rs.hasError) {
-                          return ErrorView(
-                            error: rs.error,
-                            compact: true,
-                            onRetry: () => setState(
-                              () => _rewards = context.repos.loyalty.rewards(),
-                            ),
-                          );
-                        }
-                        final rewards = rs.data;
-                        if (rewards == null) {
-                          return const LoadingView(compact: true);
-                        }
-                        if (rewards.isEmpty) {
-                          return const EmptyState(
-                            icon: Symbols.redeem_rounded,
-                            title: 'No rewards available yet',
-                          );
-                        }
-                        return _RewardGrid(
-                          rewards: rewards,
-                          account: acc,
-                          onRedeem: (r) => _redeem(r, acc),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 22),
-                    const SectionHeader(title: 'Points activity'),
-                    if (_ledgerError != null)
-                      ErrorView(
-                        error: _ledgerError,
-                        compact: true,
-                        onRetry: _loadLedger,
-                      )
-                    else if (_ledger == null)
-                      const LoadingView(compact: true)
-                    else
-                      _LedgerCard(
-                        page: _ledger!,
-                        loadingMore: _loadingMore,
-                        onLoadMore: _loadMore,
+                      onRetry: () => setState(
+                        () => _rewards = context.repos.loyalty.rewards(),
                       ),
-                  ],
-                ],
-              );
-            },
-          ),
-        ),
-      ),
+                    );
+                  }
+                  final rewards = rs.data;
+                  if (rewards == null) return const LoadingView(compact: true);
+                  if (rewards.isEmpty) {
+                    return const EmptyState(
+                      icon: Symbols.redeem_rounded,
+                      title: 'No rewards available yet',
+                    );
+                  }
+                  return _RewardGrid(
+                    rewards: rewards,
+                    account: acc,
+                    onRedeem: (r) => _redeem(r, acc),
+                  );
+                },
+              ),
+              const SizedBox(height: 22),
+              const SectionHeader(title: 'Points activity'),
+              if (_ledgerError != null)
+                ErrorView(error: _ledgerError, compact: true, onRetry: _loadLedger)
+              else if (_ledger == null)
+                const LoadingView(compact: true)
+              else
+                _LedgerCard(
+                  page: _ledger!,
+                  loadingMore: _loadingMore,
+                  onLoadMore: _loadMore,
+                ),
+            ],
+          ],
+        );
+      },
     );
   }
 }
 
-class _TierCard extends StatelessWidget {
-  const _TierCard({required this.account});
+/// Points balance + the tier's earn rate ("Gold · 1.25× points").
+class _BalanceCard extends StatelessWidget {
+  const _BalanceCard({required this.account});
   final LoyaltyAccountSummary account;
 
   @override
   Widget build(BuildContext context) {
+    final cs = context.colors;
     final acc = account;
-    final progress = acc.progressToNextTier;
-    final white = Colors.white;
-    return HeroCard.gold(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final cfg = acc.currentTierConfig;
+    final rate = cfg == null || cfg.earnMultiplier == 1
+        ? 'Standard points rate'
+        : '${cfg.earnMultiplier}× points as a ${acc.tier.label} member';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainer,
+        borderRadius: BorderRadius.circular(SparklingShapes.card),
+      ),
+      child: Row(
         children: [
-          Row(
-            children: [
-              TierPill(
-                tier: tierKind(acc.tier),
-                label: '${acc.tier.label} member',
-                uppercase: true,
-                icon: null,
-              ),
-              const Spacer(),
-              const SparklingLogo(height: 28, onDark: true),
-            ],
-          ),
-          const SizedBox(height: 22),
-          Text(
-            'Points balance',
-            style: SparklingTypography.bodyLarge.copyWith(
-              fontSize: 16,
-              color: white.withValues(alpha: 0.8),
-            ),
-          ),
-          Text(
-            Money.formatPoints(acc.balance),
-            style: SparklingTypography.displayLarge.copyWith(color: white),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Text(
-                acc.tier.label,
-                style: SparklingTypography.titleMedium.copyWith(color: white),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  acc.nextTierLabel ?? 'Top tier reached',
-                  textAlign: TextAlign.end,
+          TintedIconTile(icon: Symbols.loyalty_rounded, size: 52),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Points balance',
                   style: SparklingTypography.bodyMedium.copyWith(
                     fontSize: 13.5,
-                    color: white.withValues(alpha: 0.85),
+                    color: cs.onSurfaceVariant,
                   ),
                 ),
-              ),
-            ],
+                Text(
+                  Money.formatPointsLabel(acc.balance),
+                  style: SparklingTypography.headlineMedium.copyWith(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+                Text(
+                  rate,
+                  style: SparklingTypography.bodyMedium.copyWith(
+                    fontSize: 13.5,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          LinearLevelBar.progress(
-            value: progress.clamp(0, 1),
-            height: 8,
-            trackColor: white.withValues(alpha: 0.22),
-          ),
+          TierPill(tier: tierKind(acc.tier), icon: null),
         ],
-      ),
-    );
-  }
-}
-
-class _TierBenefits extends StatelessWidget {
-  const _TierBenefits({required this.account, required this.tier});
-  final LoyaltyAccountSummary account;
-  final LoyaltyTier tier;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = context.colors;
-    final cfg = account.tierConfig.where((t) => t.tier == tier).firstOrNull;
-    if (cfg == null) return const SizedBox.shrink();
-    final isCurrent = tier == account.tier;
-    final parts = [
-      cfg.qualifyRange,
-      if (cfg.discountPct > 0) '${cfg.discountPct}% off every wash',
-      if (cfg.earnMultiplier != 1) '${cfg.earnMultiplier}× points',
-    ];
-    return Text(
-      '${isCurrent ? 'Your tier · ' : ''}${parts.join(' · ')}',
-      style: SparklingTypography.bodyMedium.copyWith(
-        fontSize: 13.5,
-        color: cs.onSurfaceVariant,
       ),
     );
   }
@@ -493,8 +422,7 @@ class _RedeemSheet extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: PillButton(
-                    label:
-                        'Redeem ${Money.formatPoints(reward.pointsCost)} pts',
+                    label: 'Redeem ${Money.formatPoints(reward.pointsCost)} pts',
                     expand: true,
                     onPressed: () => Navigator.of(context).pop(true),
                   ),
@@ -569,17 +497,13 @@ class _LedgerRow extends StatelessWidget {
     final e = entry;
     final credit = e.isCredit;
     final color = credit ? x.success : cs.error;
-    final when = e.createdAt == null
-        ? ''
-        : SparklingDates.dayMonth(e.createdAt!);
+    final when = e.createdAt == null ? '' : SparklingDates.dayMonth(e.createdAt!);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
           Icon(
-            credit
-                ? Symbols.add_circle_rounded
-                : Symbols.do_not_disturb_on_rounded,
+            credit ? Symbols.add_circle_rounded : Symbols.do_not_disturb_on_rounded,
             color: color,
             fill: 1,
             size: 26,

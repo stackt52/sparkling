@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../../widgets/vehicle_size_selector.dart';
 
 /// Vehicle list with add (scan / manual), edit and remove.
 class VehiclesScreen extends StatefulWidget {
@@ -199,6 +200,8 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                                   : StatusChipTone.neutral,
                               dense: true,
                             ),
+                            const SizedBox(height: 4),
+                            VehicleSizeChip(size: v.sizeClass),
                             SizedBox(
                               height: 36,
                               child: TextButton(

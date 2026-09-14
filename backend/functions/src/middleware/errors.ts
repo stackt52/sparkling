@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'conflict'
   | 'invalid_transition'
   | 'invalid_otp'
+  | 'gone'
   | 'rate_limited'
   | 'internal';
 
@@ -25,6 +26,7 @@ const STATUS: Record<ErrorCode, number> = {
   conflict: 409,
   invalid_transition: 409,
   invalid_otp: 409,
+  gone: 410,
   rate_limited: 429,
   internal: 500,
 };
@@ -33,11 +35,11 @@ export class ApiError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
   readonly details?: unknown;
-  constructor(code: ErrorCode, message: string, details?: unknown) {
+  constructor(code: ErrorCode, message: string, details?: unknown, status?: number) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
-    this.status = STATUS[code];
+    this.status = status ?? STATUS[code];
     this.details = details;
   }
   static unauthenticated(msg = 'Authentication required') {
@@ -55,11 +57,19 @@ export class ApiError extends Error {
   static conflict(msg: string, details?: unknown) {
     return new ApiError('conflict', msg, details);
   }
+  /** 409 `validation_error`: the request is well-formed but the catalogue refuses it (e.g. a by-quote service). */
+  static validationConflict(msg: string, details?: unknown) {
+    return new ApiError('validation_error', msg, details, 409);
+  }
   static invalidTransition(from: string, to: string, entity = 'entity') {
     return new ApiError('invalid_transition', `Cannot move ${entity} from '${from}' to '${to}'`, { from, to });
   }
   static invalidOtp(msg = 'Incorrect OTP', details?: unknown) {
     return new ApiError('invalid_otp', msg, details);
+  }
+  /** 410: the resource existed but is no longer available (expired link / quote). */
+  static gone(msg = 'No longer available', details?: unknown) {
+    return new ApiError('gone', msg, details);
   }
   static rateLimited(msg = 'Too many requests') {
     return new ApiError('rate_limited', msg);

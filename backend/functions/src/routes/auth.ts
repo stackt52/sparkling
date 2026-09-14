@@ -7,10 +7,13 @@ import { parseBody } from '../lib/validate.js';
 import { loadOutletIds, requireProfile } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { authLimiter } from '../middleware/rateLimit.js';
-import type { Profile, UserRole } from '../types.js';
+import type { AuthContext, Profile, UserRole } from '../types.js';
 import { STAFF_ROLES } from '../types.js';
 import { audit } from '../services/audit.js';
+import { findProfileByContact, isClaimableProfileId, WALK_IN_PREFIX } from '../services/customers.js';
 import { ledgerBalance } from '../services/loyalty.js';
+import { membershipBrief } from '../services/memberships.js';
+import { normalisePhone } from '../lib/whatsapp.js';
 
 export const authRouter = Router();
 
@@ -30,6 +33,26 @@ export async function syncClaims(uid: string, role: UserRole, outletIds: string[
   return true;
 }
 
+/**
+ * Phone number for a first sign-in, normalised to E.164: the Firebase user
+ * record (token claim, then Admin SDK lookup) wins over the request body.
+ */
+async function signUpPhone(auth: AuthContext, bodyPhone: string | undefined): Promise<string | null> {
+  const claim = normalisePhone(auth.tokenClaims.phone_number as string | undefined);
+  if (claim) return claim;
+  try {
+    const fbAuth = firebaseAuth() as { getUser?: (uid: string) => Promise<{ phoneNumber?: string | null }> };
+    if (typeof fbAuth.getUser === 'function') {
+      const user = await fbAuth.getUser(auth.uid);
+      const fromRecord = normalisePhone(user?.phoneNumber);
+      if (fromRecord) return fromRecord;
+    }
+  } catch {
+    /* user record unavailable — fall back to the body */
+  }
+  return normalisePhone(bodyPhone);
+}
+
 authRouter.post(
   '/auth/session',
   authLimiter,
@@ -40,22 +63,30 @@ authRouter.post(
     let profile = auth.profile;
 
     if (!profile) {
-      // Claim a seeded profile with the same e-mail (id starts with `seed_`); FKs cascade on update.
+      // Claim a seeded (`seed_`) or walk-in (`walkin_`) profile by e-mail, else a walk-in by phone;
+      // rewriting `profiles.id` cascades through every FK (bookings, vehicles, points carry over).
+      let claimable: Profile | null = null;
       if (auth.email) {
-        const seeded = unwrap<Profile | null>(await db.from('profiles').select('*').ilike('email', auth.email).maybeSingle(), 'seed lookup');
-        if (seeded && seeded.id.startsWith('seed_')) {
-          profile = unwrap<Profile>(await db.from('profiles').update({ id: auth.uid }).eq('id', seeded.id).select('*').single(), 'claim seed profile');
-          req.log.info({ seed_id: seeded.id }, 'claimed seed profile');
-        } else if (seeded) {
-          throw ApiError.conflict('E-mail already linked to another account');
-        }
+        const byEmail = unwrap<Profile | null>(await db.from('profiles').select('*').ilike('email', auth.email).maybeSingle(), 'seed lookup');
+        if (byEmail && isClaimableProfileId(byEmail.id)) claimable = byEmail;
+        else if (byEmail) throw ApiError.conflict('E-mail already linked to another account');
+      }
+      const phone = await signUpPhone(auth, body.phone);
+      if (!claimable && phone) claimable = await findProfileByContact(phone, null, { onlyPrefix: WALK_IN_PREFIX });
+      if (claimable) {
+        const patch: Partial<Profile> = { id: auth.uid, last_seen_at: new Date().toISOString() };
+        if (auth.email) patch.email = auth.email;
+        if (!claimable.phone && phone) patch.phone = phone;
+        if (body.full_name && claimable.id.startsWith(WALK_IN_PREFIX)) patch.full_name = body.full_name;
+        profile = unwrap<Profile>(await db.from('profiles').update(patch).eq('id', claimable.id).select('*').single(), 'claim profile');
+        req.log.info({ claimed_id: claimable.id, by: claimable.email && auth.email && claimable.email.toLowerCase() === auth.email.toLowerCase() ? 'email' : 'phone' }, 'claimed profile');
       }
       if (!profile) {
         const fullName = body.full_name ?? (auth.tokenClaims.name as string | undefined) ?? auth.email?.split('@')[0] ?? 'Sparkling customer';
         profile = unwrap<Profile>(
           await db
             .from('profiles')
-            .insert({ id: auth.uid, role: 'customer', full_name: fullName, email: auth.email, phone: body.phone ?? null, last_seen_at: new Date().toISOString() })
+            .insert({ id: auth.uid, role: 'customer', full_name: fullName, email: auth.email, phone: phone ?? body.phone ?? null, last_seen_at: new Date().toISOString() })
             .select('*')
             .single(),
           'create profile',
@@ -64,7 +95,7 @@ authRouter.post(
     } else {
       const patch: Partial<Profile> = { last_seen_at: new Date().toISOString() };
       if (body.full_name) patch.full_name = body.full_name;
-      if (body.phone) patch.phone = body.phone;
+      if (body.phone) patch.phone = normalisePhone(body.phone) ?? body.phone;
       if (!profile.email && auth.email) patch.email = auth.email;
       profile = unwrap<Profile>(await db.from('profiles').update(patch).eq('id', auth.uid).select('*').single(), 'update profile');
     }
@@ -93,14 +124,16 @@ authRouter.get(
       ? unwrap<unknown[]>(await db.from('outlets').select('id, code, name, city, timezone').in('id', auth.outletIds), 'outlets')
       : [];
     let loyalty_account: unknown = null;
+    let membership: unknown = null;
     if (auth.role === 'customer') {
       const acct = unwrap<Record<string, unknown> | null>(await db.from('loyalty_accounts').select('*').eq('customer_id', auth.uid).maybeSingle(), 'account');
       if (acct) {
         const { balance, lifetime } = await ledgerBalance(auth.uid);
         loyalty_account = { ...acct, balance_points: balance, lifetime_points: lifetime };
       }
+      membership = await membershipBrief(auth.uid);
     }
-    res.json({ profile: auth.profile, outlets, loyalty_account });
+    res.json({ profile: auth.profile, outlets, loyalty_account, membership });
   }),
 );
 

@@ -139,6 +139,35 @@ class RealtimeService {
   Stream<RealtimeChange> notifications(String uid) =>
       watchTable('notifications', filterColumn: 'recipient_id', value: uid);
 
+  // ---- Memberships (docs/MEMBERSHIPS.md "Realtime") ------------------------
+
+  Stream<RealtimeChange> customerMemberships(String uid) =>
+      watchTable('memberships', filterColumn: 'customer_id', value: uid);
+  Stream<RealtimeChange> customerMembershipInvoices(String uid) => watchTable(
+    'membership_invoices',
+    filterColumn: 'customer_id',
+    value: uid,
+  );
+
+  /// `membership_usage` has no customer column; RLS limits rows to the
+  /// caller's memberships.
+  Stream<RealtimeChange> membershipUsage() => watchTable('membership_usage');
+
+  /// Anything that changes the customer's membership summary.
+  Stream<RealtimeChange> membershipActivity(String uid) => _merge([
+    customerMemberships(uid),
+    customerMembershipInvoices(uid),
+    membershipUsage(),
+  ]);
+
+  /// Ledger, account (tier = plan) and membership changes.
+  Stream<RealtimeChange> loyaltyActivity(String uid) => _merge([
+    loyaltyLedger(uid),
+    loyaltyAccount(uid),
+    customerMemberships(uid),
+    membershipUsage(),
+  ]);
+
   /// Step results for one work order (customer timeline / staff checklist).
   Stream<RealtimeChange> stepResults(String workOrderId) => watchTable(
     'checklist_step_results',

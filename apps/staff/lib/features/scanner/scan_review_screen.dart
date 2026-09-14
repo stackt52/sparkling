@@ -8,6 +8,8 @@ import '../../app/scope.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/segmented_pills.dart';
+import '../quote/raise_quote_controller.dart';
+import '../walk_in/walk_in_screen.dart';
 
 /// Arguments for [ScanReviewScreen].
 class ScanReviewArgs {
@@ -184,6 +186,14 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
               ),
               const SizedBox(height: 10),
             ],
+            KeyValueTile(
+              label: 'Vehicle size',
+              value: VehicleSize.fromDiscDescription(r.description).label,
+              helper: r.description == null
+                  ? 'Default — no description on the disc'
+                  : 'From "${r.description}" · sets the small / large price',
+            ),
+            const SizedBox(height: 10),
             if (expiry != null) ...[
               KeyValueTile(
                 label: 'Disc expiry',
@@ -214,16 +224,41 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         InfoBanner(
-                          tone: InfoTone.warning,
+                          tone: InfoTone.info,
                           bordered: true,
+                          icon: Symbols.person_add_rounded,
                           title: 'No booking for ${r.registrationNoFormatted}',
                           text:
-                              'No active booking at this outlet today. Walk-in '
-                              'check-in is not available in the staff API yet — '
-                              'ask the customer to book in the app or create the '
-                              'booking from the admin dashboard.',
+                              'No active booking at this outlet today. Create '
+                              'a walk-in booking or raise a repair quote — the '
+                              'scanned disc is carried over, you only pick or '
+                              'register the customer.',
                         ),
                         const SizedBox(height: 14),
+                        PillButton(
+                          label: 'Create walk-in booking',
+                          icon: Symbols.person_add_rounded,
+                          expand: true,
+                          minHeight: 56,
+                          onPressed: () => context.push(
+                            Routes.walkIn,
+                            extra: WalkInArgs(scanned: r),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        PillButton(
+                          key: const ValueKey('scan-raise-quote'),
+                          label: 'Raise quote',
+                          icon: Symbols.request_quote_rounded,
+                          variant: PillButtonVariant.tonal,
+                          expand: true,
+                          minHeight: 52,
+                          onPressed: () => context.push(
+                            Routes.quoteNew,
+                            extra: RaiseQuoteArgs(scanned: r),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         PillButton(
                           label: 'Rescan',
                           icon: Symbols.refresh_rounded,

@@ -32,6 +32,11 @@ const DEFAULT_UNIQUE: Record<string, string[][]> = {
   reward_redemptions: [['code']],
   device_tokens: [['token']],
   profiles: [['id']],
+  memberships: [['client_op_id']],
+  membership_usage: [['idempotency_key']],
+  membership_invoices: [['idempotency_key']],
+  membership_selections: [['membership_id', 'group_id']],
+  membership_entitlement_services: [['entitlement_id', 'service_id']],
 };
 
 function uniqueError(cols: string[]) {
@@ -247,6 +252,8 @@ export class FakeSupabase {
     if (table === 'bookings' && !row.ref) row.ref = `SPK-2026-${String(1000 + this.rows(table).length).padStart(4, '0')}`;
     if (table === 'work_orders' && !row.ref) row.ref = `WO-2026-${String(4000 + this.rows(table).length).padStart(4, '0')}`;
     if (table === 'quotations' && !row.ref) row.ref = `QT-2026-${String(1000 + this.rows(table).length).padStart(4, '0')}`;
+    if (table === 'memberships' && !row.ref) row.ref = `MEM-2026-${String(1000 + this.rows(table).length).padStart(4, '0')}`;
+    if (table === 'membership_invoices' && !row.ref) row.ref = `MINV-2026-${String(1000 + this.rows(table).length).padStart(4, '0')}`;
     for (const k of Object.keys(row)) if (row[k] === undefined) row[k] = null;
     return row;
   }

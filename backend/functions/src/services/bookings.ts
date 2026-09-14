@@ -6,9 +6,11 @@ import { canTransitionBooking } from '../domain/stateMachines.js';
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { assertOutlet, assertOwner, assertOwnerOrOutletStaff, isStaff } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
-import type { Booking, RequestContext, Task, Vehicle, WorkOrder } from '../types.js';
+import type { Booking, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
-import { assertSlotAvailable } from './availability.js';
+import { assertSlotAvailable, findWalkInSlot } from './availability.js';
+import { listOutletOffers, priceLabel, resolveOfferPrice, resolveVehicleSize } from './catalogue.js';
+import { loadContext, redeemForBooking, releaseForBooking } from './memberships.js';
 import { priceService } from './pricing.js';
 import { createWorkOrderWithTask } from './workflow.js';
 
@@ -16,11 +18,18 @@ export interface CreateBookingInput {
   vehicleId: string;
   outletId: string;
   serviceId: string;
-  slotStart: string;
+  /** Required for app bookings; optional for walk-ins (defaults to the next slot on the outlet grid). */
+  slotStart?: string | null;
   clientOpId: string;
   notes?: string | null;
   /** staff may create on behalf of a customer */
   customerId?: string;
+  /** Staff counter booking (STF-012): starts `confirmed`, slot defaults to now rounded up to the grid. */
+  walkIn?: boolean;
+  /** Pricing size; defaults to the vehicle's size_class (null → small). */
+  vehicleSize?: VehicleSize | null;
+  /** Add-on services (`is_addon`, same `addon_group_name` as the service's group) priced into the booking. */
+  addonServiceIds?: string[] | null;
 }
 
 export async function createBooking(ctx: RequestContext, input: CreateBookingInput): Promise<{ booking: Booking; duplicate: boolean }> {
@@ -28,14 +37,24 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
   const existing = await db.from('bookings').select('*').eq('client_op_id', input.clientOpId).maybeSingle();
   if (existing.data) return { booking: existing.data as Booking, duplicate: true };
 
-  const customerId = input.customerId && isStaff(ctx.auth.role) ? input.customerId : ctx.auth.uid;
+  const staff = isStaff(ctx.auth.role);
+  const walkIn = !!input.walkIn;
+  if (walkIn && !staff) throw ApiError.forbidden('Walk-in bookings can only be created by staff');
+  if (staff && !input.customerId) throw ApiError.validation('customer_id is required when staff create a booking', [{ path: 'customer_id', message: 'Required' }]);
+  if (!walkIn && !input.slotStart) throw ApiError.validation('slot_start is required unless walk_in is true', [{ path: 'slot_start', message: 'Required' }]);
+  if (walkIn) assertOutlet(ctx.auth, input.outletId);
+
+  const customerId = staff && input.customerId ? input.customerId : ctx.auth.uid;
   const vehicle = unwrap<Vehicle | null>(await db.from('vehicles').select('*').eq('id', input.vehicleId).maybeSingle(), 'vehicle');
   if (!vehicle || !vehicle.is_active) throw ApiError.notFound('Vehicle');
   if (vehicle.customer_id !== customerId) throw ApiError.forbidden('Vehicle belongs to another customer');
 
-  const { quote, service, outlet } = await priceService(input.outletId, input.serviceId, customerId);
-  if (service.is_quote_based) throw ApiError.validation('This service requires a quotation; use POST /v1/quotations');
-  const slot = await assertSlotAvailable(input.outletId, input.serviceId, input.slotStart, outlet.timezone);
+  const vehicleSize = input.vehicleSize ?? resolveVehicleSize(vehicle);
+  const membership = await loadContext(customerId);
+  const { quote, service, outlet } = await priceService(input.outletId, input.serviceId, customerId, { vehicleSize, addonServiceIds: input.addonServiceIds ?? [], membership });
+  const slot = input.slotStart
+    ? await assertSlotAvailable(input.outletId, input.serviceId, input.slotStart, outlet.timezone)
+    : await findWalkInSlot(outlet, service.id);
 
   const res = await db
     .from('bookings')
@@ -46,15 +65,25 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
       service_id: service.id,
       slot_start: slot.slot_start,
       slot_end: slot.slot_end,
-      status: 'pending',
+      // Walk-ins are confirmed at the counter; a booking fully covered by a membership has nothing to pay, so it is confirmed at once too.
+      status: walkIn || quote.total_cents === 0 ? 'confirmed' : 'pending',
       price_cents: quote.price_cents,
       discount_cents: quote.discount_cents,
       total_cents: quote.total_cents,
       discount_label: quote.discount_label,
       points_pending: quote.points_pending,
+      vehicle_size: quote.vehicle_size,
+      pricing_mode: quote.pricing_mode,
+      vat_mode: quote.vat_mode,
+      addon_service_ids: quote.addons.map((a) => a.service_id),
+      addons_cents: quote.addons_cents,
+      membership_id: quote.membership?.benefit ? quote.membership.membership_id : null,
+      entitlement_id: quote.membership?.benefit === 'included' ? quote.membership.entitlement_id : null,
+      membership_benefit: quote.membership?.benefit ?? null,
       notes: input.notes ?? null,
       client_op_id: input.clientOpId,
       created_by: ctx.auth.uid,
+      walk_in: walkIn,
     })
     .select('*')
     .single();
@@ -66,8 +95,48 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
     throw new DatabaseError(res.error, 'create booking');
   }
   const booking = res.data as Booking;
-  await audit(ctx, { action: 'booking.create', entity_type: 'booking', entity_id: booking.id, outlet_id: booking.outlet_id, after: { ref: booking.ref, total_cents: booking.total_cents } });
+  // Covered by the plan → consume one allowance (+1 usage row, idempotent per booking).
+  if (booking.membership_benefit === 'included' && booking.entitlement_id && membership) {
+    const allowance = membership.allowances.find((a) => a.entitlement_id === booking.entitlement_id);
+    if (allowance) await redeemForBooking(booking, { period_start: allowance.period_start, period_end: allowance.period_end }, ctx.auth.uid);
+  }
+  await audit(ctx, {
+    action: walkIn ? 'booking.create_walk_in' : 'booking.create',
+    entity_type: 'booking',
+    entity_id: booking.id,
+    outlet_id: booking.outlet_id,
+    after: { ref: booking.ref, total_cents: booking.total_cents, customer_id: booking.customer_id, slot_start: booking.slot_start, status: booking.status, walk_in: walkIn, on_behalf: booking.customer_id !== ctx.auth.uid, vehicle_size: quote.vehicle_size, addons_cents: quote.addons_cents, addon_service_ids: quote.addons.map((a) => a.service_id), membership_benefit: booking.membership_benefit ?? null, entitlement_id: booking.entitlement_id ?? null },
+  });
   return { booking, duplicate: false };
+}
+
+export interface BookingAddon {
+  service_id: string;
+  name: string;
+  price_cents: number | null;
+}
+
+/**
+ * Decorates booking rows with `addons` (name + price, resolved from the outlet
+ * catalogue for the booking's vehicle size) and `price_label`.
+ */
+export async function attachPricing<T extends Pick<Booking, 'outlet_id' | 'pricing_mode' | 'vat_mode' | 'total_cents' | 'addon_service_ids' | 'addons_cents' | 'vehicle_size'>>(
+  rows: T[],
+): Promise<Array<T & { addons: BookingAddon[]; price_label: string }>> {
+  const outletIds = [...new Set(rows.filter((r) => (r.addon_service_ids ?? []).length > 0).map((r) => r.outlet_id))];
+  const offersByOutlet = new Map(await Promise.all(outletIds.map(async (id) => [id, (await listOutletOffers(id, { includeUnavailable: true })).offers] as const)));
+  return rows.map((b) => {
+    const ids = b.addon_service_ids ?? [];
+    const offers = offersByOutlet.get(b.outlet_id) ?? [];
+    const size = b.vehicle_size ?? 'small';
+    let addons: BookingAddon[] = ids.map((id) => {
+      const o = offers.find((x) => x.service_id === id);
+      return { service_id: id, name: o?.name ?? id, price_cents: o ? resolveOfferPrice(o, size) : null };
+    });
+    // A single add-on is exactly what was charged; keep the stored figure authoritative.
+    if (addons.length === 1) addons = [{ ...addons[0], price_cents: b.addons_cents ?? addons[0].price_cents }];
+    return { ...b, addons, price_label: priceLabel(b.pricing_mode ?? 'fixed', b.total_cents, b.vat_mode ?? 'incl') };
+  });
 }
 
 export async function getBookingOrThrow(id: string): Promise<Booking> {
@@ -86,6 +155,8 @@ export async function cancelBooking(ctx: RequestContext, id: string, reason?: st
     'cancel booking',
   );
   await db.from('work_orders').update({ status: 'cancelled' }).eq('booking_id', id).in('status', ['queued', 'assigned']);
+  // Give the plan allowance back (−1 release row; idempotent, no-op when nothing was redeemed).
+  if (booking.membership_benefit === 'included') await releaseForBooking(id, ctx.auth.uid);
   await audit(ctx, { action: 'booking.cancel', entity_type: 'booking', entity_id: id, outlet_id: booking.outlet_id, before: { status: booking.status }, after: { status: 'cancelled', reason } });
   return updated;
 }

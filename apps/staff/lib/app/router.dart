@@ -7,11 +7,18 @@ import '../features/inventory/inventory_screen.dart';
 import '../features/leaderboard/leaderboard_screen.dart';
 import '../features/ops/ops_screen.dart';
 import '../features/profile/profile_screen.dart';
+import '../features/quote/quote_confirmation_screen.dart';
+import '../features/quote/quote_detail_screen.dart';
+import '../features/quote/raise_quote_controller.dart';
+import '../features/quote/raise_quote_screen.dart';
 import '../features/scanner/scan_review_screen.dart';
 import '../features/scanner/scan_screen.dart';
 import '../features/shell/staff_shell.dart';
 import '../features/sync/sync_centre_screen.dart';
 import '../features/tasks/tasks_screen.dart';
+import '../features/walk_in/walk_in_confirmation_screen.dart';
+import '../features/walk_in/walk_in_flow.dart';
+import '../features/walk_in/walk_in_screen.dart';
 import '../widgets/page_transitions.dart';
 import 'session.dart';
 
@@ -27,8 +34,16 @@ abstract final class Routes {
   static const inventory = '/inventory';
   static const profile = '/profile';
   static const sync = '/sync';
+  static const walkIn = '/walk-in';
+  static const walkInScan = '/walk-in/scan';
+  static const quoteNew = '/quote/new';
 
   static String checklist(String workOrderId) => '/tasks/$workOrderId';
+  static String walkInConfirmation(String bookingId) =>
+      '/walk-in/confirmation/$bookingId';
+  static String quoteConfirmation(String quotationId) =>
+      '/quote/confirmation/$quotationId';
+  static String quoteDetail(String quotationId) => '/quotes/$quotationId';
 }
 
 GoRouter buildRouter(SessionController session) {
@@ -70,6 +85,56 @@ GoRouter buildRouter(SessionController session) {
         pageBuilder: (context, state) => containerTransformPage(
           state: state,
           child: ScanReviewScreen(args: state.extra as ScanReviewArgs?),
+        ),
+      ),
+      GoRoute(
+        path: Routes.walkIn,
+        pageBuilder: (context, state) => containerTransformPage(
+          state: state,
+          child: WalkInScreen(args: state.extra as WalkInArgs?),
+        ),
+      ),
+      GoRoute(
+        path: Routes.walkInScan,
+        pageBuilder: (context, state) => containerTransformPage(
+          state: state,
+          child: const ScanScreen(pickResult: true),
+        ),
+      ),
+      GoRoute(
+        path: '/walk-in/confirmation/:bookingId',
+        pageBuilder: (context, state) => fadeThroughPage(
+          state: state,
+          child: WalkInConfirmationScreen(
+            bookingId: state.pathParameters['bookingId']!,
+            outcome: state.extra as WalkInOutcome?,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: Routes.quoteNew,
+        pageBuilder: (context, state) => containerTransformPage(
+          state: state,
+          child: RaiseQuoteScreen(args: state.extra as RaiseQuoteArgs?),
+        ),
+      ),
+      GoRoute(
+        path: '/quote/confirmation/:quotationId',
+        pageBuilder: (context, state) => fadeThroughPage(
+          state: state,
+          child: QuoteConfirmationScreen(
+            quotationId: state.pathParameters['quotationId']!,
+            outcome: state.extra as RaiseQuoteOutcome?,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/quotes/:quotationId',
+        pageBuilder: (context, state) => containerTransformPage(
+          state: state,
+          child: QuoteDetailScreen(
+            quotationId: state.pathParameters['quotationId']!,
+          ),
         ),
       ),
       GoRoute(

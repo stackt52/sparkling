@@ -31,8 +31,12 @@ export function buildCsv(meta: CsvMeta, columns: string[], rows: Record<string, 
 }
 
 export function downloadCsv(filename: string, csv: string) {
+  downloadBlob(filename, new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+}
+
+/** Saves a Blob through a temporary `<a download>` (object URL revoked afterwards). */
+export function downloadBlob(filename: string, blob: Blob) {
   if (typeof window === 'undefined') return;
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

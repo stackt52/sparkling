@@ -3,10 +3,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DiscParseError, parseDisc } from '../lib/pdf417.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { clientOpId, isoDate, parseBody, uuid } from '../lib/validate.js';
+import { clientOpId, isoDate, parseBody, uuid, vehicleSize } from '../lib/validate.js';
 import { isStaff, requireProfile } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { audit } from '../services/audit.js';
+import { sizeClassFromDescription } from '../services/catalogue.js';
 import { createVehicle } from '../services/vehicles.js';
 import type { Vehicle } from '../types.js';
 
@@ -46,6 +47,10 @@ export const vehicleSchema = z.object({
   disc_hash: z.string().length(64).nullable().optional(),
   force: z.boolean().optional(),
   client_op_id: clientOpId.optional(),
+  /** Pricing size class; derived from `description` (disc) when omitted, null = unknown (priced as small). */
+  size_class: vehicleSize.nullable().optional(),
+  /** Licence-disc description — only used to derive `size_class`; not stored. */
+  description: z.string().trim().max(120).nullable().optional(),
 });
 
 vehiclesRouter.post(
@@ -68,7 +73,13 @@ vehiclesRouter.patch(
     const existing = unwrap<Vehicle | null>(await db.from('vehicles').select('*').eq('id', id).maybeSingle(), 'vehicle');
     if (!existing || !existing.is_active) throw ApiError.notFound('Vehicle');
     if (existing.customer_id !== req.auth!.uid) throw ApiError.forbidden();
-    const vehicle = unwrap<Vehicle>(await db.from('vehicles').update(patch).eq('id', id).select('*').single(), 'vehicle update');
+    const { description, ...columns } = patch;
+    const update: Record<string, unknown> = { ...columns };
+    if (patch.size_class === undefined && description) {
+      const derived = sizeClassFromDescription(description);
+      if (derived) update.size_class = derived;
+    }
+    const vehicle = unwrap<Vehicle>(await db.from('vehicles').update(update).eq('id', id).select('*').single(), 'vehicle update');
     res.json({ vehicle });
   }),
 );
@@ -93,7 +104,7 @@ vehiclesRouter.post(
     const { raw } = parseBody(z.object({ raw: z.string().min(20).max(4096) }), req.body);
     try {
       const parsed = parseDisc(raw);
-      res.json({ vehicle: { ...parsed, source: 'scan' } });
+      res.json({ vehicle: { ...parsed, size_class: sizeClassFromDescription(parsed.description), source: 'scan' } });
     } catch (err) {
       if (err instanceof DiscParseError) throw ApiError.validation(err.message);
       throw err;

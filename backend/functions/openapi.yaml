@@ -32,6 +32,8 @@ tags:
     description: Payments endpoints
   - name: Loyalty
     description: Loyalty endpoints
+  - name: Memberships
+    description: Memberships endpoints
   - name: Staff
     description: Staff endpoints
   - name: Inventory
@@ -40,6 +42,8 @@ tags:
     description: Admin endpoints
   - name: Notifications
     description: Notifications endpoints
+  - name: Public quote page
+    description: Public quote page endpoints
   - name: System
     description: System endpoints
 security:
@@ -74,6 +78,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -112,6 +118,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -160,6 +168,11 @@ paths:
                     allOf:
                       - $ref: '#/components/schemas/LoyaltyAccount'
                     nullable: true
+                  membership:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/MembershipBrief'
+                    nullable: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -170,6 +183,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -177,7 +192,7 @@ paths:
       tags:
         - Auth & profile
       operationId: getMe
-      summary: Current profile, outlets and loyalty account
+      summary: Current profile, outlets, loyalty account and membership summary
     patch:
       responses:
         '200':
@@ -199,6 +214,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -257,6 +274,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -305,6 +324,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -343,6 +364,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -375,13 +398,83 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/OutletService'
+                      allOf:
+                        - $ref: '#/components/schemas/OutletServiceOffer'
+                        - type: object
+                          properties:
+                            membership:
+                              type: object
+                              properties:
+                                membership_id:
+                                  type: string
+                                  format: uuid
+                                plan_code:
+                                  type: string
+                                plan_name:
+                                  type: string
+                                benefit:
+                                  type: string
+                                  enum:
+                                    - included
+                                    - discount
+                                  nullable: true
+                                entitlement_id:
+                                  type: string
+                                  format: uuid
+                                  nullable: true
+                                entitlement_code:
+                                  type: string
+                                  nullable: true
+                                remaining_after:
+                                  type: integer
+                                  nullable: true
+                                period_end:
+                                  type: string
+                                  format: date-time
+                                  nullable: true
+                              nullable: true
+                  groups:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - Car Wash Options
+                        - Combinations
+                        - Auto Body Repair
                   tier:
                     type: string
                     enum:
                       - silver
                       - gold
                       - platinum
+                      - black
+                  vehicle_size:
+                    type: string
+                    enum:
+                      - small
+                      - large
+                      - bike
+                    nullable: true
+                  membership:
+                    type: object
+                    properties:
+                      plan_code:
+                        type: string
+                      plan_name:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - pending
+                          - active
+                          - past_due
+                          - cancelled
+                          - expired
+                    nullable: true
+                required:
+                  - data
+                  - groups
+                  - tier
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -392,6 +485,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -399,7 +494,9 @@ paths:
       tags:
         - Catalogue
       operationId: listOutletServices
-      summary: Services at an outlet with effective price and points estimate
+      summary: >-
+        Offers at an outlet: per-size prices, composition, add-ons, grouped (with ?vehicle_size: price_cents/total resolved for that size and the caller’s membership — covered services come back at R0
+        with "Included in Gold · 3 of 4 left")
       parameters:
         - name: id
           in: path
@@ -407,6 +504,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: vehicle_size
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - small
+              - large
+              - bike
   /availability:
     get:
       responses:
@@ -440,6 +546,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -491,6 +599,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -540,6 +650,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -576,6 +688,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -611,6 +725,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -648,6 +764,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -697,6 +815,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -761,23 +881,13 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  booking:
-                    $ref: '#/components/schemas/Booking'
-                  duplicate:
-                    type: boolean
+                $ref: '#/components/schemas/BookingCreated'
         '201':
-          description: Created
+          description: Created (work_order/task present when checkin was requested)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  booking:
-                    $ref: '#/components/schemas/Booking'
-                  duplicate:
-                    type: boolean
+                $ref: '#/components/schemas/BookingCreated'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -788,6 +898,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -795,7 +907,7 @@ paths:
       tags:
         - Bookings
       operationId: createBooking
-      summary: Create a booking (server-side pricing, slot validated)
+      summary: 'Create a booking (server-side pricing, slot validated). Staff: customer_id + walk_in (slot defaults to the next grid slot, starts confirmed, optional checkin)'
       requestBody:
         required: true
         content:
@@ -821,6 +933,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -858,6 +972,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -905,6 +1021,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -975,6 +1093,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1034,6 +1154,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1076,7 +1198,7 @@ paths:
     post:
       responses:
         '200':
-          description: Replay
+          description: Replay of the same client_op_id
           content:
             application/json:
               schema:
@@ -1097,6 +1219,10 @@ paths:
                     $ref: '#/components/schemas/Quotation'
                   duplicate:
                     type: boolean
+                  notification:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotifyOutcome'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -1107,6 +1233,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1114,45 +1242,18 @@ paths:
       tags:
         - Quotations
       operationId: createQuotation
-      summary: Request a repair quotation
+      summary: >-
+        Customer: request a repair quotation (status requested). Staff: raise a quote for a walk-in customer in one step (status quoted, amount = Σ items, public token valid 30 days, quote_ready sent
+        unless send_to_customer:false; audited quotation.raise)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                vehicle_id:
-                  type: string
-                  format: uuid
-                outlet_id:
-                  type: string
-                  format: uuid
-                category:
-                  type: string
-                  enum:
-                    - Dent
-                    - Scratch
-                    - Bumper
-                    - Panel
-                    - Paint
-                    - Glass
-                    - Other
-                description:
-                  type: string
-                client_op_id:
-                  type: string
-                attachment_ids:
-                  type: array
-                  items:
-                    type: string
-                    format: uuid
-              required:
-                - vehicle_id
-                - outlet_id
-                - category
-                - description
-                - client_op_id
+              anyOf:
+                - $ref: '#/components/schemas/QuotationRequest'
+                - $ref: '#/components/schemas/QuotationRaise'
+              description: Customer request or staff raise (the branch is chosen by the caller’s role)
   /quotations/{id}:
     get:
       responses:
@@ -1165,10 +1266,6 @@ paths:
                   - $ref: '#/components/schemas/Quotation'
                   - type: object
                     properties:
-                      attachments:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Attachment'
                       work_order:
                         type: object
                         properties:
@@ -1190,6 +1287,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1197,7 +1296,246 @@ paths:
       tags:
         - Quotations
       operationId: getQuotation
-      summary: Quotation with attachments
+      summary: Quotation with items, attachments (API-served urls), decision provenance, pdf_url and (staff) public_url
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /quotations/{id}/photos:
+    post:
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment:
+                    $ref: '#/components/schemas/QuotationAttachment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Quotations
+      operationId: addQuotationPhoto
+      summary: >-
+        Upload a damage photo (multipart field photo; jpeg/png/heic/webp sniffed by magic bytes, ≤ 10 MB, ≤ 10 per quotation, before the decision) — stored in Cloud Storage
+        quotations/<quotation_id>/<attachment_id>.<ext>
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+                  maxLength: 200
+              required:
+                - photo
+            encoding:
+              photo:
+                contentType: image/jpeg, image/png, image/heic, image/webp
+  /quotations/{id}/photos/{attachmentId}:
+    get:
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/heic:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Quotations
+      operationId: getQuotationPhoto
+      summary: 'Stream a damage photo (owner / outlet staff; Cache-Control: private, max-age=3600)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+    delete:
+      responses:
+        '204':
+          description: Removed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Quotations
+      operationId: deleteQuotationPhoto
+      summary: 'Staff: remove the object and the attachment row (before the decision; audited quotation.photo_delete)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /quotations/{id}/share:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  public_url:
+                    type: string
+                    nullable: true
+                  expires_at:
+                    type: string
+                    format: date-time
+                  notification:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotifyOutcome'
+                  quotation:
+                    $ref: '#/components/schemas/Quotation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Quotations
+      operationId: shareQuotation
+      summary: 'Staff: rotate the public token (+30 days) and re-send quote_ready (push + WhatsApp); 1/min per quotation (429); audited quotation.share'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /quotations/{id}/pdf:
+    get:
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Quotations
+      operationId: getQuotationPdf
+      summary: >-
+        A4 PDF of the quotation (header, outlet, customer, vehicle, items, total, validity, status/decision, photo thumbnails, ref + QR of the public link); Content-Disposition: attachment;
+        filename="<ref>.pdf"
       parameters:
         - name: id
           in: path
@@ -1227,6 +1565,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1284,6 +1624,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1340,6 +1682,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1347,7 +1691,9 @@ paths:
       tags:
         - Quotations
       operationId: decideQuotation
-      summary: Customer accepts or declines
+      summary: >-
+        Customer accepts or declines in the app (decision_source app). One-time: any later decision — in-app or via the public link — is 409 conflict {decided_at, status}; accepting after valid_until
+        is 410 gone
       parameters:
         - name: id
           in: path
@@ -1398,6 +1744,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1413,6 +1761,186 @@ paths:
           schema:
             type: string
             format: uuid
+  /public/quotations/{token}:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicQuotation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Public quote page
+      operationId: getPublicQuotation
+      summary: Public quotation view for the link holder (first name only, no phone / e-mail). 404 unknown token, 410 gone {ref,status} once the link expired
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Public link token from ${PUBLIC_WEB_BASE_URL}/q/<token>
+  /public/quotations/{token}/photos/{attachmentId}:
+    get:
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/heic:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Public quote page
+      operationId: getPublicQuotationPhoto
+      summary: Stream a damage photo through the public link
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Public link token from ${PUBLIC_WEB_BASE_URL}/q/<token>
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /public/quotations/{token}/pdf:
+    get:
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Public quote page
+      operationId: getPublicQuotationPdf
+      summary: Same PDF as GET /quotations/{id}/pdf, through the public link
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Public link token from ${PUBLIC_WEB_BASE_URL}/q/<token>
+  /public/quotations/{token}/decision:
+    post:
+      responses:
+        '200':
+          description: Decided — returns the public view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicQuotation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Public quote page
+      operationId: decidePublicQuotation
+      summary: >-
+        Accept or decline via the link (decision_source public_link, decision_by_name; audited quotation.decision_public with IP + user agent; quote_decided push to the assessor + outlet
+        supervisors/managers, quote_decision_receipt to the customer). One-time: 409 conflict when already decided (in-app or via link), 410 gone when expired
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Public link token from ${PUBLIC_WEB_BASE_URL}/q/<token>
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicDecision'
   /payments/methods:
     get:
       responses:
@@ -1437,6 +1965,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1466,6 +1996,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1540,6 +2072,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1591,6 +2125,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1618,6 +2154,57 @@ paths:
                   enum:
                     - succeeded
                     - failed
+  /payments/record:
+    post:
+      responses:
+        '200':
+          description: Replay of the same idempotency_key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment:
+                    $ref: '#/components/schemas/Payment'
+                  duplicate:
+                    type: boolean
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment:
+                    $ref: '#/components/schemas/Payment'
+                  duplicate:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Payments
+      operationId: recordPosPayment
+      summary: 'Staff: attest an in-person (cash / card terminal) payment for a booking at their outlet — provider pos, successful, receipt from next_receipt_no(), payment_events pos.recorded, audited'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosPaymentRecord'
   /payments/webhook:
     post:
       responses:
@@ -1657,6 +2244,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1722,6 +2311,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1767,6 +2358,7 @@ paths:
                           - silver
                           - gold
                           - platinum
+                          - black
                       name:
                         type: string
                       points_needed:
@@ -1780,6 +2372,11 @@ paths:
                     allOf:
                       - $ref: '#/components/schemas/LoyaltyRules'
                     nullable: true
+                  membership:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/MembershipBrief'
+                    nullable: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -1790,6 +2387,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1797,7 +2396,501 @@ paths:
       tags:
         - Loyalty
       operationId: getLoyaltyAccount
-      summary: Account, tier config and next tier
+      summary: Account, tier config (tier = membership plan; next_tier is informational only) and membership summary
+  /loyalty/rewards:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Reward'
+                  balance_points:
+                    type: integer
+                  tier:
+                    type: string
+                    enum:
+                      - silver
+                      - gold
+                      - platinum
+                      - black
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Loyalty
+      operationId: listRewards
+      summary: Rewards with eligibility by tier
+  /memberships/plans:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MembershipPlan'
+                  current_plan_code:
+                    type: string
+                    nullable: true
+                  current_status:
+                    type: string
+                    enum:
+                      - pending
+                      - active
+                      - past_due
+                      - cancelled
+                      - expired
+                    nullable: true
+                required:
+                  - data
+                  - current_plan_code
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: listMembershipPlans
+      summary: Active plans with groups → entitlements → services, plus the caller’s current plan
+  /memberships/me:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: getMyMembership
+      summary: Live membership, plan, selections, allowances (remaining per entitlement in its current period), open/last invoices
+  /memberships:
+    post:
+      responses:
+        '200':
+          description: Replay of the same client_op_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipSubscribed'
+        '201':
+          description: Created (status pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipSubscribed'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: subscribeMembership
+      summary: >-
+        Subscribe: pending membership + first invoice + sandbox payment intent. Paying it (sandbox-confirm / provider webhook) activates the membership (period = now → +1 month, tier = plan,
+        membership_activated). 409 conflict when a live membership exists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipSubscribe'
+  /memberships/me/invoices/{id}/pay:
+    post:
+      responses:
+        '200':
+          description: Open intent replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice:
+                    $ref: '#/components/schemas/MembershipInvoice'
+                  payment:
+                    $ref: '#/components/schemas/MembershipPayment'
+                  duplicate:
+                    type: boolean
+        '201':
+          description: Intent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice:
+                    $ref: '#/components/schemas/MembershipInvoice'
+                  payment:
+                    $ref: '#/components/schemas/MembershipPayment'
+                  duplicate:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: payMembershipInvoice
+      summary: Sandbox payment intent for a pending renewal/upgrade invoice (a still-open intent is replayed); success rolls the period (membership_renewed)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /memberships/me/selections:
+    put:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: changeMembershipSelections
+      summary: Change the chosen option per choose_one group; 409 once any allowance was used this period
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                selections:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+                - selections
+  /memberships/me/change-plan:
+    post:
+      responses:
+        '200':
+          description: Downgrade scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipChangePlan'
+        '201':
+          description: Upgrade invoice created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipChangePlan'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: changeMembershipPlan
+      summary: 'Upgrade (higher fee): full-fee invoice + intent now, plan and a fresh period start on payment. Downgrade: next_plan_id applied at renewal. 409 when already on the plan or not active'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_code:
+                  type: string
+                selections:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+                - plan_code
+  /memberships/me/cancel:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  membership:
+                    $ref: '#/components/schemas/Membership'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: cancelMembership
+      summary: Cancel at period end (default; benefits continue until then) or immediately (cancelled, tier → silver, pending invoices void). membership_cancelled
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                at_period_end:
+                  type: boolean
+                  default: true
+                reason:
+                  type: string
+                  nullable: true
+  /staff/customers/{id}/membership:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: getStaffCustomerMembership
+      summary: 'Staff: a customer’s membership summary (same shape as /memberships/me)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    post:
+      responses:
+        '200':
+          description: Replay of the same client_op_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipEnrolled'
+        '201':
+          description: Enrolled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipEnrolled'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: enrolStaffCustomerMembership
+      summary: >-
+        Staff: enrol at the counter — membership active immediately, invoice paid, payment row provider pos (method, recorded_by, receipt), membership_activated; audited membership.enrol. Also
+        sync-batch kind membership.enrol
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipEnrol'
+  /staff/memberships/{id}/invoices/{invoiceId}/record-payment:
+    post:
+      responses:
+        '200':
+          description: Replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipPaymentRecorded'
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipPaymentRecorded'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Memberships
+      operationId: recordMembershipInvoicePayment
+      summary: 'Staff: pay a pending renewal at the counter (pos payment row; rolls the period, membership_renewed); 409 when the invoice is not pending'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipRecordPayment'
   /loyalty/ledger:
     get:
       responses:
@@ -1828,6 +2921,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1856,46 +2951,6 @@ paths:
           schema:
             type: string
             example: slot_start:desc
-  /loyalty/rewards:
-    get:
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Reward'
-                  balance_points:
-                    type: integer
-                  tier:
-                    type: string
-                    enum:
-                      - silver
-                      - gold
-                      - platinum
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthenticated'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/Internal'
-      tags:
-        - Loyalty
-      operationId: listRewards
-      summary: Rewards with eligibility by tier
   /loyalty/rewards/{id}/redeem:
     post:
       responses:
@@ -1915,6 +2970,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -1961,6 +3018,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2009,6 +3068,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2052,6 +3113,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2100,6 +3163,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2134,6 +3199,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2187,6 +3254,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2243,6 +3312,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2288,6 +3359,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2368,6 +3441,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2435,6 +3510,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2450,6 +3527,150 @@ paths:
           schema:
             type: string
             format: uuid
+  /staff/customers:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StaffCustomer'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: searchStaffCustomers
+      summary: Search customers by name, phone (any formatting), e-mail or plate (audited customer.search)
+      parameters:
+        - name: search
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 80
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 25
+            default: 10
+    post:
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer:
+                    $ref: '#/components/schemas/StaffCustomer'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: createStaffCustomer
+      summary: Register a walk-in customer (walkin_<uuid> profile, claimed on sign-up by e-mail or phone); 409 with existing_customer when the phone/e-mail exists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffCustomerCreate'
+  /staff/customers/{id}/vehicles:
+    post:
+      responses:
+        '200':
+          description: Duplicate replay / forced merge
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicle:
+                    $ref: '#/components/schemas/Vehicle'
+                  duplicate:
+                    type: boolean
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicle:
+                    $ref: '#/components/schemas/Vehicle'
+                  duplicate:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: createStaffCustomerVehicle
+      summary: Add a vehicle for a customer (409 with existing_vehicle_id on duplicate plate/VIN unless force)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VehicleCreate'
   /staff/leaderboard:
     get:
       responses:
@@ -2496,6 +3717,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2546,6 +3769,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2586,6 +3811,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2629,6 +3856,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2676,6 +3905,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2683,7 +3914,7 @@ paths:
       tags:
         - Admin
       operationId: getKpis
-      summary: Dashboard KPIs
+      summary: Dashboard KPIs (incl. active_members and membership_mrr_cents)
       parameters:
         - name: outlet_id
           in: query
@@ -2727,6 +3958,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2766,6 +3999,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2817,6 +4052,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2891,6 +4128,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2920,6 +4159,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2956,6 +4197,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -2991,6 +4234,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3019,7 +4264,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Service'
+                      $ref: '#/components/schemas/AdminService'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3030,6 +4275,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3037,7 +4284,7 @@ paths:
       tags:
         - Admin
       operationId: adminListServices
-      summary: All services
+      summary: All services (incl. inactive) with their global composition
     post:
       responses:
         '201':
@@ -3048,7 +4295,7 @@ paths:
                 type: object
                 properties:
                   service:
-                    $ref: '#/components/schemas/Service'
+                    $ref: '#/components/schemas/AdminService'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3059,6 +4306,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3066,15 +4315,15 @@ paths:
       tags:
         - Admin
       operationId: adminCreateService
-      summary: Create service (audited)
+      summary: Create service (+ global components; audited). by_quote needs no prices, from/fixed need one; add-ons need addon_group_name; self/cyclic composition → 400
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Service'
+              $ref: '#/components/schemas/ServiceInput'
   /admin/services/{id}:
-    patch:
+    put:
       responses:
         '200':
           description: OK
@@ -3084,7 +4333,7 @@ paths:
                 type: object
                 properties:
                   service:
-                    $ref: '#/components/schemas/Service'
+                    $ref: '#/components/schemas/AdminService'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3095,6 +4344,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3102,7 +4353,7 @@ paths:
       tags:
         - Admin
       operationId: adminUpdateService
-      summary: Update service (audited)
+      summary: Update service; `components` replaces the global set atomically (audited service.update)
       parameters:
         - name: id
           in: path
@@ -3115,7 +4366,51 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Service'
+              $ref: '#/components/schemas/ServiceInput'
+    patch:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    $ref: '#/components/schemas/AdminService'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminPatchService
+      summary: Alias of PUT (partial update)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceInput'
     delete:
       responses:
         '204':
@@ -3130,6 +4425,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3158,8 +4455,15 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
-                      additionalProperties: true
+                      $ref: '#/components/schemas/OutletServiceOffer'
+                  groups:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - Car Wash Options
+                        - Combinations
+                        - Auto Body Repair
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3170,6 +4474,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3177,7 +4483,7 @@ paths:
       tags:
         - Admin
       operationId: adminListOutletServices
-      summary: Outlet service overrides
+      summary: 'Outlet offers incl. unavailable, composition resolved (components_source: outlet|global|none)'
       parameters:
         - name: id
           in: path
@@ -3209,6 +4515,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3235,8 +4543,7 @@ paths:
                 type: object
                 properties:
                   outlet_service:
-                    type: object
-                    additionalProperties: true
+                    $ref: '#/components/schemas/OutletServiceOffer'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3247,6 +4554,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3254,7 +4563,7 @@ paths:
       tags:
         - Admin
       operationId: adminUpsertOutletService
-      summary: Set outlet price / availability (audited)
+      summary: 'Upsert the outlet binding: wording, per-size prices, mode/VAT overrides, availability, outlet composition (`components: null` = global). Audited outlet_service.update'
       parameters:
         - name: id
           in: path
@@ -3273,13 +4582,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                price_cents:
-                  type: integer
-                  nullable: true
-                is_available:
-                  type: boolean
+              $ref: '#/components/schemas/OutletServiceInput'
     delete:
       responses:
         '204':
@@ -3294,6 +4597,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3301,7 +4606,7 @@ paths:
       tags:
         - Admin
       operationId: adminDeleteOutletService
-      summary: Remove outlet service mapping
+      summary: Remove the outlet binding (and its outlet-specific composition rows)
       parameters:
         - name: id
           in: path
@@ -3365,6 +4670,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3438,6 +4745,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3515,6 +4824,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3592,6 +4903,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3658,6 +4971,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Payment'
+                  membership:
+                    $ref: '#/components/schemas/MembershipSummary'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3668,6 +4983,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3675,13 +4992,353 @@ paths:
       tags:
         - Admin
       operationId: adminGetCustomer
-      summary: Customer 360 (access logged)
+      summary: Customer 360 (access logged) incl. membership summary
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+  /admin/customers/{id}/membership:
+    post:
+      responses:
+        '200':
+          description: Replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipEnrolled'
+        '201':
+          description: Enrolled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipEnrolled'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminEnrolCustomerMembership
+      summary: 'Manager/admin: enrol a customer at the counter (same as the staff route; audited membership.enrol)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipEnrol'
+  /admin/memberships/plans:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminMembershipPlan'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminListMembershipPlans
+      summary: Plans (incl. inactive) with member_count (active + past_due) and mrr_cents (active)
+  /admin/memberships/plans/{code}:
+    put:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    $ref: '#/components/schemas/AdminMembershipPlan'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminUpdateMembershipPlan
+      summary: >-
+        Manager/admin: update fee/discount/copy and replace groups + entitlements by code (ids kept when the code exists so usage rows stay valid; 409 when removing an entitlement that has usage; fee
+        applies from the next invoice). Audited membership_plan.update
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            example: gold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipPlanInput'
+  /admin/memberships:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MemberRow'
+                  next_cursor:
+                    type: string
+                    nullable: true
+                required:
+                  - data
+                  - next_cursor
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminListMemberships
+      summary: Members (newest first) with plan, status, period, allowances used/remaining and open invoice
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            example: slot_start:desc
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            description: 'Comma-separated: pending|active|past_due|cancelled|expired'
+        - name: plan_code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Member name, phone, e-mail or membership ref
+  /admin/memberships/run-renewals:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenewalRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminRunMembershipRenewals
+      summary: Run the daily renewals job now (same logic as the membershipRenewals schedule; audited)
+  /admin/memberships/{id}/cancel:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  membership:
+                    $ref: '#/components/schemas/Membership'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminCancelMembership
+      summary: Cancel a membership at period end or immediately (audited membership.cancel)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                at_period_end:
+                  type: boolean
+                  default: true
+                reason:
+                  type: string
+                  nullable: true
+  /admin/memberships/{id}/invoices/{invoiceId}/record-payment:
+    post:
+      responses:
+        '200':
+          description: Replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipPaymentRecorded'
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipPaymentRecorded'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminRecordMembershipInvoicePayment
+      summary: Record a counter payment for a pending membership invoice (rolls the period; audited)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipRecordPayment'
   /admin/loyalty/config:
     get:
       responses:
@@ -3712,6 +5369,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3742,6 +5401,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3799,6 +5460,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3835,6 +5498,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3867,6 +5532,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3919,6 +5586,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3967,6 +5636,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -3996,6 +5667,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4065,6 +5738,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4139,6 +5814,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4206,6 +5883,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4226,6 +5905,7 @@ paths:
               - inventory.csv
               - staff_performance.csv
               - loyalty.csv
+              - memberships.csv
         - name: outlet_id
           in: query
           required: false
@@ -4290,6 +5970,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4359,6 +6041,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4414,6 +6098,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4452,6 +6138,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4526,6 +6214,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4569,6 +6259,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4599,6 +6291,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4656,6 +6350,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4713,6 +6409,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4765,6 +6463,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
@@ -4823,6 +6523,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    Gone:
+      description: gone (410) — expired quote link or quotation past valid_until
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     RateLimited:
       description: rate_limited (429)
       content:
@@ -4852,6 +6558,7 @@ components:
                 - conflict
                 - invalid_transition
                 - invalid_otp
+                - gone
                 - rate_limited
                 - internal
             message:
@@ -4994,6 +6701,7 @@ components:
           type: integer
         base_price_cents:
           type: integer
+          description: Legacy single price, kept in step with price_small/general
         is_quote_based:
           type: boolean
         points_per_rand:
@@ -5009,26 +6717,359 @@ components:
           type: boolean
         sort_order:
           type: integer
-    OutletService:
+        group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
+        price_small_cents:
+          type: integer
+          nullable: true
+        price_large_cents:
+          type: integer
+          nullable: true
+        price_general_cents:
+          type: integer
+          description: Size-independent price (auto body)
+          nullable: true
+        is_addon:
+          type: boolean
+        addon_group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+    ServiceComponentInput:
       type: object
       properties:
-        outlet_id:
+        child_service_id:
           type: string
           format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+        sort_order:
+          type: integer
+      required:
+        - child_service_id
+    ServiceComponent:
+      type: object
+      properties:
+        child_service_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+        sort_order:
+          type: integer
+      required:
+        - child_service_id
+        - code
+        - name
+        - quantity
+        - sort_order
+    AdminService:
+      allOf:
+        - $ref: '#/components/schemas/Service'
+        - type: object
+          properties:
+            components:
+              type: array
+              items:
+                $ref: '#/components/schemas/ServiceComponent'
+          required:
+            - components
+    ServiceInput:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        category:
+          type: string
+          enum:
+            - car_wash
+            - auto_body
+        duration_minutes:
+          type: integer
+        base_price_cents:
+          type: integer
+        points_per_rand:
+          type: number
+        icon:
+          type: string
+          nullable: true
+        checklist_template_id:
+          type: string
+          format: uuid
+          nullable: true
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+        group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
+        price_small_cents:
+          type: integer
+          nullable: true
+        price_large_cents:
+          type: integer
+          nullable: true
+        price_general_cents:
+          type: integer
+          nullable: true
+        is_addon:
+          type: boolean
+        addon_group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceComponentInput'
+          nullable: true
+    OutletServiceOffer:
+      type: object
+      properties:
         service_id:
           type: string
           format: uuid
+        code:
+          type: string
+        name:
+          type: string
+          description: Outlet display_name ?? service name
+        description:
+          type: string
+          nullable: true
+        group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+        category:
+          type: string
+          enum:
+            - car_wash
+            - auto_body
+        duration_minutes:
+          type: integer
+        icon:
+          type: string
+          nullable: true
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
+        price_small_cents:
+          type: integer
+          nullable: true
+        price_large_cents:
+          type: integer
+          nullable: true
+        price_general_cents:
+          type: integer
+          nullable: true
+        price_from_cents:
+          type: integer
+          description: Lowest non-null price; null when by-quote
+          nullable: true
+        price_for:
+          type: object
+          properties:
+            small:
+              type: integer
+              nullable: true
+            large:
+              type: integer
+              nullable: true
+            bike:
+              type: integer
+              nullable: true
+          required:
+            - small
+            - large
+            - bike
+        price_label:
+          type: string
+          example: From R 150
+        is_addon:
+          type: boolean
+        addon_group_name:
+          type: string
+          enum:
+            - Car Wash Options
+            - Combinations
+            - Auto Body Repair
+          nullable: true
+        includes:
+          type: array
+          items:
+            type: object
+            properties:
+              service_id:
+                type: string
+                format: uuid
+              code:
+                type: string
+              name:
+                type: string
+              quantity:
+                type: integer
+        included_in:
+          type: array
+          items:
+            type: string
+            format: uuid
+        components_source:
+          type: string
+          enum:
+            - outlet
+            - global
+            - none
+        is_available:
+          type: boolean
+        sort_order:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+        points_estimate:
+          type: integer
         price_cents:
           type: integer
-          description: null = inherit the service base price
+          description: 'Only with ?vehicle_size: price resolved for that size (base, before discount)'
+          nullable: true
+        discount_cents:
+          type: integer
+        vat_cents:
+          type: integer
+        total_cents:
+          type: integer
+          nullable: true
+        discount_label:
+          type: string
+          nullable: true
+      required:
+        - service_id
+        - code
+        - name
+        - group_name
+        - category
+        - pricing_mode
+        - vat_mode
+        - price_from_cents
+        - price_for
+        - price_label
+        - is_addon
+        - includes
+        - included_in
+        - components_source
+        - is_available
+        - sort_order
+        - points_estimate
+    OutletServiceInput:
+      type: object
+      properties:
+        display_name:
+          type: string
+          nullable: true
+        price_small_cents:
+          type: integer
+          nullable: true
+        price_large_cents:
+          type: integer
+          nullable: true
+        price_general_cents:
+          type: integer
+          nullable: true
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+          nullable: true
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
           nullable: true
         is_available:
           type: boolean
-      required:
-        - outlet_id
-        - service_id
-        - price_cents
-        - is_available
+        sort_order:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        price_cents:
+          type: integer
+          description: Legacy single price
+          nullable: true
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceComponentInput'
+          description: Outlet-specific composition; null = use the global set
+          nullable: true
     Slot:
       type: object
       properties:
@@ -5089,6 +7130,13 @@ components:
         disc_hash:
           type: string
           nullable: true
+        size_class:
+          type: string
+          enum:
+            - small
+            - large
+            - bike
+          nullable: true
         is_active:
           type: boolean
         created_at:
@@ -5097,6 +7145,143 @@ components:
         updated_at:
           type: string
           format: date-time
+    StaffCustomer:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Firebase UID, or walkin_<uuid> until claimed
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        marketing_opt_in:
+          type: boolean
+        whatsapp_opt_in:
+          type: boolean
+        loyalty:
+          type: object
+          properties:
+            tier:
+              type: string
+              enum:
+                - silver
+                - gold
+                - platinum
+                - black
+            balance_points:
+              type: integer
+            discount_pct:
+              type: number
+            plan_code:
+              type: string
+              example: gold
+              nullable: true
+            plan_name:
+              type: string
+              nullable: true
+            membership_status:
+              type: string
+              enum:
+                - pending
+                - active
+                - past_due
+                - cancelled
+                - expired
+              nullable: true
+            included_remaining:
+              type: integer
+              description: Remaining monthly washes on the live plan (0 without one)
+          required:
+            - tier
+            - balance_points
+          nullable: true
+        vehicles:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              registration_no:
+                type: string
+              make:
+                type: string
+                nullable: true
+              model:
+                type: string
+                nullable: true
+              colour:
+                type: string
+                nullable: true
+              disc_verified:
+                type: boolean
+      required:
+        - id
+        - full_name
+        - email
+        - phone
+        - marketing_opt_in
+        - whatsapp_opt_in
+        - loyalty
+        - vehicles
+    StaffCustomerCreate:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 2
+        phone:
+          type: string
+          description: Any SA/international format; stored as E.164 (082… → +2782…)
+        email:
+          type: string
+          format: email
+          nullable: true
+        marketing_opt_in:
+          type: boolean
+        whatsapp_opt_in:
+          type: boolean
+        outlet_id:
+          type: string
+          format: uuid
+        client_op_id:
+          type: string
+      required:
+        - full_name
+        - phone
+        - client_op_id
+    PosPaymentRecord:
+      type: object
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+        method:
+          type: string
+          enum:
+            - cash
+            - card_terminal
+        reference:
+          type: string
+          maxLength: 64
+          nullable: true
+        amount_cents:
+          type: integer
+          description: Must equal bookings.total_cents
+        idempotency_key:
+          type: string
+      required:
+        - booking_id
+        - method
+        - amount_cents
+        - idempotency_key
     VehicleCreate:
       type: object
       properties:
@@ -5142,6 +7327,17 @@ components:
           type: boolean
         client_op_id:
           type: string
+        size_class:
+          type: string
+          enum:
+            - small
+            - large
+            - bike
+          nullable: true
+        description:
+          type: string
+          description: Licence-disc description; only used to derive size_class when it is omitted
+          nullable: true
       required:
         - registration_no
     ParsedDisc:
@@ -5183,6 +7379,13 @@ components:
           type: array
           items:
             type: string
+        size_class:
+          type: string
+          enum:
+            - small
+            - large
+            - bike
+          nullable: true
         source:
           type: string
           enum:
@@ -5306,6 +7509,69 @@ components:
         client_op_id:
           type: string
           nullable: true
+        created_by:
+          type: string
+          description: Profile id of whoever created it (staff uid for walk-ins)
+          nullable: true
+        walk_in:
+          type: boolean
+        vehicle_size:
+          type: string
+          enum:
+            - small
+            - large
+            - bike
+          nullable: true
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+          nullable: true
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
+          nullable: true
+        addon_service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        addons_cents:
+          type: integer
+        membership_id:
+          type: string
+          format: uuid
+          nullable: true
+        entitlement_id:
+          type: string
+          format: uuid
+          nullable: true
+        membership_benefit:
+          type: string
+          enum:
+            - included
+            - discount
+          nullable: true
+        addons:
+          type: array
+          items:
+            type: object
+            properties:
+              service_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              price_cents:
+                type: integer
+                nullable: true
+        price_label:
+          type: string
+          example: From R 459
         created_at:
           type: string
           format: date-time
@@ -5436,13 +7702,56 @@ components:
           nullable: true
         customer_id:
           type: string
-          description: 'Staff only: book on behalf of a customer'
+          description: 'Staff only (required): book on behalf of a customer'
+        walk_in:
+          type: boolean
+          description: 'Staff only: counter booking — starts confirmed; outlet must be in the staff member’s outlets'
+        checkin:
+          type: object
+          properties:
+            bay:
+              type: string
+              nullable: true
+            priority:
+              type: integer
+              minimum: 1
+              maximum: 3
+        vehicle_size:
+          type: string
+          enum:
+            - small
+            - large
+            - bike
+        addon_service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
       required:
         - vehicle_id
         - outlet_id
         - service_id
-        - slot_start
         - client_op_id
+    BookingCreated:
+      type: object
+      properties:
+        booking:
+          $ref: '#/components/schemas/Booking'
+        duplicate:
+          type: boolean
+        work_order:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/WorkOrder'
+          nullable: true
+        task:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Task'
+          nullable: true
+      required:
+        - booking
+        - duplicate
     WorkOrder:
       type: object
       properties:
@@ -5966,6 +8275,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LineItem'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineItem'
+          description: Alias of line_items
+        items_note:
+          type: string
+          nullable: true
         assessor_id:
           type: string
           nullable: true
@@ -5984,9 +8301,38 @@ components:
         decision_by:
           type: string
           nullable: true
+        decision_by_name:
+          type: string
+          nullable: true
         decision_note:
           type: string
           nullable: true
+        decision_source:
+          type: string
+          enum:
+            - app
+            - public_link
+            - staff
+          nullable: true
+        public_token_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        public_url:
+          type: string
+          description: 'Staff only: ${PUBLIC_WEB_BASE_URL}/q/<token>; null when no base URL is configured. The token itself is never listed.'
+          nullable: true
+        pdf_url:
+          type: string
+          example: /v1/quotations/<id>/pdf
+        pdf_generated_at:
+          type: string
+          format: date-time
+          nullable: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuotationAttachment'
         client_op_id:
           type: string
           nullable: true
@@ -6001,11 +8347,162 @@ components:
       properties:
         label:
           type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+        category:
+          type: string
+          example: Bumper
+          nullable: true
+        service_id:
+          type: string
+          format: uuid
+          nullable: true
         amount_cents:
           type: integer
+          minimum: 0
+          description: Line total (0 when a membership entitlement covers the service)
+        quantity:
+          type: integer
+          minimum: 1
+          nullable: true
+        membership_benefit:
+          type: string
+          enum:
+            - included
+          nullable: true
+        entitlement_id:
+          type: string
+          format: uuid
+          nullable: true
       required:
         - label
         - amount_cents
+    QuotationRaise:
+      type: object
+      properties:
+        customer_id:
+          type: string
+          description: Active customer profile (Firebase UID or walkin_<uuid>)
+        vehicle_id:
+          type: string
+          format: uuid
+        outlet_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum:
+            - Dent
+            - Scratch
+            - Bumper
+            - Panel
+            - Paint
+            - Glass
+            - Other
+        description:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineItem'
+          minItems: 1
+          maxItems: 20
+        valid_until:
+          type: string
+          format: date
+        items_note:
+          type: string
+          maxLength: 1000
+          nullable: true
+        client_op_id:
+          type: string
+        send_to_customer:
+          type: boolean
+          default: true
+          description: quote_ready push + WhatsApp (Content variables first_name, public_token)
+      required:
+        - customer_id
+        - vehicle_id
+        - outlet_id
+        - category
+        - description
+        - items
+        - valid_until
+        - client_op_id
+    QuotationRequest:
+      type: object
+      properties:
+        vehicle_id:
+          type: string
+          format: uuid
+        outlet_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum:
+            - Dent
+            - Scratch
+            - Bumper
+            - Panel
+            - Paint
+            - Glass
+            - Other
+        description:
+          type: string
+        client_op_id:
+          type: string
+        attachment_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+        - vehicle_id
+        - outlet_id
+        - category
+        - description
+        - client_op_id
+    QuotationAttachment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - damage_photo
+            - document
+        mime_type:
+          type: string
+          example: image/jpeg
+        size_bytes:
+          type: integer
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        caption:
+          type: string
+          nullable: true
+        url:
+          type: string
+          description: 'API path that streams the file (signed-in: /v1/quotations/{id}/photos/{attachmentId}; public: /v1/public/quotations/{token}/photos/{attachmentId})'
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - kind
+        - mime_type
+        - size_bytes
+        - url
     Attachment:
       type: object
       properties:
@@ -6029,9 +8526,155 @@ components:
         uploaded_by:
           type: string
           nullable: true
+        kind:
+          type: string
+          enum:
+            - damage_photo
+            - document
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        caption:
+          type: string
+          nullable: true
         created_at:
           type: string
           format: date-time
+    PublicQuotation:
+      type: object
+      properties:
+        ref:
+          type: string
+        status:
+          type: string
+          enum:
+            - requested
+            - assessing
+            - quoted
+            - accepted
+            - declined
+            - expired
+            - converted
+        outlet:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+              nullable: true
+            address_line:
+              type: string
+              nullable: true
+          nullable: true
+        customer:
+          type: object
+          properties:
+            first_name:
+              type: string
+        vehicle:
+          type: object
+          properties:
+            registration_no:
+              type: string
+            make:
+              type: string
+              nullable: true
+            model:
+              type: string
+              nullable: true
+            colour:
+              type: string
+              nullable: true
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineItem'
+        amount_cents:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          example: ZAR
+        valid_until:
+          type: string
+          format: date
+          nullable: true
+        quoted_at:
+          type: string
+          format: date-time
+          nullable: true
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+        decision_source:
+          type: string
+          enum:
+            - app
+            - public_link
+            - staff
+          nullable: true
+        expired:
+          type: boolean
+        can_decide:
+          type: boolean
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              url:
+                type: string
+              caption:
+                type: string
+                nullable: true
+              width:
+                type: integer
+                nullable: true
+              height:
+                type: integer
+                nullable: true
+        pdf_url:
+          type: string
+        notes:
+          type: string
+          nullable: true
+      required:
+        - ref
+        - status
+        - customer
+        - items
+        - currency
+        - expired
+        - can_decide
+        - attachments
+        - pdf_url
+    PublicDecision:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum:
+            - accept
+            - decline
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        accepted_by_name:
+          type: string
+          maxLength: 120
+          nullable: true
+      required:
+        - decision
     PaymentMethod:
       type: object
       properties:
@@ -6105,6 +8748,22 @@ components:
           type: string
           format: date-time
           nullable: true
+        method:
+          type: string
+          enum:
+            - cash
+            - card_terminal
+            - card
+            - eft
+          nullable: true
+        recorded_by:
+          type: string
+          description: Staff uid for POS attestations
+          nullable: true
+        membership_invoice_id:
+          type: string
+          format: uuid
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -6150,6 +8809,7 @@ components:
             - silver
             - gold
             - platinum
+            - black
         name:
           type: string
         min_points:
@@ -6235,6 +8895,7 @@ components:
             - silver
             - gold
             - platinum
+            - black
         balance_points:
           type: integer
           description: Computed from the ledger (authoritative)
@@ -6309,6 +8970,7 @@ components:
             - silver
             - gold
             - platinum
+            - black
         is_active:
           type: boolean
         sort_order:
@@ -6680,8 +9342,11 @@ components:
             - step.result
             - inventory.movement
             - booking.create
+            - booking.create_walk_in
+            - payment.record
             - quotation.create
             - vehicle.create
+            - membership.enrol
         payload:
           type: object
           additionalProperties: true
@@ -6812,6 +9477,12 @@ components:
                 type: integer
               rank:
                 type: integer
+        active_members:
+          type: integer
+          description: Memberships with status active (platform-wide)
+        membership_mrr_cents:
+          type: integer
+          description: Σ monthly fee of active memberships
     ExceptionItem:
       type: object
       properties:
@@ -6951,6 +9622,54 @@ components:
         updated_at:
           type: string
           format: date-time
+    OutletService:
+      type: object
+      properties:
+        outlet_id:
+          type: string
+          format: uuid
+        service_id:
+          type: string
+          format: uuid
+        price_cents:
+          type: integer
+          description: Legacy single price (null = inherit)
+          nullable: true
+        is_available:
+          type: boolean
+        display_name:
+          type: string
+          nullable: true
+        price_small_cents:
+          type: integer
+          nullable: true
+        price_large_cents:
+          type: integer
+          nullable: true
+        price_general_cents:
+          type: integer
+          nullable: true
+        pricing_mode:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+          nullable: true
+        vat_mode:
+          type: string
+          enum:
+            - incl
+            - excl
+          nullable: true
+        sort_order:
+          type: integer
+          nullable: true
+      required:
+        - outlet_id
+        - service_id
+        - price_cents
+        - is_available
     AdminPayment:
       type: object
       properties:
@@ -7238,3 +9957,767 @@ components:
         delta:
           type: integer
           description: Rank change vs previous period (+ = moved up)
+    MembershipEntitlement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: G1
+        label:
+          type: string
+          example: 4 × Sparkling Wash
+        quantity:
+          type: integer
+        period:
+          type: string
+          enum:
+            - month
+            - year
+        sort_order:
+          type: integer
+        services:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              code:
+                type: string
+                example: SPARKLING_WASH
+              name:
+                type: string
+              is_primary:
+                type: boolean
+      required:
+        - id
+        - code
+        - label
+        - quantity
+        - period
+        - services
+    MembershipGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: washes
+        name:
+          type: string
+        selection:
+          type: string
+          enum:
+            - choose_one
+            - all
+        sort_order:
+          type: integer
+        entitlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipEntitlement'
+      required:
+        - id
+        - code
+        - name
+        - selection
+        - entitlements
+    MembershipPlan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: gold
+        tier:
+          type: string
+          enum:
+            - silver
+            - gold
+            - platinum
+            - black
+        name:
+          type: string
+        tagline:
+          type: string
+          nullable: true
+        monthly_fee_cents:
+          type: integer
+          example: 29500
+        discount_pct:
+          type: number
+          example: 10
+        discount_scope:
+          type: string
+          enum:
+            - plan_services
+            - other_services
+            - all_services
+            - none
+        discount_note:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipGroup'
+      required:
+        - id
+        - code
+        - tier
+        - name
+        - monthly_fee_cents
+        - discount_pct
+        - discount_scope
+        - groups
+    AdminMembershipPlan:
+      allOf:
+        - $ref: '#/components/schemas/MembershipPlan'
+        - type: object
+          properties:
+            member_count:
+              type: integer
+              description: active + past_due
+            mrr_cents:
+              type: integer
+              description: Σ fee of active members
+          required:
+            - member_count
+            - mrr_cents
+    MembershipPlanInput:
+      type: object
+      properties:
+        name:
+          type: string
+        tagline:
+          type: string
+          nullable: true
+        monthly_fee_cents:
+          type: integer
+          minimum: 1
+        discount_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+        discount_scope:
+          type: string
+          enum:
+            - plan_services
+            - other_services
+            - all_services
+            - none
+        discount_note:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              name:
+                type: string
+              selection:
+                type: string
+                enum:
+                  - choose_one
+                  - all
+              sort_order:
+                type: integer
+              entitlements:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code:
+                      type: string
+                    label:
+                      type: string
+                    quantity:
+                      type: integer
+                      minimum: 1
+                    period:
+                      type: string
+                      enum:
+                        - month
+                        - year
+                    sort_order:
+                      type: integer
+                    service_codes:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - code
+                    - label
+                    - quantity
+                    - service_codes
+            required:
+              - code
+              - name
+              - entitlements
+      required:
+        - name
+        - monthly_fee_cents
+        - discount_pct
+        - discount_scope
+        - groups
+    Membership:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ref:
+          type: string
+          example: MEM-2026-0001
+        customer_id:
+          type: string
+        plan_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - past_due
+            - cancelled
+            - expired
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        current_period_start:
+          type: string
+          format: date-time
+          nullable: true
+        current_period_end:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_at_period_end:
+          type: boolean
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+        next_plan_id:
+          type: string
+          format: uuid
+          nullable: true
+        payment_method:
+          type: string
+          enum:
+            - card
+            - cash
+            - eft
+            - sandbox
+        client_op_id:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - ref
+        - customer_id
+        - plan_id
+        - status
+        - cancel_at_period_end
+        - payment_method
+    MembershipInvoice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ref:
+          type: string
+          example: MINV-2026-0101
+        membership_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        amount_cents:
+          type: integer
+        status:
+          type: string
+          enum:
+            - pending
+            - paid
+            - failed
+            - void
+        due_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        payment_id:
+          type: string
+          format: uuid
+          nullable: true
+        idempotency_key:
+          type: string
+          example: renewal:<membership_id>:2026-10-10
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - ref
+        - membership_id
+        - period_start
+        - period_end
+        - amount_cents
+        - status
+        - due_at
+    Allowance:
+      type: object
+      properties:
+        entitlement_id:
+          type: string
+          format: uuid
+        entitlement_code:
+          type: string
+          example: G1
+        group_code:
+          type: string
+          example: washes
+        label:
+          type: string
+        quantity:
+          type: integer
+        used:
+          type: integer
+        remaining:
+          type: integer
+        period:
+          type: string
+          enum:
+            - month
+            - year
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+      required:
+        - entitlement_id
+        - entitlement_code
+        - group_code
+        - label
+        - quantity
+        - used
+        - remaining
+        - period
+        - period_start
+        - period_end
+    MembershipBrief:
+      type: object
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        plan_code:
+          type: string
+        plan_name:
+          type: string
+        tier:
+          type: string
+          enum:
+            - silver
+            - gold
+            - platinum
+            - black
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - past_due
+            - cancelled
+            - expired
+        period_end:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_at_period_end:
+          type: boolean
+        allowances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Allowance'
+      required:
+        - membership_id
+        - plan_code
+        - plan_name
+        - tier
+        - status
+        - allowances
+    MembershipSummary:
+      type: object
+      properties:
+        membership:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Membership'
+          nullable: true
+        plan:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipPlan'
+          nullable: true
+        next_plan:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            name:
+              type: string
+            monthly_fee_cents:
+              type: integer
+          nullable: true
+        selections:
+          type: object
+          additionalProperties:
+            type: string
+          description: '{ [group_code]: entitlement_code }'
+        allowances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Allowance'
+        open_invoice:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipInvoice'
+          nullable: true
+        invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipInvoice'
+          description: Last 12, newest first
+        next_renewal_at:
+          type: string
+          format: date-time
+          nullable: true
+        benefits_summary:
+          type: string
+          example: 3 of 4 Sparkling Washes left · 10% discount on any other Sparkling service
+      required:
+        - membership
+        - plan
+        - selections
+        - allowances
+        - open_invoice
+        - invoices
+        - next_renewal_at
+        - benefits_summary
+    MembershipPayment:
+      allOf:
+        - $ref: '#/components/schemas/Payment'
+        - type: object
+          properties:
+            client_secret:
+              type: string
+              description: Sandbox intent secret (null on replay)
+              nullable: true
+    MembershipSubscribe:
+      type: object
+      properties:
+        plan_code:
+          type: string
+          example: gold
+        selections:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            washes: G1
+        payment_method:
+          type: string
+          enum:
+            - card
+        client_op_id:
+          type: string
+      required:
+        - plan_code
+        - client_op_id
+    MembershipSubscribed:
+      type: object
+      properties:
+        membership:
+          $ref: '#/components/schemas/Membership'
+        invoice:
+          $ref: '#/components/schemas/MembershipInvoice'
+        payment:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipPayment'
+          nullable: true
+        duplicate:
+          type: boolean
+      required:
+        - membership
+        - invoice
+        - payment
+        - duplicate
+    MembershipEnrol:
+      type: object
+      properties:
+        plan_code:
+          type: string
+        selections:
+          type: object
+          additionalProperties:
+            type: string
+        payment_method:
+          type: string
+          enum:
+            - cash
+            - card_terminal
+            - eft
+        reference:
+          type: string
+          nullable: true
+        outlet_id:
+          type: string
+          format: uuid
+        client_op_id:
+          type: string
+      required:
+        - plan_code
+        - payment_method
+        - client_op_id
+    MembershipEnrolled:
+      type: object
+      properties:
+        membership:
+          $ref: '#/components/schemas/Membership'
+        invoice:
+          $ref: '#/components/schemas/MembershipInvoice'
+        payment:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/Payment'
+          nullable: true
+        duplicate:
+          type: boolean
+        summary:
+          $ref: '#/components/schemas/MembershipSummary'
+      required:
+        - membership
+        - invoice
+        - payment
+        - duplicate
+        - summary
+    MembershipRecordPayment:
+      type: object
+      properties:
+        method:
+          type: string
+          enum:
+            - cash
+            - card_terminal
+            - eft
+        reference:
+          type: string
+          nullable: true
+        outlet_id:
+          type: string
+          format: uuid
+        client_op_id:
+          type: string
+      required:
+        - method
+        - client_op_id
+    MembershipPaymentRecorded:
+      type: object
+      properties:
+        payment:
+          $ref: '#/components/schemas/Payment'
+        invoice:
+          $ref: '#/components/schemas/MembershipInvoice'
+        membership:
+          $ref: '#/components/schemas/Membership'
+        duplicate:
+          type: boolean
+      required:
+        - payment
+        - invoice
+        - membership
+        - duplicate
+    MembershipChangePlan:
+      type: object
+      properties:
+        membership:
+          $ref: '#/components/schemas/Membership'
+        change:
+          type: string
+          enum:
+            - upgrade
+            - downgrade
+        invoice:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipInvoice'
+          nullable: true
+        payment:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipPayment'
+          nullable: true
+        applies_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - membership
+        - change
+        - invoice
+        - payment
+        - applies_at
+    MemberRow:
+      type: object
+      properties:
+        membership:
+          $ref: '#/components/schemas/Membership'
+        customer:
+          type: object
+          properties:
+            id:
+              type: string
+            full_name:
+              type: string
+            phone:
+              type: string
+              nullable: true
+            email:
+              type: string
+              nullable: true
+          nullable: true
+        plan:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            name:
+              type: string
+            tier:
+              type: string
+              enum:
+                - silver
+                - gold
+                - platinum
+                - black
+            monthly_fee_cents:
+              type: integer
+        next_plan:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            name:
+              type: string
+          nullable: true
+        allowances:
+          type: array
+          items:
+            $ref: '#/components/schemas/Allowance'
+        open_invoice:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MembershipInvoice'
+          nullable: true
+      required:
+        - membership
+        - customer
+        - plan
+        - allowances
+        - open_invoice
+    RenewalRun:
+      type: object
+      properties:
+        ran_at:
+          type: string
+          format: date-time
+        scanned:
+          type: integer
+        rolled:
+          type: integer
+        cancelled:
+          type: integer
+        expired:
+          type: integer
+        invoices_created:
+          type: integer
+        auto_charged:
+          type: integer
+        past_due:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              membership_id:
+                type: string
+                format: uuid
+              message:
+                type: string

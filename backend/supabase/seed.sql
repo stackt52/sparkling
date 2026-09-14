@@ -107,17 +107,20 @@ insert into public.vehicles (id, customer_id, registration_no, vin, make, model,
  ('d0000000-0000-4000-8000-000000000005','seed_zanele','BW 33 RG GP','WBA5R1C50KA112233','BMW','330i','Portimao Blue',2020,'BM4451122','2027-05-31','scan',true);
 
 -- ---------- Loyalty config v14 (published) + v15 draft (ADM-025) ------------
+-- Tier = membership plan (migration 0010); discounts come from membership_plans, so discount_pct is 0 here.
 insert into public.loyalty_configs (id, version, status, tiers, rules, change_note, created_by, published_by, published_at) values
  ('e0000000-0000-4000-8000-000000000014',14,'published',
   '[{"tier":"silver","name":"Silver","min_points":0,"max_points":499,"earn_multiplier":1.0,"discount_pct":0},
-    {"tier":"gold","name":"Gold","min_points":500,"max_points":1999,"earn_multiplier":1.25,"discount_pct":10},
-    {"tier":"platinum","name":"Platinum","min_points":2000,"max_points":null,"earn_multiplier":1.5,"discount_pct":15}]',
+    {"tier":"gold","name":"Gold","min_points":500,"max_points":1999,"earn_multiplier":1.25,"discount_pct":0},
+    {"tier":"platinum","name":"Platinum","min_points":2000,"max_points":4999,"earn_multiplier":1.5,"discount_pct":0},
+    {"tier":"black","name":"Black","min_points":5000,"max_points":null,"earn_multiplier":1.75,"discount_pct":0}]',
   '{"points_per_rand":0.10,"award_on":"completion","idempotent_award":true,"expiry_months":24,"birthday_bonus":{"enabled":false,"points":100,"reason":"Pending consent review (ADM-042)"},"referral_bonus":{"enabled":true,"points":150}}',
   'Baseline tiers and earn rules','seed_admin','seed_admin', now() - interval '40 days'),
  ('e0000000-0000-4000-8000-000000000015',15,'draft',
   '[{"tier":"silver","name":"Silver","min_points":0,"max_points":499,"earn_multiplier":1.0,"discount_pct":0},
-    {"tier":"gold","name":"Gold","min_points":500,"max_points":1999,"earn_multiplier":1.25,"discount_pct":10},
-    {"tier":"platinum","name":"Platinum","min_points":2000,"max_points":null,"earn_multiplier":1.5,"discount_pct":15}]',
+    {"tier":"gold","name":"Gold","min_points":500,"max_points":1999,"earn_multiplier":1.25,"discount_pct":0},
+    {"tier":"platinum","name":"Platinum","min_points":2000,"max_points":4999,"earn_multiplier":1.5,"discount_pct":0},
+    {"tier":"black","name":"Black","min_points":5000,"max_points":null,"earn_multiplier":1.75,"discount_pct":0}]',
   '{"points_per_rand":0.12,"award_on":"completion","idempotent_award":true,"expiry_months":24,"birthday_bonus":{"enabled":false,"points":100,"reason":"Pending consent review (ADM-042)"},"referral_bonus":{"enabled":true,"points":200}}',
   'Raise earn rate to 0.12/R and referral bonus to 200','seed_ayesha',null,null);
 

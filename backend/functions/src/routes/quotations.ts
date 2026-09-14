@@ -1,13 +1,28 @@
-/** Quotations (CUS-030..034). */
-import { Router } from 'express';
+/** Quotations (CUS-030..034, STF-010/012): requests, staff-raised quotes, damage photos, share link, PDF, decisions. */
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
+import { parseMultipart } from '../lib/multipart.js';
 import { clientOpId, isoDate, pagination, parseBody, parseQuery, uuid } from '../lib/validate.js';
-import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireSupervisor } from '../middleware/auth.js';
+import { assertOutlet, assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff, requireSupervisor } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
-import { assertCanReadQuotation, convert, createQuotation, decide, getQuotationOrThrow, quote } from '../services/quotations.js';
-import type { Quotation } from '../types.js';
+import { pdfFilename, renderQuotationPdf } from '../services/quotationPdf.js';
+import { addPhoto, deletePhoto, MAX_PHOTO_BYTES, openPhoto, PHOTO_CACHE_CONTROL } from '../services/quotationPhotos.js';
+import {
+  assertCanReadQuotation,
+  attachmentView,
+  convert,
+  createQuotation,
+  decide,
+  getQuotationOrThrow,
+  loadQuotationAttachments,
+  presentQuotation,
+  quote,
+  raiseQuotation,
+  shareQuotation,
+} from '../services/quotations.js';
+import type { Attachment, Quotation } from '../types.js';
 
 export const quotationsRouter = Router();
 quotationsRouter.use('/quotations', requireProfile);
@@ -34,8 +49,12 @@ quotationsRouter.get(
       query = query.eq('customer_id', auth.uid);
     }
     if (q.status) query = query.in('status', q.status.split(','));
-    const rows = unwrap<Quotation[]>(await query, 'quotations');
-    res.json(pageResult(rows, q.limit, offset));
+    const rows = unwrap<Array<Quotation & Record<string, unknown>>>(await query, 'quotations');
+    const page = pageResult(rows, q.limit, offset);
+    const attachments = await loadQuotationAttachments(page.data.map((r) => r.id));
+    const byQuotation = new Map<string, Attachment[]>();
+    for (const a of attachments) byQuotation.set(a.entity_id, [...(byQuotation.get(a.entity_id) ?? []), a]);
+    res.json({ data: page.data.map((r) => presentQuotation(r, byQuotation.get(r.id) ?? [], auth)), next_cursor: page.next_cursor });
   }),
 );
 
@@ -47,24 +66,67 @@ quotationsRouter.get(
     const q = unwrap<(Quotation & Record<string, unknown>) | null>(await db.from('quotations').select(EXPAND).eq('id', id).maybeSingle(), 'quotation');
     if (!q) throw ApiError.notFound('Quotation');
     assertCanReadQuotation(req.ctx, q);
-    const attachments = unwrap<unknown[]>(await db.from('attachments').select('*').eq('entity_type', 'quotation').eq('entity_id', id).order('created_at'), 'attachments');
+    const attachments = await loadQuotationAttachments([id]);
     const workOrder = unwrap<{ id: string; ref: string; status: string } | null>(await db.from('work_orders').select('id, ref, status').eq('quotation_id', id).maybeSingle(), 'work order');
-    res.json({ ...q, attachments, work_order: workOrder });
+    res.json({ ...presentQuotation(q, attachments, req.auth!), work_order: workOrder });
   }),
 );
+
+const category = z.enum(['Dent', 'Scratch', 'Bumper', 'Panel', 'Paint', 'Glass', 'Other']);
 
 const createSchema = z.object({
   vehicle_id: uuid,
   outlet_id: uuid,
-  category: z.enum(['Dent', 'Scratch', 'Bumper', 'Panel', 'Paint', 'Glass', 'Other']),
+  category,
   description: z.string().trim().min(5).max(2000),
   client_op_id: clientOpId,
   attachment_ids: z.array(uuid).max(10).optional(),
 });
 
+const lineItemSchema = z.object({
+  label: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(500).nullable().optional(),
+  category: z.string().trim().max(60).nullable().optional(),
+  service_id: uuid.nullable().optional(),
+  amount_cents: z.number().int().min(0).max(100_000_000),
+  quantity: z.number().int().min(1).max(999).nullable().optional(),
+});
+
+const todayUtc = () => new Date().toISOString().slice(0, 10);
+
+const raiseSchema = z.object({
+  customer_id: z.string().trim().min(1).max(128),
+  vehicle_id: uuid,
+  outlet_id: uuid,
+  category,
+  description: z.string().trim().min(5).max(2000),
+  items: z.array(lineItemSchema).min(1).max(20),
+  valid_until: isoDate.refine((d) => d >= todayUtc(), { message: 'valid_until must be today or later' }),
+  items_note: z.string().trim().max(1000).nullable().optional(),
+  client_op_id: clientOpId,
+  send_to_customer: z.boolean().default(true),
+});
+
 quotationsRouter.post(
   '/quotations',
   asyncHandler(async (req, res) => {
+    if (isStaff(req.auth!.role)) {
+      const body = parseBody(raiseSchema, req.body);
+      const { quotation, duplicate, notification } = await raiseQuotation(req.ctx, {
+        customerId: body.customer_id,
+        vehicleId: body.vehicle_id,
+        outletId: body.outlet_id,
+        category: body.category,
+        description: body.description,
+        items: body.items,
+        validUntil: body.valid_until,
+        itemsNote: body.items_note ?? null,
+        clientOpId: body.client_op_id,
+        sendToCustomer: body.send_to_customer,
+      });
+      const attachments = duplicate ? await loadQuotationAttachments([quotation.id]) : [];
+      return res.status(duplicate ? 200 : 201).json({ quotation: presentQuotation(quotation, attachments, req.auth!), duplicate, notification });
+    }
     const body = parseBody(createSchema, req.body);
     const { quotation, duplicate } = await createQuotation(req.ctx, {
       vehicleId: body.vehicle_id,
@@ -74,7 +136,7 @@ quotationsRouter.post(
       clientOpId: body.client_op_id,
       attachmentIds: body.attachment_ids,
     });
-    res.status(duplicate ? 200 : 201).json({ quotation, duplicate });
+    res.status(duplicate ? 200 : 201).json({ quotation: presentQuotation(quotation, [], req.auth!), duplicate });
   }),
 );
 
@@ -94,16 +156,108 @@ quotationsRouter.post(
     assertOwnerOrOutletStaff(req.auth!, q);
     const db = getSupabase();
     const att = unwrap<Record<string, unknown>>(
-      await db.from('attachments').insert({ entity_type: 'quotation', entity_id: id, ...body, uploaded_by: req.auth!.uid }).select('*').single(),
+      await db.from('attachments').insert({ entity_type: 'quotation', entity_id: id, ...body, kind: 'document', uploaded_by: req.auth!.uid }).select('*').single(),
       'attachment',
     );
     res.status(201).json({ attachment: att });
   }),
 );
 
+// ---------------------------------------------------------------------------
+// Damage photos (multipart; served through the API only)
+// ---------------------------------------------------------------------------
+
+quotationsRouter.post(
+  '/quotations/:id/photos',
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const q = await getQuotationOrThrow(id);
+    assertOwnerOrOutletStaff(req.auth!, q);
+    const form = await parseMultipart(req, { fileField: 'photo', maxFileBytes: MAX_PHOTO_BYTES });
+    if (!form.file) throw ApiError.validation('Missing "photo" file field', [{ path: 'photo', message: 'required' }]);
+    const caption = form.fields.caption ? z.string().trim().max(200).parse(form.fields.caption) : null;
+    const att = await addPhoto(req.ctx, q, { buffer: form.file.buffer, caption });
+    res.status(201).json({ attachment: attachmentView(att, `/v1/quotations/${id}`) });
+  }),
+);
+
+export async function streamPhoto(res: Response, quotationId: string, attachmentId: string): Promise<void> {
+  const { attachment, object } = await openPhoto(quotationId, attachmentId);
+  res.setHeader('Content-Type', object.contentType ?? attachment.mime_type);
+  res.setHeader('Cache-Control', PHOTO_CACHE_CONTROL);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (object.size !== null) res.setHeader('Content-Length', String(object.size));
+  await new Promise<void>((resolve, reject) => {
+    object.stream.on('error', reject);
+    object.stream.on('end', resolve);
+    object.stream.pipe(res);
+  });
+}
+
+export async function sendPdf(res: Response, q: Quotation): Promise<void> {
+  const pdf = await renderQuotationPdf(q);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${pdfFilename(q)}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Length', String(pdf.length));
+  res.end(pdf);
+}
+
+quotationsRouter.get(
+  '/quotations/:id/photos/:attachmentId',
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const attachmentId = uuid.parse(req.params.attachmentId);
+    const q = await getQuotationOrThrow(id);
+    assertOwnerOrOutletStaff(req.auth!, q);
+    await streamPhoto(res, id, attachmentId);
+  }),
+);
+
+quotationsRouter.delete(
+  '/quotations/:id/photos/:attachmentId',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const attachmentId = uuid.parse(req.params.attachmentId);
+    const q = await getQuotationOrThrow(id);
+    assertOutlet(req.auth!, q.outlet_id);
+    await deletePhoto(req.ctx, q, attachmentId);
+    res.status(204).end();
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Share link, PDF
+// ---------------------------------------------------------------------------
+
+quotationsRouter.post(
+  '/quotations/:id/share',
+  requireStaff,
+  asyncHandler(async (req: Request, res) => {
+    const id = uuid.parse(req.params.id);
+    const out = await shareQuotation(req.ctx, id);
+    res.json({ public_url: out.public_url, expires_at: out.expires_at, notification: out.notification, quotation: presentQuotation(out.quotation, await loadQuotationAttachments([id]), req.auth!) });
+  }),
+);
+
+quotationsRouter.get(
+  '/quotations/:id/pdf',
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const q = await getQuotationOrThrow(id);
+    assertOwnerOrOutletStaff(req.auth!, q);
+    await sendPdf(res, q);
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Quote / decision / convert
+// ---------------------------------------------------------------------------
+
 const quoteSchema = z.object({
   amount_cents: z.number().int().min(0),
-  line_items: z.array(z.object({ label: z.string().trim().min(1).max(200), amount_cents: z.number().int().min(0) })).max(50).default([]),
+  line_items: z.array(lineItemSchema).max(50).default([]),
   valid_until: isoDate,
 });
 
@@ -113,7 +267,8 @@ quotationsRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(quoteSchema, req.body);
-    res.json({ quotation: await quote(req.ctx, id, body) });
+    const updated = await quote(req.ctx, id, body);
+    res.json({ quotation: presentQuotation(updated, await loadQuotationAttachments([id]), req.auth!) });
   }),
 );
 
@@ -122,7 +277,8 @@ quotationsRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(z.object({ decision: z.enum(['accept', 'decline']), note: z.string().trim().max(500).nullable().optional() }), req.body);
-    res.json({ quotation: await decide(req.ctx, id, body.decision, body.note) });
+    const updated = await decide(req.ctx, id, body.decision, body.note);
+    res.json({ quotation: presentQuotation(updated, await loadQuotationAttachments([id]), req.auth!) });
   }),
 );
 

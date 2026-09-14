@@ -1,9 +1,7 @@
 'use client';
 import * as React from 'react';
-import Drawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
 import Dialog from '@mui/material/Dialog';
@@ -13,6 +11,7 @@ import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import MSymbol from '@/components/MSymbol';
+import DetailDrawer from '@/components/ui/DetailDrawer';
 import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
@@ -22,13 +21,15 @@ import { can } from '@/lib/rbac';
 import { useToast } from '@/lib/hooks';
 import { fonts, tk } from '@/theme/tokens';
 import { fmtDateTime, fmtTime, rands } from '@/lib/format';
+import { SIZE_LABEL } from '@/components/catalogue/pricing';
 import type { TimelineStage } from '@/lib/types';
 
 function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.75 }}>
       <Typography variant="body2" color="text.secondary">{label}</Typography>
-      <Typography variant="body1" sx={{ fontWeight: 600, fontFamily: mono ? fonts.mono : undefined, textAlign: 'right' }}>{value}</Typography>
+      {/* component="div": values can be chips or other block elements, which HTML forbids inside a <p>. */}
+      <Typography variant="body1" component="div" sx={{ fontWeight: 600, fontFamily: mono ? fonts.mono : undefined, textAlign: 'right' }}>{value}</Typography>
     </Box>
   );
 }
@@ -83,49 +84,64 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
 
   return (
     <>
-      <Drawer anchor="right" open={Boolean(bookingId)} onClose={onClose} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 460 }, borderRadius: { xs: 0, sm: '28px 0 0 28px' }, p: 3 } } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-          <Typography variant="overline" color="text.secondary">Booking</Typography>
-          <IconButton aria-label="Close booking details" onClick={onClose}><MSymbol name="close" /></IconButton>
-        </Box>
+      <DetailDrawer
+        open={Boolean(bookingId)}
+        onClose={onClose}
+        label="Booking"
+        closeLabel="Close booking details"
+        titleId="booking-drawer-title"
+        title={b && (
+          <>
+            <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{b.ref}</Typography>
+            <StatusChip status={b.status} />
+          </>
+        )}
+        subtitle={b && (
+          <>
+            {b.customer.full_name} · {b.vehicle.make} {b.vehicle.model}
+            {b.walk_in && <> · <Box component="span" sx={{ color: tk.secondary, fontWeight: 600 }}>Walk-in</Box>{b.created_by_name ? ` · created by ${b.created_by_name}` : ''}</>}
+          </>
+        )}
+        footer={canCancel && (
+          <Button variant="outlined" color="error" fullWidth onClick={() => setCancelOpen(true)} startIcon={<MSymbol name="event_busy" size={20} />}>
+            Cancel booking
+          </Button>
+        )}
+      >
         {q.isLoading && <LoadingRows rows={6} />}
         {q.error && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
         {b && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-              <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{b.ref}</Typography>
-              <StatusChip status={b.status} />
-            </Box>
-            <Typography color="text.secondary">{b.customer.full_name} · {b.vehicle.make} {b.vehicle.model}</Typography>
-            <Tile sx={{ mt: 2, flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
+            <Tile sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
               <Row label="Service" value={b.service.name} />
               <Row label="Outlet" value={b.outlet.name} />
               <Row label="Slot" value={`${fmtDateTime(b.slot_start)} – ${fmtTime(b.slot_end)}`} />
               <Row label="Vehicle" value={b.vehicle.registration_no} mono />
+              {b.vehicle_size && <Row label="Vehicle size" value={`${SIZE_LABEL[b.vehicle_size]}${b.price_label ? ` · ${b.price_label}` : ''}`} />}
+              {b.addons && b.addons.length > 0 && <Row label="Add-ons" value={b.addons.map((a) => a.name).join(', ')} />}
               {b.work_order && <Row label="Work order" value={`${b.work_order.ref} · ${b.work_order.assignee_name ?? 'unassigned'}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`} />}
             </Tile>
-            <Typography variant="h4" sx={{ mt: 3, mb: 1 }}>Timeline</Typography>
+
+            <Typography variant="h4" component="h3" sx={{ mt: 4, mb: 1.5 }}>Timeline</Typography>
             <Timeline stages={b.timeline} />
-            <Typography variant="h4" sx={{ mt: 2, mb: 1 }}>Payment</Typography>
+
+            <Typography variant="h4" component="h3" sx={{ mt: 3, mb: 1.5 }}>Payment</Typography>
             <Tile sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
-              <Row label="Price" value={rands(b.price_cents, { decimals: true })} />
+              <Row label={b.addons?.length ? b.service.name : 'Price'} value={rands(b.price_cents - (b.addons_cents ?? 0), { decimals: true })} />
+              {(b.addons ?? []).map((a) => <Row key={a.service_id} label={`+ ${a.name}`} value={rands(a.price_cents, { decimals: true })} />)}
               {b.discount_cents > 0 && <Row label={b.discount_label ?? 'Discount'} value={<span style={{ color: tk.success }}>−{rands(b.discount_cents, { decimals: true })}</span>} />}
+              {(b.vat_cents ?? 0) > 0 && <Row label="VAT 15 % (excl. price)" value={rands(b.vat_cents!, { decimals: true })} />}
               <Divider sx={{ my: 0.5, borderStyle: 'dashed' }} />
               <Row label="Total" value={<span style={{ color: tk.primary, fontSize: 18 }}>{rands(b.total_cents, { decimals: true })}</span>} />
               <Row label="Payment" value={b.payment ? <StatusChip status={b.payment.status} /> : <StatusChip tone="neutral" label="Not started" />} />
+              {b.payment?.method && <Row label="Method" value={b.payment.method === 'cash' ? 'Cash (counter)' : 'Card terminal'} />}
               {b.payment?.receipt_no && <Row label="Receipt" value={b.payment.receipt_no} mono />}
               <Row label="Points pending" value={`+${b.points_pending} pts on completion`} />
             </Tile>
             {b.cancel_reason && <Typography variant="body2" sx={{ mt: 2, color: tk.error }}>Cancelled: {b.cancel_reason}</Typography>}
-            <Box sx={{ flex: 1 }} />
-            {canCancel && (
-              <Button variant="outlined" color="error" sx={{ mt: 3 }} onClick={() => setCancelOpen(true)} startIcon={<MSymbol name="event_busy" size={20} />}>
-                Cancel booking
-              </Button>
-            )}
           </>
         )}
-      </Drawer>
+      </DetailDrawer>
       <Dialog open={cancelOpen} onClose={() => setCancelOpen(false)} aria-labelledby="cancel-title">
         <DialogTitle id="cancel-title">Cancel {b?.ref}?</DialogTitle>
         <DialogContent>

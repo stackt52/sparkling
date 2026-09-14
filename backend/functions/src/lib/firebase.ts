@@ -1,10 +1,10 @@
 /**
- * Firebase Admin singleton (Auth + FCM). Tests can inject fakes via setters.
+ * Firebase Admin singleton (Auth + FCM + Storage). Tests can inject fakes via setters.
  */
 import { getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
-import { FIREBASE_PROJECT_ID } from '../config.js';
+import { config, FIREBASE_PROJECT_ID } from '../config.js';
 
 let app: App | null = null;
 let authOverride: Auth | null = null;
@@ -12,7 +12,7 @@ let messagingOverride: Messaging | null = null;
 
 export function getFirebaseApp(): App {
   if (app) return app;
-  app = getApps()[0] ?? initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? FIREBASE_PROJECT_ID });
+  app = getApps()[0] ?? initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? FIREBASE_PROJECT_ID, storageBucket: config.storageBucket });
   return app;
 }
 

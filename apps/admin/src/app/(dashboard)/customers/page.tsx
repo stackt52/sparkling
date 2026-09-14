@@ -4,8 +4,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
-import Drawer from '@mui/material/Drawer';
-import IconButton from '@mui/material/IconButton';
 import Avatar from '@mui/material/Avatar';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
@@ -13,57 +11,84 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import type { GridColDef } from '@mui/x-data-grid';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import PageHeader from '@/components/layout/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
 import AdminGrid from '@/components/ui/AdminGrid';
+import DetailDrawer from '@/components/ui/DetailDrawer';
 import StatusChip from '@/components/ui/StatusChip';
+import TierChip from '@/components/ui/TierChip';
 import Tile from '@/components/ui/Tile';
+import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
-import { useApi } from '@/lib/auth/AuthProvider';
+import MembershipBlock from '@/components/memberships/MembershipBlock';
+import EnrolDialog from '@/components/memberships/EnrolDialog';
+import { CancelMembershipDialog, RecordMembershipPaymentDialog, type CancelTarget, type PaymentTarget } from '@/components/memberships/MembershipDialogs';
+import { useApi, useAuth } from '@/lib/auth/AuthProvider';
+import { useToast } from '@/lib/hooks';
+import { can } from '@/lib/rbac';
 import { tk } from '@/theme/tokens';
 import { fmtDate, fmtDateTime, initials, num, rands } from '@/lib/format';
 import type { CustomerSummary } from '@/lib/types';
 
-const tierTone = { silver: 'neutral', gold: 'gold', platinum: 'secondary' } as const;
-
-function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+function CustomerDrawer({ id, onClose, onToast }: { id: string | null; onClose: () => void; onToast: (kind: 'success' | 'error' | 'info', message: string | unknown) => void }) {
   const api = useApi();
+  const { role } = useAuth();
   const [tab, setTab] = React.useState(0);
   const q = useQuery({ queryKey: ['customer', id], queryFn: () => api.getCustomer(id!), enabled: Boolean(id) });
   const c = q.data;
+  const canManage = can(role, 'memberships:manage');
+  const [enrolOpen, setEnrolOpen] = React.useState(false);
+  const [payTarget, setPayTarget] = React.useState<PaymentTarget | null>(null);
+  const [cancelTarget, setCancelTarget] = React.useState<CancelTarget | null>(null);
+  const m = c?.membership?.membership ?? null;
+  const plan = c?.membership?.plan ?? null;
   return (
-    <Drawer anchor="right" open={Boolean(id)} onClose={onClose} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 }, borderRadius: { xs: 0, sm: '28px 0 0 28px' }, p: 3 } } }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="overline" color="text.secondary">Customer</Typography>
-        <IconButton aria-label="Close" onClick={onClose}><MSymbol name="close" /></IconButton>
-      </Box>
+    <DetailDrawer
+      open={Boolean(id)}
+      onClose={onClose}
+      width={{ xs: '100%', sm: 520 }}
+      label="Customer"
+      titleId="customer-drawer-title"
+      title={c && (
+        <>
+          <Avatar sx={{ width: 52, height: 52, bgcolor: tk.secondaryContainer, color: tk.onSecondaryContainer, fontWeight: 700 }}>{initials(c.full_name)}</Avatar>
+          <Typography variant="h2">{c.full_name}</Typography>
+        </>
+      )}
+      subtitle={c && <>{c.email} · {c.phone}</>}
+      headerExtra={c && (
+        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mt: 1, mb: -2 }} aria-label="Customer sections" variant="scrollable" allowScrollButtonsMobile>
+          <Tab label={plan ? `Membership · ${plan.name}` : 'Membership'} />
+          <Tab label={`Vehicles · ${c.vehicles.length}`} />
+          <Tab label={`History · ${c.bookings.length}`} />
+          <Tab label={`Loyalty · ${c.ledger.length}`} />
+        </Tabs>
+      )}
+    >
       {q.isLoading && <LoadingRows rows={5} />}
       {q.error && <ErrorState error={q.error} />}
       {c && (
         <>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Avatar sx={{ width: 52, height: 52, bgcolor: tk.secondaryContainer, color: tk.onSecondaryContainer, fontWeight: 700 }}>{initials(c.full_name)}</Avatar>
-            <Box>
-              <Typography variant="h2">{c.full_name}</Typography>
-              <Typography color="text.secondary">{c.email} · {c.phone}</Typography>
-            </Box>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
-            {c.loyalty && <StatusChip tone={tierTone[c.loyalty.tier]} label={`${c.loyalty.tier.replace(/^\w/, (x) => x.toUpperCase())} · ${num(c.loyalty.balance_points)} pts`} />}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {c.loyalty && <TierChip tier={c.loyalty.tier} label={`${c.loyalty.plan_name ?? 'Silver'}${c.loyalty.plan_code && c.loyalty.included_remaining > 0 ? ` · ${c.loyalty.included_remaining} wash${c.loyalty.included_remaining === 1 ? '' : 'es'} left` : ''} · ${num(c.loyalty.balance_points)} pts`} />}
             <Chip size="small" label={c.marketing_opt_in ? 'Marketing opt-in' : 'No marketing consent'} sx={{ bgcolor: tk.surfaceContainerHigh }} />
             <Chip size="small" label={c.whatsapp_opt_in ? 'WhatsApp on' : 'WhatsApp off'} sx={{ bgcolor: tk.surfaceContainerHigh }} />
           </Box>
           <Alert severity="info" icon={<MSymbol name="policy" size={20} />} sx={{ mt: 2, bgcolor: tk.secondaryContainer, color: tk.onSecondaryContainer }}>
             This access is logged in the audit trail with your identity and timestamp (ADM-024/041).
           </Alert>
-          <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mt: 1.5 }} aria-label="Customer sections">
-            <Tab label={`Vehicles · ${c.vehicles.length}`} />
-            <Tab label={`History · ${c.bookings.length}`} />
-            <Tab label={`Loyalty · ${c.ledger.length}`} />
-          </Tabs>
-          <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {tab === 0 && c.vehicles.map((v) => (
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {tab === 0 && (
+              <MembershipBlock
+                summary={c.membership}
+                onEnrol={canManage ? () => setEnrolOpen(true) : undefined}
+                onCancel={canManage && m && plan ? () => setCancelTarget({ membershipId: m.id, customerId: c.id, customerName: c.full_name, planName: plan.name, periodEnd: m.current_period_end }) : undefined}
+                onRecordPayment={canManage && m && plan ? (invoiceId) => { const inv = c.membership?.open_invoice; if (inv && inv.id === invoiceId) setPayTarget({ membershipId: m.id, customerId: c.id, customerName: c.full_name, planName: plan.name, invoice: inv }); } : undefined}
+              />
+            )}
+            {tab === 1 && c.vehicles.map((v) => (
               <Tile key={v.id}>
                 <MSymbol name="directions_car" filled size={24} style={{ color: tk.primary }} />
                 <Box sx={{ flex: 1 }}>
@@ -73,16 +98,16 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                 <StatusChip tone={v.disc_verified ? 'success' : 'neutral'} label={v.disc_verified ? 'Disc verified' : 'Manual entry'} />
               </Tile>
             ))}
-            {tab === 1 && c.bookings.map((b) => (
+            {tab === 2 && c.bookings.map((b) => (
               <Tile key={b.id}>
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="h6"><span className="mono" style={{ color: tk.primary }}>{b.ref}</span> · {b.service.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{fmtDateTime(b.slot_start)} · {b.outlet.name.replace('Sparkling ', '')} · {rands(b.total_cents)}</Typography>
+                  <Typography variant="caption" color="text.secondary">{fmtDateTime(b.slot_start)} · {b.outlet.name.replace('Sparkling ', '')} · {rands(b.total_cents)}{b.discount_label ? ` · ${b.discount_label}` : ''}</Typography>
                 </Box>
                 <StatusChip status={b.status} />
               </Tile>
             ))}
-            {tab === 2 && c.ledger.map((l) => (
+            {tab === 3 && c.ledger.map((l) => (
               <Tile key={l.id}>
                 <MSymbol name={l.delta >= 0 ? 'add_circle' : 'do_not_disturb_on'} filled size={24} style={{ color: l.delta >= 0 ? tk.success : tk.error }} />
                 <Box sx={{ flex: 1 }}>
@@ -92,19 +117,24 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                 <Typography sx={{ fontWeight: 700, color: l.delta >= 0 ? tk.success : tk.error }}>{l.delta >= 0 ? '+' : ''}{num(l.delta)}</Typography>
               </Tile>
             ))}
-            {tab === 2 && <Typography variant="caption" color="text.secondary">Append-only ledger · balance is derived from entries (CUS-063).</Typography>}
+            {tab === 3 && <Typography variant="caption" color="text.secondary">Append-only ledger · balance is derived from entries (CUS-063).</Typography>}
           </Box>
+          <EnrolDialog customerId={c.id} customerName={c.full_name} open={enrolOpen} onClose={() => setEnrolOpen(false)} onEnrolled={(s) => { setEnrolOpen(false); onToast('success', `${c.full_name.split(' ')[0]} enrolled in ${s.plan?.name ?? 'the plan'} · ${s.membership?.ref ?? ''}`); }} onError={(e) => onToast('error', e)} />
+          <RecordMembershipPaymentDialog target={payTarget} onClose={() => setPayTarget(null)} onDone={(msg) => onToast('success', msg)} onError={(e) => onToast('error', e)} />
+          <CancelMembershipDialog target={cancelTarget} onClose={() => setCancelTarget(null)} onDone={(msg) => onToast('info', msg)} onError={(e) => onToast('error', e)} />
         </>
       )}
-    </Drawer>
+    </DetailDrawer>
   );
 }
 
 export default function CustomersPage() {
   const api = useApi();
+  const params = useSearchParams();
+  const toast = useToast();
   const [search, setSearch] = React.useState('');
   const [debounced, setDebounced] = React.useState('');
-  const [focus, setFocus] = React.useState<string | null>(null);
+  const [focus, setFocus] = React.useState<string | null>(params.get('focus'));
   React.useEffect(() => { const t = setTimeout(() => setDebounced(search), 250); return () => clearTimeout(t); }, [search]);
   const q = useQuery({ queryKey: ['customers', debounced], queryFn: () => api.searchCustomers(debounced) });
   const columns: GridColDef<CustomerSummary>[] = [
@@ -115,7 +145,7 @@ export default function CustomersPage() {
       </Box>
     ) },
     { field: 'phone', headerName: 'Phone', flex: 0.9, minWidth: 140, renderCell: (p) => <span className="mono">{p.row.phone}</span> },
-    { field: 'tier', headerName: 'Tier', flex: 0.8, minWidth: 120, valueGetter: (_v, r) => r.loyalty?.tier ?? '', renderCell: (p) => (p.row.loyalty ? <StatusChip tone={tierTone[p.row.loyalty.tier]} label={p.row.loyalty.tier.replace(/^\w/, (x) => x.toUpperCase())} /> : '—') },
+    { field: 'tier', headerName: 'Plan', flex: 1, minWidth: 150, valueGetter: (_v, r) => r.loyalty?.plan_name ?? r.loyalty?.tier ?? '', renderCell: (p) => (p.row.loyalty ? <TierChip tier={p.row.loyalty.tier} label={p.row.loyalty.plan_code ? `${p.row.loyalty.plan_name} · ${p.row.loyalty.included_remaining} left` : 'Silver · no plan'} /> : '—') },
     { field: 'points', headerName: 'Points', flex: 0.7, minWidth: 90, align: 'right', headerAlign: 'right', valueGetter: (_v, r) => r.loyalty?.balance_points ?? 0, renderCell: (p) => <b>{num(p.row.loyalty?.balance_points ?? 0)}</b> },
     { field: 'vehicle_count', headerName: 'Vehicles', flex: 0.6, minWidth: 90, align: 'right', headerAlign: 'right' },
     { field: 'booking_count', headerName: 'Bookings', flex: 0.6, minWidth: 90, align: 'right', headerAlign: 'right' },
@@ -130,7 +160,8 @@ export default function CustomersPage() {
           {q.error ? <ErrorState error={q.error} /> : <AdminGrid<CustomerSummary> rows={q.data ?? []} columns={columns} loading={q.isLoading} getRowClassName={() => 'row-clickable'} onRowClick={(p) => setFocus(p.row.id)} />}
         </Box>
       </SectionCard>
-      <CustomerDrawer id={focus} onClose={() => setFocus(null)} />
+      <CustomerDrawer id={focus} onClose={() => setFocus(null)} onToast={(kind, message) => (kind === 'success' ? toast.success(String(message)) : kind === 'info' ? toast.info(String(message)) : toast.error(message))} />
+      <Toast toast={toast.toast} onClose={toast.close} />
     </>
   );
 }

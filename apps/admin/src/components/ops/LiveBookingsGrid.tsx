@@ -18,7 +18,15 @@ const STATUSES: (BookingStatus | 'all')[] = ['all', 'pending', 'confirmed', 'in_
 
 export const bookingColumns: GridColDef<Booking>[] = [
   { field: 'ref', headerName: 'Ref', flex: 1, minWidth: 130, renderCell: (p) => <span className="mono" style={{ color: tk.primary, fontWeight: 700 }}>{p.row.ref}</span> },
-  { field: 'customer', headerName: 'Customer', flex: 1.3, minWidth: 150, valueGetter: (_v, r) => r.customer.full_name },
+  {
+    field: 'customer', headerName: 'Customer', flex: 1.3, minWidth: 170, valueGetter: (_v, r) => r.customer.full_name,
+    renderCell: (p) => (
+      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.row.customer.full_name}</Box>
+        {p.row.walk_in && <StatusChip tone="secondary" label="Walk-in" sx={{ height: 20, fontSize: 11 }} />}
+      </Box>
+    ),
+  },
   { field: 'vehicle', headerName: 'Vehicle', flex: 1.1, minWidth: 130, valueGetter: (_v, r) => r.vehicle.registration_no, renderCell: (p) => <span className="mono">{p.row.vehicle.registration_no}</span> },
   { field: 'service', headerName: 'Service', flex: 1.3, minWidth: 150, valueGetter: (_v, r) => r.service.name, renderCell: (p) => <span>{p.row.quotation_id ? `Quote · ${p.row.service.name}` : p.row.service.name}</span> },
   { field: 'slot', headerName: 'Slot', flex: 0.8, minWidth: 90, valueGetter: (_v, r) => r.slot_start, renderCell: (p) => fmtTime(p.row.slot_start) },

@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
@@ -26,6 +26,7 @@ export default function BookingsPage() {
   const { role } = useAuth();
   const { outletId } = useFilters();
   const params = useSearchParams();
+  const router = useRouter();
   const { updatedAt, mode } = useLive(['bookings']);
   const { exportCsv, busy } = useExport();
   const [date, setDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
@@ -45,6 +46,9 @@ export default function BookingsPage() {
             <OutletPill />
             {can(role, 'export:csv') && (
               <NavyPill icon="download" onClick={() => void exportCsv('bookings', { date, status: status === 'all' ? undefined : status })} disabled={busy === 'bookings'}>Export CSV</NavyPill>
+            )}
+            {can(role, 'booking:create') && (
+              <NavyPill icon="directions_walk" onClick={() => router.push('/bookings/new')}>Walk-in booking</NavyPill>
             )}
           </>
         }

@@ -6,6 +6,7 @@ import { stringify } from 'csv-stringify/sync';
 import { pageResult } from '../lib/refs.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import type { AuthContext } from '../types.js';
+import { listMembers } from './memberships.js';
 
 export interface KpiRange {
   from: string;
@@ -44,7 +45,7 @@ export async function computeKpis(range: KpiRange) {
   const scope = <T>(q: T): T => (range.outletIds ? (q as any).in('outlet_id', range.outletIds) : q);
 
   const paymentsSel = 'id, amount_cents, status, verified_at, booking:bookings!inner(outlet_id, service_id)';
-  const [curPay, prevPay, bookingsToday, activeWos, completedToday, alerts, failedPays, staffPts, outlets, services] = await Promise.all([
+  const [curPay, prevPay, bookingsToday, activeWos, completedToday, alerts, failedPays, staffPts, outlets, services, members, plans] = await Promise.all([
     db.from('payments').select(paymentsSel).eq('status', 'successful').gte('verified_at', range.from).lt('verified_at', range.to),
     db.from('payments').select(paymentsSel).eq('status', 'successful').gte('verified_at', prev.from).lt('verified_at', prev.to),
     scope(db.from('bookings').select('id, slot_start, status, outlet_id, service_id, total_cents').gte('slot_start', today.from).lt('slot_start', today.to)),
@@ -55,9 +56,16 @@ export async function computeKpis(range: KpiRange) {
     scope(db.from('staff_points_ledger').select('staff_id, delta, outlet_id').gte('created_at', range.from).lt('created_at', range.to)),
     db.from('outlets').select('id, name, timezone'),
     db.from('services').select('id, category'),
+    db.from('memberships').select('id, plan_id, status').eq('status', 'active'),
+    db.from('membership_plans').select('id, monthly_fee_cents'),
   ]);
 
   const inScope = (outletId: string | null | undefined) => !range.outletIds || (outletId ? range.outletIds.includes(outletId) : false);
+  // Memberships are platform-wide (no outlet): active members and their monthly recurring revenue.
+  const feeByPlan = new Map(unwrap<Array<{ id: string; monthly_fee_cents: number }>>(plans, 'plans').map((p) => [p.id, Number(p.monthly_fee_cents)]));
+  const memberRows = unwrap<Array<{ plan_id: string }>>(members, 'memberships');
+  const active_members = memberRows.length;
+  const membership_mrr_cents = memberRows.reduce((a, m) => a + (feeByPlan.get(m.plan_id) ?? 0), 0);
   const sumRevenue = (rows: Array<any>) => rows.filter((p) => inScope(p.booking?.outlet_id)).reduce((a, p) => a + Number(p.amount_cents), 0);
   const revenue = sumRevenue(unwrap<any[]>(curPay, 'payments'));
   const prevRevenue = sumRevenue(unwrap<any[]>(prevPay, 'payments'));
@@ -115,6 +123,8 @@ export async function computeKpis(range: KpiRange) {
     bookings_by_hour,
     revenue_by_outlet,
     top_staff,
+    active_members,
+    membership_mrr_cents,
   };
 }
 
@@ -207,8 +217,8 @@ export async function computeActivity(outletIds: string[] | null, limit: number)
 // read through the same fetchers so their totals reconcile (REP-005).
 // ---------------------------------------------------------------------------
 
-export type ReportName = 'bookings' | 'payments' | 'inventory' | 'staff_performance' | 'loyalty';
-export const REPORTS: ReportName[] = ['bookings', 'payments', 'inventory', 'staff_performance', 'loyalty'];
+export type ReportName = 'bookings' | 'payments' | 'inventory' | 'staff_performance' | 'loyalty' | 'memberships';
+export const REPORTS: ReportName[] = ['bookings', 'payments', 'inventory', 'staff_performance', 'loyalty', 'memberships'];
 
 export interface ReportRange {
   from: string;
@@ -223,12 +233,21 @@ export async function fetchBookingRows(r: ReportRange): Promise<any[]> {
   const db = getSupabase();
   let q = db
     .from('bookings')
-    .select('id, ref, status, slot_start, slot_end, outlet_id, service_id, customer_id, price_cents, discount_cents, total_cents, points_pending, created_at, outlet:outlets(name), service:services(name, category), customer:profiles!bookings_customer_id_fkey(full_name), vehicle:vehicles(registration_no)')
+    .select('id, ref, status, slot_start, slot_end, outlet_id, service_id, customer_id, price_cents, discount_cents, total_cents, points_pending, vehicle_size, pricing_mode, vat_mode, addon_service_ids, addons_cents, created_at, outlet:outlets(name), service:services(name, category), customer:profiles!bookings_customer_id_fkey(full_name), vehicle:vehicles(registration_no)')
     .gte('slot_start', r.from)
     .lte('slot_start', r.to)
     .order('slot_start');
   if (r.outletIds) q = q.in('outlet_id', r.outletIds);
   return unwrap<any[]>(await q, 'bookings');
+}
+
+/** Names of the add-on services on each booking, joined with "; " (for the CSV `addons` column). */
+export async function addonNamesFor(rows: Array<{ addon_service_ids?: string[] | null }>): Promise<(row: { addon_service_ids?: string[] | null }) => string> {
+  const ids = [...new Set(rows.flatMap((r) => r.addon_service_ids ?? []))];
+  if (ids.length === 0) return () => '';
+  const services = unwrap<Array<{ id: string; name: string }>>(await getSupabase().from('services').select('id, name').in('id', ids), 'services');
+  const names = new Map(services.map((s) => [s.id, s.name]));
+  return (row) => (row.addon_service_ids ?? []).map((id) => names.get(id) ?? id).join('; ');
 }
 
 /**
@@ -285,8 +304,9 @@ export async function buildReport(report: ReportName, auth: AuthContext, filters
   switch (report) {
     case 'bookings': {
       const rows = await fetchBookingRows(range);
-      const columns = ['ref', 'status', 'slot_start', 'slot_end', 'outlet', 'service', 'category', 'customer', 'registration_no', 'price_cents', 'discount_cents', 'total_cents', 'points_pending'];
-      return csvWithMetadata(meta, columns, rows.map((b) => ({ ...b, outlet: b.outlet?.name, service: b.service?.name, category: b.service?.category, customer: b.customer?.full_name, registration_no: b.vehicle?.registration_no })));
+      const addons = await addonNamesFor(rows);
+      const columns = ['ref', 'status', 'slot_start', 'slot_end', 'outlet', 'service', 'category', 'customer', 'registration_no', 'price_cents', 'discount_cents', 'total_cents', 'points_pending', 'vehicle_size', 'addons', 'vat_mode'];
+      return csvWithMetadata(meta, columns, rows.map((b) => ({ ...b, outlet: b.outlet?.name, service: b.service?.name, category: b.service?.category, customer: b.customer?.full_name, registration_no: b.vehicle?.registration_no, vehicle_size: b.vehicle_size ?? '', addons: addons(b), vat_mode: b.vat_mode ?? '' })));
     }
     case 'payments': {
       const rows = await fetchPaymentRows(range);
@@ -306,6 +326,32 @@ export async function buildReport(report: ReportName, auth: AuthContext, filters
       const rows = await fetchLedgerRows(from, to);
       const columns = ['id', 'customer_id', 'customer', 'delta', 'type', 'source_type', 'reference', 'description', 'created_at', 'expires_at'];
       return csvWithMetadata(meta, columns, rows.map((l) => ({ ...l, customer_id: l.customer?.id, customer: l.customer?.full_name })));
+    }
+    case 'memberships': {
+      // Platform-wide (memberships have no outlet); every membership created up to `to`.
+      const rows = (await listMembers({})).filter((r) => String(r.membership.created_at) <= to);
+      const columns = ['ref', 'customer_id', 'customer', 'plan', 'status', 'period_start', 'period_end', 'fee_cents', 'used', 'remaining', 'allowances', 'open_invoice_ref', 'open_invoice_due_at', 'cancel_at_period_end', 'created_at'];
+      return csvWithMetadata(
+        meta,
+        columns,
+        rows.map((r) => ({
+          ref: r.membership.ref,
+          customer_id: r.membership.customer_id,
+          customer: r.customer?.full_name ?? '',
+          plan: r.plan.name,
+          status: r.membership.status,
+          period_start: r.membership.current_period_start ?? '',
+          period_end: r.membership.current_period_end ?? '',
+          fee_cents: r.plan.monthly_fee_cents,
+          used: r.allowances.reduce((a, x) => a + x.used, 0),
+          remaining: r.allowances.reduce((a, x) => a + x.remaining, 0),
+          allowances: r.allowances.map((a) => `${a.entitlement_code} ${a.used}/${a.quantity}`).join('; '),
+          open_invoice_ref: r.open_invoice?.ref ?? '',
+          open_invoice_due_at: r.open_invoice?.due_at ?? '',
+          cancel_at_period_end: r.membership.cancel_at_period_end ? 'true' : 'false',
+          created_at: r.membership.created_at,
+        })),
+      );
     }
   }
 }

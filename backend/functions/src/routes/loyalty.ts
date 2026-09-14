@@ -8,6 +8,7 @@ import { pagination, parseQuery, uuid } from '../lib/validate.js';
 import { requireProfile, requireRole } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { ledgerBalance, redeemReward, tierRank } from '../services/loyalty.js';
+import { membershipBrief } from '../services/memberships.js';
 import { getPublishedLoyaltyConfig, tierFor } from '../services/pricing.js';
 import type { LoyaltyTier } from '../types.js';
 
@@ -19,10 +20,11 @@ loyaltyRouter.get(
   asyncHandler(async (req, res) => {
     const db = getSupabase();
     const uid = req.auth!.uid;
-    const [acctRes, cfg, sums] = await Promise.all([
+    const [acctRes, cfg, sums, membership] = await Promise.all([
       db.from('loyalty_accounts').select('*').eq('customer_id', uid).maybeSingle(),
       getPublishedLoyaltyConfig(),
       ledgerBalance(uid),
+      membershipBrief(uid),
     ]);
     const acct = unwrap<Record<string, unknown> | null>(acctRes, 'account') ?? { customer_id: uid, tier: 'silver', tier_since: null };
     const tier = (acct.tier as LoyaltyTier) ?? 'silver';
@@ -34,9 +36,11 @@ loyaltyRouter.get(
       account,
       tier_config: tierConfig,
       tiers: sorted,
+      // Tiers are plan-driven (docs/MEMBERSHIPS.md): `next_tier` is informational only — no points-based promotion.
       next_tier: next ? { tier: next.tier, name: next.name, points_needed: Math.max(0, next.min_points - sums.lifetime) } : null,
       published_version: cfg?.version ?? null,
       rules: cfg?.rules ?? null,
+      membership,
     });
   }),
 );

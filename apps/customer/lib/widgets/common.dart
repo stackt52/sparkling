@@ -146,29 +146,35 @@ class BottomActionBar extends StatelessWidget {
       child: Row(
         children: [
           if (leadingValue != null) ...[
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (leadingLabel != null)
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (leadingLabel != null)
+                    Text(
+                      leadingLabel!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: SparklingTypography.bodyMedium.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
                   Text(
-                    leadingLabel!,
-                    style: SparklingTypography.bodyMedium.copyWith(
-                      color: cs.onSurfaceVariant,
+                    leadingValue!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: SparklingTypography.headlineMedium.copyWith(
+                      fontSize: 22,
+                      color: cs.onSurface,
                     ),
                   ),
-                Text(
-                  leadingValue!,
-                  style: SparklingTypography.headlineMedium.copyWith(
-                    fontSize: 22,
-                    color: cs.onSurface,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(width: 16),
           ],
-          Expanded(child: child),
+          Expanded(flex: 3, child: child),
         ],
       ),
     );
@@ -556,6 +562,7 @@ LoyaltyTierKind tierKind(LoyaltyTier tier) => switch (tier) {
   LoyaltyTier.silver => LoyaltyTierKind.silver,
   LoyaltyTier.gold => LoyaltyTierKind.gold,
   LoyaltyTier.platinum => LoyaltyTierKind.platinum,
+  LoyaltyTier.black => LoyaltyTierKind.black,
 };
 
 StatusChipTone bookingTone(BookingStatus status) => switch (status) {
@@ -586,6 +593,17 @@ String greetingFor(DateTime now) {
 /// "Sparkling Rosebank" → "Rosebank" for tight labels.
 String shortOutletName(String? name) {
   if (name == null) return '';
-  const prefix = 'Sparkling ';
-  return name.startsWith(prefix) ? name.substring(prefix.length) : name;
+  var n = name;
+  for (final prefix in const [
+    'Sparkling Auto Care Centre ',
+    'Sparkling Elite Centre ',
+    'Sparkling Car Wash ',
+    'Sparkling ',
+  ]) {
+    if (n.startsWith(prefix)) {
+      n = n.substring(prefix.length);
+      break;
+    }
+  }
+  return n;
 }

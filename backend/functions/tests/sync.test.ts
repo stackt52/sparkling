@@ -130,3 +130,24 @@ describe('/sync/batch operations (ARC-004 / STF-035 / DAT-005)', () => {
     expect(db.rows('sync_operations')[0].status).toBe('rejected');
   });
 });
+
+describe('walk-in sync kinds', () => {
+  it('rejects a payment.record whose booking client_op_id is unknown with a conflict', async () => {
+    const res = await applyOperation(tech(), {
+      client_op_id: 'op-pay-orphan',
+      kind: 'payment.record',
+      payload: { booking_client_op_id: 'op-booking-never-synced', method: 'cash', amount_cents: 12000, idempotency_key: 'pay-orphan-1' },
+    });
+    expect(res.status).toBe('conflict');
+    expect((res.result as { error: { code: string } }).error.code).toBe('conflict');
+  });
+
+  it('validates payment.record requires a booking reference', async () => {
+    const res = await applyOperation(tech(), {
+      client_op_id: 'op-pay-noref',
+      kind: 'payment.record',
+      payload: { method: 'cash', amount_cents: 12000, idempotency_key: 'pay-noref-1' },
+    });
+    expect(res.status).toBe('rejected');
+  });
+});

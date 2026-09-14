@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'enums.dart';
 import 'json.dart';
+import 'membership.dart';
 
 /// `loyalty_accounts` row (trigger-maintained cache; ledger is authoritative).
 class LoyaltyAccount extends Equatable {
@@ -364,13 +365,14 @@ class NextTier extends Equatable {
   List<Object?> get props => [tier, name, pointsNeeded];
 }
 
-/// `GET /loyalty/account` → `{ account, tier_config, next_tier, published_version }`.
+/// `GET /loyalty/account` → `{ account, tier_config, next_tier, published_version, membership }`.
 class LoyaltyAccountSummary extends Equatable {
   const LoyaltyAccountSummary({
     required this.account,
     this.tierConfig = const [],
     this.nextTier,
     this.publishedVersion,
+    this.membership,
   });
 
   final LoyaltyAccount account;
@@ -378,8 +380,12 @@ class LoyaltyAccountSummary extends Equatable {
   final NextTier? nextTier;
   final int? publishedVersion;
 
+  /// The live membership plan (tier = plan), null for Silver.
+  final MembershipBrief? membership;
+
   LoyaltyTier get tier => account.tier;
   int get balance => account.balancePoints;
+  bool get hasPlan => membership != null;
 
   LoyaltyTierConfig? get currentTierConfig {
     for (final t in tierConfig) {
@@ -414,6 +420,9 @@ class LoyaltyAccountSummary extends Equatable {
         ? NextTier.fromJson(asJson(json['next_tier']))
         : null,
     publishedVersion: intOrNull(json['published_version']),
+    membership: json['membership'] is Map
+        ? MembershipBrief.fromJson(asJson(json['membership']))
+        : null,
   );
 
   Json toJson() => compact({
@@ -421,21 +430,30 @@ class LoyaltyAccountSummary extends Equatable {
     'tier_config': tierConfig.map((t) => t.toJson()).toList(),
     'next_tier': nextTier?.toJson(),
     'published_version': publishedVersion,
+    'membership': membership?.toJson(),
   });
 
   LoyaltyAccountSummary copyWith({
     LoyaltyAccount? account,
     NextTier? nextTier,
     bool clearNextTier = false,
+    MembershipBrief? membership,
   }) => LoyaltyAccountSummary(
     account: account ?? this.account,
     tierConfig: tierConfig,
     nextTier: clearNextTier ? null : (nextTier ?? this.nextTier),
     publishedVersion: publishedVersion,
+    membership: membership ?? this.membership,
   );
 
   @override
-  List<Object?> get props => [account, tierConfig, nextTier, publishedVersion];
+  List<Object?> get props => [
+    account,
+    tierConfig,
+    nextTier,
+    publishedVersion,
+    membership,
+  ];
 }
 
 /// `loyalty_ledger` row (append-only — CUS-063).

@@ -1,8 +1,9 @@
 /** CUS-010..016: vehicles (manual + licence-disc scan). */
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { ApiError } from '../middleware/errors.js';
-import type { RequestContext, Vehicle } from '../types.js';
+import type { RequestContext, Vehicle, VehicleSize } from '../types.js';
 import { audit } from './audit.js';
+import { sizeClassFromDescription } from './catalogue.js';
 
 export interface CreateVehicleInput {
   registration_no: string;
@@ -18,6 +19,12 @@ export interface CreateVehicleInput {
   engine_no?: string | null;
   force?: boolean;
   client_op_id?: string | null;
+  /** Staff only: owner of the vehicle (defaults to the caller). */
+  customer_id?: string | null;
+  /** Pricing size class (migration 0008); derived from `description` when omitted. */
+  size_class?: VehicleSize | null;
+  /** Licence-disc description ("Sedan (closed top)", "Station wagon") — used only to derive `size_class`, never stored. */
+  description?: string | null;
 }
 
 export function normaliseReg(reg: string): string {
@@ -26,7 +33,7 @@ export function normaliseReg(reg: string): string {
 
 export async function createVehicle(ctx: RequestContext, input: CreateVehicleInput): Promise<{ vehicle: Vehicle; duplicate: boolean }> {
   const db = getSupabase();
-  const uid = ctx.auth.uid;
+  const uid = input.customer_id ?? ctx.auth.uid;
   const mine = unwrap<Vehicle[]>(await db.from('vehicles').select('*').eq('customer_id', uid).eq('is_active', true), 'vehicles');
   const reg = normaliseReg(input.registration_no);
   const dupReg = mine.find((v) => normaliseReg(v.registration_no) === reg);
@@ -49,7 +56,7 @@ export async function createVehicle(ctx: RequestContext, input: CreateVehicleInp
   }
   const res = await db
     .from('vehicles')
-    .insert({ customer_id: uid, ...sanitize(input), registration_no: input.registration_no.trim().toUpperCase(), source: input.source })
+    .insert({ customer_id: uid, size_class: null, ...sanitize(input), registration_no: input.registration_no.trim().toUpperCase(), source: input.source })
     .select('*')
     .single();
   if (res.error) {
@@ -60,7 +67,7 @@ export async function createVehicle(ctx: RequestContext, input: CreateVehicleInp
     throw new DatabaseError(res.error, 'create vehicle');
   }
   const vehicle = res.data as Vehicle;
-  await audit(ctx, { action: 'vehicle.create', entity_type: 'vehicle', entity_id: vehicle.id, after: { registration_no: vehicle.registration_no, source: vehicle.source } });
+  await audit(ctx, { action: 'vehicle.create', entity_type: 'vehicle', entity_id: vehicle.id, after: { registration_no: vehicle.registration_no, source: vehicle.source, size_class: vehicle.size_class ?? null, customer_id: uid, on_behalf: uid !== ctx.auth.uid } });
   return { vehicle, duplicate: false };
 }
 
@@ -75,6 +82,10 @@ function sanitize(input: CreateVehicleInput): Partial<Vehicle> {
   if (input.disc_expiry !== undefined) out.disc_expiry = input.disc_expiry;
   if (input.engine_no !== undefined) out.engine_no = input.engine_no;
   if (input.disc_hash !== undefined) out.disc_hash = input.disc_hash;
-  if (input.source === 'scan') out.disc_verified = true;
+  const size = input.size_class ?? sizeClassFromDescription(input.description);
+  if (size) out.size_class = size;
+  else if (input.size_class === null) out.size_class = null;
+  // A scanned disc counts as verified only when its hash was captured (BAR-004).
+  if (input.source === 'scan') out.disc_verified = !!input.disc_hash;
   return out;
 }

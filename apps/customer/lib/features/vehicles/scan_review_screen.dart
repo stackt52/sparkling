@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../../widgets/vehicle_size_selector.dart';
 import 'duplicate_vehicle.dart';
 
 /// Review decoded disc fields before saving (1e, CUS-013/015).
@@ -20,6 +21,9 @@ class ScanReviewScreen extends StatefulWidget {
 
 class _ScanReviewScreenState extends State<ScanReviewScreen> {
   late String _registration = widget.result.registrationNoFormatted;
+  late VehicleSize _size = VehicleSize.fromDiscDescription(
+    widget.result.description,
+  );
   Future<Vehicle?>? _duplicate;
   bool _busy = false;
 
@@ -92,6 +96,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     final repos = context.repos;
     final input = widget.result.toVehicleInput().copyWith(
       registrationNo: _registration,
+      sizeClass: _size,
     );
     try {
       final Vehicle? saved;
@@ -227,6 +232,12 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                                 locked: true,
                               ),
                             ],
+                            const SizedBox(height: 16),
+                            VehicleSizeSelector(
+                              value: _size,
+                              fromDisc: r.description != null,
+                              onChanged: (s) => setState(() => _size = s),
+                            ),
                             if (dup != null) ...[
                               const SizedBox(height: 14),
                               InfoBanner(

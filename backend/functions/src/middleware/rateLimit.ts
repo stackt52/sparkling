@@ -18,6 +18,8 @@ export interface RateLimitOptions {
   refillPerSec: number;
   /** name for the bucket namespace */
   name: string;
+  /** Custom principal (default: uid, else ip). E.g. ip + path token for public links. */
+  key?: (req: import('express').Request) => string;
 }
 
 const buckets = new Map<string, Bucket>();
@@ -25,7 +27,7 @@ const MAX_BUCKETS = 10_000;
 
 export function rateLimit(opts: RateLimitOptions): RequestHandler {
   return (req, res, next) => {
-    const principal = req.auth?.uid ?? req.ip ?? 'anon';
+    const principal = opts.key ? opts.key(req) : (req.auth?.uid ?? req.ip ?? 'anon');
     const key = `${opts.name}:${principal}`;
     const now = Date.now();
     let b = buckets.get(key);
@@ -57,3 +59,5 @@ export const authLimiter = rateLimit({ name: 'auth', capacity: 20, refillPerSec:
 export const bookingLimiter = rateLimit({ name: 'booking', capacity: 15, refillPerSec: 0.25 });
 export const paymentLimiter = rateLimit({ name: 'payment', capacity: 15, refillPerSec: 0.25 });
 export const webhookLimiter = rateLimit({ name: 'webhook', capacity: 120, refillPerSec: 10 });
+/** Public quote page: 60/min per IP + token. */
+export const publicQuoteLimiter = rateLimit({ name: 'public_quote', capacity: 60, refillPerSec: 1, key: (req) => `${req.ip ?? 'anon'}:${req.params.token ?? ''}` });

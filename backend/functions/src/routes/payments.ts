@@ -3,13 +3,13 @@ import { Router, raw as rawBody } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { parseBody, uuid } from '../lib/validate.js';
-import { requireProfile, requireRole } from '../middleware/auth.js';
+import { requireProfile, requireRole, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { paymentLimiter, webhookLimiter } from '../middleware/rateLimit.js';
 import { audit } from '../services/audit.js';
 import { flagEnabled } from '../services/flags.js';
 import { getBookingOrThrow } from '../services/bookings.js';
-import { getPaymentProvider, handleProviderEvent, sandboxConfirm } from '../services/payments.js';
+import { getPaymentProvider, handleProviderEvent, recordPosPayment, sandboxConfirm } from '../services/payments.js';
 import type { Payment } from '../types.js';
 
 /** Unauthenticated webhook router (mounted before auth). */
@@ -107,6 +107,7 @@ paymentsRouter.post(
     if (!['pending', 'confirmed', 'in_service', 'completed'].includes(booking.status)) throw ApiError.conflict(`Booking is ${booking.status}`);
     const paid = unwrap<Payment[]>(await db.from('payments').select('*').eq('booking_id', booking.id).eq('status', 'successful'), 'payments');
     if (paid.length) throw ApiError.conflict('Booking is already paid', { payment_id: paid[0].id });
+    if (booking.total_cents <= 0) throw ApiError.validationConflict('Nothing to pay: this booking is covered by the membership plan', { reason: 'nothing_to_pay', booking_id: booking.id });
     if (body.method_id) {
       const m = await db.from('payment_methods').select('id, token').eq('id', body.method_id).eq('customer_id', uid).maybeSingle();
       if (!m.data) throw ApiError.validation('Unknown payment method');
@@ -145,6 +146,32 @@ paymentsRouter.post(
     if (payment.status !== 'pending' && payment.status !== 'initiated') throw ApiError.invalidTransition(payment.status, body.outcome === 'succeeded' ? 'successful' : 'failed', 'payment');
     const outcome = await sandboxConfirm(payment, body.outcome);
     res.json({ payment: outcome.payment, duplicate: outcome.duplicate });
+  }),
+);
+
+const recordSchema = z.object({
+  booking_id: uuid,
+  method: z.enum(['cash', 'card_terminal']),
+  reference: z.string().trim().max(64).nullable().optional(),
+  amount_cents: z.number().int().min(0),
+  idempotency_key: z.string().min(6).max(128),
+});
+
+/** STF-012: staff-attested in-person payment (audited; no provider webhook). */
+paymentsRouter.post(
+  '/payments/record',
+  requireStaff,
+  paymentLimiter,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(recordSchema, req.body);
+    const { payment, duplicate } = await recordPosPayment(req.ctx, {
+      bookingId: body.booking_id,
+      method: body.method,
+      reference: body.reference ?? null,
+      amountCents: body.amount_cents,
+      idempotencyKey: body.idempotency_key,
+    });
+    res.status(duplicate ? 200 : 201).json({ payment, duplicate });
   }),
 );
 

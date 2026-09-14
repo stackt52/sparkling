@@ -21,7 +21,11 @@ import 'scan_review_screen.dart';
 /// [MobileScannerController.analyzeImage] and reuses the parse → review flow
 /// (unreadable photos get the BAR-006 failure sheet). See `docs/PDF417.md`.
 class ScanScreen extends StatefulWidget {
-  const ScanScreen({super.key});
+  const ScanScreen({super.key, this.pickResult = false});
+
+  /// Pop with the [DiscScanResult] instead of opening the review screen
+  /// (walk-in flow: `/walk-in/scan`).
+  final bool pickResult;
 
   @override
   State<ScanScreen> createState() => _ScanScreenState();
@@ -110,6 +114,10 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     );
     if (!mounted) return;
     unawaited(_controller.stop());
+    if (widget.pickResult) {
+      context.pop(result);
+      return;
+    }
     await context.push(
       Routes.scanReview,
       extra: ScanReviewArgs(result: result, manual: manual),

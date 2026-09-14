@@ -89,7 +89,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         context.push(Routes.quote(id));
       case 'loyalty':
       case 'reward':
-        context.go(Routes.loyalty);
+      case 'membership':
+        context.go(Routes.membership);
       default:
         break;
     }

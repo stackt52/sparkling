@@ -91,7 +91,49 @@ abstract final class SparklingColors {
   static const Color goldDeep = Color(0xFFE2BA5F);
   static const Color onGold = Color(0xFF5C4200);
 
+  // ---- Platinum (membership plan) ----------------------------------------
+  static const Color platinumLight = Color(0xFFE6ECF5);
+  static const Color platinumDeep = Color(0xFFC5D0E0);
+  static const Color onPlatinum = Color(0xFF1E2A3A);
+  static const Color platinumDarkStart = Color(0xFF3B4C69);
+  static const Color platinumDarkEnd = Color(0xFF5C6F90);
+
+  // ---- Black (membership plan) --------------------------------------------
+  /// Deep navy-black start of the Black plan gradient.
+  static const Color blackDeep = Color(0xFF0B1220);
+
+  /// Text / icon colour on the Black plan surfaces (gold).
+  static const Color onBlack = goldLight;
+
   // ---- Gradients ---------------------------------------------------------
+  /// `linear-gradient(135deg, #E6ECF5, #C5D0E0)` — Platinum plan (light).
+  static const LinearGradient platinumGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [platinumLight, platinumDeep],
+  );
+
+  /// Platinum plan on dark surfaces (steel).
+  static const LinearGradient platinumGradientDark = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [platinumDarkStart, platinumDarkEnd],
+  );
+
+  /// `linear-gradient(135deg, #0B1220, #203060)` — Black plan, gold text.
+  static const LinearGradient blackGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [blackDeep, navy],
+  );
+
+  /// Black plan on dark surfaces (slightly lifted so the card reads).
+  static const LinearGradient blackGradientDark = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [blackDeep, Color(0xFF2B3C58)],
+  );
+
   /// `linear-gradient(135deg, #F3DDA4, #E2BA5F)`
   static const LinearGradient goldGradient = LinearGradient(
     begin: Alignment.topLeft,

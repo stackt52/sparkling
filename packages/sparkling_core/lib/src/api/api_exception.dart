@@ -38,8 +38,35 @@ class ApiException implements Exception {
   bool get isRetryable =>
       isNetwork || isRateLimited || (statusCode != null && statusCode! >= 500);
 
+  /// 409 `validation_error` `{ reason: 'by_quote' }` from `POST /bookings`:
+  /// the service is quote-only — route to a quotation request instead.
+  bool get isByQuote {
+    final reason = data?['reason'] ?? _detail('reason');
+    return reason == 'by_quote';
+  }
+
   /// `existing_vehicle_id` on a 409 from `POST /vehicles` (CUS-015).
-  String? get existingVehicleId => data?['existing_vehicle_id']?.toString();
+  String? get existingVehicleId =>
+      data?['existing_vehicle_id']?.toString() ??
+      _detail('existing_vehicle_id')?.toString();
+
+  /// `details.existing_customer` on a 409 from `POST /staff/customers` — the
+  /// customer already registered with that phone / e-mail (STF-012).
+  Json? get existingCustomer {
+    final raw = _detail('existing_customer') ?? data?['existing_customer'];
+    return raw is Map ? Map<String, dynamic>.from(raw) : null;
+  }
+
+  /// Looks [key] up in `details` whether the API sent it as an object
+  /// (`details: {existing_customer: …}`) or a list of objects.
+  Object? _detail(String key) {
+    final d = data?['details'];
+    if (d is Map && d[key] != null) return d[key];
+    for (final item in details) {
+      if (item is Map && item[key] != null) return item[key];
+    }
+    return null;
+  }
 
   factory ApiException.fromEnvelope(
     dynamic body, {

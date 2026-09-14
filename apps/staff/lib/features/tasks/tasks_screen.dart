@@ -132,11 +132,38 @@ class _TasksScreenState extends State<TasksScreen> {
 
     final master = Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'scan-disc',
-        onPressed: () => context.go(Routes.scan),
-        icon: const Icon(Symbols.qr_code_scanner_rounded, fill: 0),
-        label: const Text('Scan disc'),
+      // Speed-dial column of extended FABs (≥ 48px targets): raise quote and
+      // walk-in booking above the primary "Scan disc" action (STF-010/012).
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            key: const ValueKey('fab-raise-quote'),
+            heroTag: 'raise-quote',
+            backgroundColor: context.colors.tertiaryContainer,
+            foregroundColor: context.colors.onTertiaryContainer,
+            onPressed: () => context.push(Routes.quoteNew),
+            icon: const Icon(Symbols.request_quote_rounded, fill: 0),
+            label: const Text('Raise quote'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'walk-in',
+            backgroundColor: context.colors.secondaryContainer,
+            foregroundColor: context.colors.onSecondaryContainer,
+            onPressed: () => context.push(Routes.walkIn),
+            icon: const Icon(Symbols.person_add_rounded, fill: 0),
+            label: const Text('Walk-in booking'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'scan-disc',
+            onPressed: () => context.go(Routes.scan),
+            icon: const Icon(Symbols.qr_code_scanner_rounded, fill: 0),
+            label: const Text('Scan disc'),
+          ),
+        ],
       ),
       body: SafeArea(
         bottom: false,
@@ -192,7 +219,7 @@ class _TasksScreenState extends State<TasksScreen> {
                       : null,
                 ),
                 builder: (context, tasks) => ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 160),
                   itemCount: tasks.length,
                   separatorBuilder: (_, _) =>
                       const SizedBox(height: SparklingSpacing.cardGap),

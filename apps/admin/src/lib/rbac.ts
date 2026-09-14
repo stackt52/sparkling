@@ -23,6 +23,7 @@ export type Capability =
   | 'notification:resend'
   | 'export:csv'
   | 'booking:cancel'
+  | 'booking:create'
   | 'quote:write'
   | 'quote:convert'
   | 'task:assign'
@@ -30,9 +31,13 @@ export type Capability =
   | 'user:manage'
   | 'loyalty:draft'
   | 'loyalty:publish'
+  /** Membership plans, enrolments, renewals (manager+). */
+  | 'memberships:manage'
   | 'inventory:threshold'
   | 'inventory:movement'
   | 'catalogue:manage'
+  /** Canonical service catalogue (codes, groups, composites) — admin only. */
+  | 'service:manage'
   | 'template:manage'
   | 'flags:manage';
 
@@ -40,15 +45,15 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   admin: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'user:manage',
-    'loyalty:draft', 'loyalty:publish', 'inventory:threshold', 'inventory:movement', 'catalogue:manage',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'user:manage',
+    'loyalty:draft', 'loyalty:publish', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'catalogue:manage', 'service:manage',
     'template:manage', 'flags:manage', 'notification:resend',
   ]),
   manager: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'quote:write', 'quote:convert', 'task:assign', 'task:transition',
-    'loyalty:draft', 'inventory:threshold', 'inventory:movement', 'notification:resend',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition',
+    'loyalty:draft', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'notification:resend',
   ]),
   finance: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:customers', 'view:loyalty', 'view:inventory',
@@ -56,7 +61,7 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   ]),
   supervisor: new Set<Capability>([
     'view:overview', 'view:work_orders', 'view:inventory', 'view:bookings', 'view:quotations',
-    'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'inventory:movement',
+    'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'inventory:movement',
   ]),
 };
 

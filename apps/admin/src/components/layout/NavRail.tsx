@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
@@ -20,22 +19,10 @@ import { can, roleLabel } from '@/lib/rbac';
 import { initials } from '@/lib/format';
 import { ADMIN_ROLES } from '@/lib/types';
 import { NAV_ITEMS, isActive } from './nav';
+import { Logo } from './Logo';
 
 export const RAIL_WIDTH = 84;
-
-export function Logo({ height = 30 }: { height?: number }) {
-  return (
-    <Box sx={{ position: 'relative', height, width: height * 2.7, display: 'block' }}>
-      <Image src="/logo-light.png" alt="Sparkling" fill sizes="120px" style={{ objectFit: 'contain' }} className="logo-light" priority />
-      <Image src="/logo-dark.png" alt="" fill sizes="120px" style={{ objectFit: 'contain' }} className="logo-dark" priority />
-      <style>{`
-        .logo-dark{display:none}
-        [data-mui-color-scheme="dark"] .logo-light{display:none}
-        [data-mui-color-scheme="dark"] .logo-dark{display:block}
-      `}</style>
-    </Box>
-  );
-}
+export { Logo };
 
 export function NavDestination({ item, active, horizontal, onNavigate }: { item: (typeof NAV_ITEMS)[number]; active: boolean; horizontal?: boolean; onNavigate?: () => void }) {
   return (

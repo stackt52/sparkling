@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { usePathname } from 'next/navigation';
 import type { User } from 'firebase/auth';
 import { env, isDemo } from '../env';
 import { ADMIN_ROLES, type Profile, type UserRole } from '../types';
@@ -36,8 +37,12 @@ function getDemoApi(): DemoApi {
   return demoSingleton;
 }
 
+/** Routes served without a staff session (the customer-facing quote link). Firebase Auth is never initialised there. */
+export const isPublicRoute = (pathname: string | null) => Boolean(pathname && pathname.startsWith('/q/'));
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const demo = isDemo();
+  const publicRoute = isPublicRoute(usePathname());
   const [user, setUser] = React.useState<User | null>(null);
   const [profile, setProfile] = React.useState<AuthState['profile']>(null);
   const [status, setStatus] = React.useState<AuthStatus>('loading');
@@ -84,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   React.useEffect(() => {
-    if (demo) return;
+    if (demo || publicRoute) return;
     let unsub = () => {};
     void (async () => {
       const { getFirebaseAuth } = await import('../firebase');
@@ -99,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     })();
     return () => unsub();
-  }, [demo, establishSession]);
+  }, [demo, publicRoute, establishSession]);
 
   const effectiveStatus = demo ? demoStatus : status;
   const effectiveProfile = demo ? demoProfile : profile;

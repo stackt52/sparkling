@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../api/sparkling_api.dart';
 import '../models/models.dart';
@@ -89,6 +90,12 @@ class DemoCustomerRepository implements CustomerRepository {
     String? note,
   }) => _later(() => store.decideQuotation(id, accept: accept, note: note));
   @override
+  Future<Uint8List> quotationPdf(String id) =>
+      _later(() => store.quotationPdf(id));
+  @override
+  Future<Uint8List> photoBytes(String url) =>
+      _later(() => store.quotationPhotoBytes(url));
+  @override
   Future<List<PaymentMethod>> paymentMethods() =>
       _later(store.myPaymentMethods);
   @override
@@ -142,8 +149,10 @@ class DemoCatalogueRepository implements CatalogueRepository {
   @override
   Future<Outlet?> outlet(String id) => _later(() => store.outletById(id));
   @override
-  Future<List<OutletService>> outletServices(String outletId) =>
-      _later(() => store.outletServices(outletId));
+  Future<OutletCatalogue> outletServices(
+    String outletId, {
+    VehicleSize? vehicleSize,
+  }) => _later(() => store.outletCatalogue(outletId, vehicleSize: vehicleSize));
   @override
   Future<List<AvailabilitySlot>> availability({
     required String outletId,
@@ -181,11 +190,73 @@ class DemoLoyaltyRepository implements LoyaltyRepository {
     delay: const Duration(milliseconds: 500),
   );
   @override
-  Stream<LoyaltyAccountSummary> watchAccount() =>
-      _watch(store, const {'loyalty_ledger'}, store.loyaltyAccount);
+  Stream<LoyaltyAccountSummary> watchAccount() => _watch(
+    store,
+    const {'loyalty_ledger', 'memberships', 'membership_usage'},
+    store.loyaltyAccount,
+  );
   @override
   Stream<List<LedgerEntry>> watchLedger() =>
       _watch(store, const {'loyalty_ledger'}, store.myLedger);
+}
+
+class DemoMembershipRepository implements MembershipRepository {
+  DemoMembershipRepository(this.store);
+  final DemoStore store;
+
+  static const tables = {
+    'memberships',
+    'membership_usage',
+    'membership_invoices',
+    'payments',
+  };
+
+  @override
+  Future<MembershipPlanList> plans() => _later(store.membershipPlanList);
+  @override
+  Future<MembershipSummary> me() =>
+      _later(() => store.membershipSummary(store.uid));
+  @override
+  Future<SubscribeResult> subscribe({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+  }) => _later(
+    () => store.subscribeMembership(
+      planCode: planCode,
+      selections: selections,
+      clientOpId: clientOpId,
+    ),
+    delay: const Duration(milliseconds: 400),
+  );
+  @override
+  Future<PaymentIntentResult> payInvoice(String invoiceId) => _later(
+    () => store.payMembershipInvoice(
+      invoiceId,
+      idempotencyKey: SparklingApi.newOpId(),
+    ),
+  );
+  @override
+  Future<MembershipSummary> changeSelections(Map<String, String> selections) =>
+      _later(() => store.changeMembershipSelections(selections));
+  @override
+  Future<SubscribeResult> changePlan({
+    required String planCode,
+    required Map<String, String> selections,
+  }) => _later(
+    () => store.changeMembershipPlan(
+      planCode: planCode,
+      selections: selections,
+      clientOpId: SparklingApi.newOpId(),
+    ),
+    delay: const Duration(milliseconds: 400),
+  );
+  @override
+  Future<MembershipSummary> cancel({bool atPeriodEnd = true}) =>
+      _later(() => store.cancelMembership(atPeriodEnd: atPeriodEnd));
+  @override
+  Stream<MembershipSummary> watchMe() =>
+      _watch(store, tables, () => store.membershipSummary(store.uid));
 }
 
 class DemoStaffRepository implements StaffRepository {
@@ -243,6 +314,59 @@ class DemoStaffRepository implements StaffRepository {
     BookingStatus? status,
   }) => _later(() => store.outletBookings(outletId, status: status));
   @override
+  Future<List<CustomerSummary>> searchCustomers(String query, {int? limit}) =>
+      _later(() => store.searchCustomers(query, limit: limit ?? 20));
+  @override
+  Future<CustomerSummary> createCustomer(CustomerInput input) => _later(
+    () => store.createCustomer(input),
+    delay: const Duration(milliseconds: 300),
+  );
+  @override
+  Future<Vehicle> createCustomerVehicle(
+    String customerId,
+    VehicleInput input, {
+    bool force = false,
+  }) => _later(
+    () => store.createCustomerVehicle(
+      customerId,
+      input.copyWith(force: force || input.force),
+    ),
+  );
+  @override
+  Future<Booking> createWalkInBooking(WalkInBookingInput input) => _later(
+    () => store.createWalkInBooking(input),
+    delay: const Duration(milliseconds: 400),
+  );
+  @override
+  Future<Payment> recordPayment(RecordPaymentInput input) => _later(
+    () => store.recordPayment(input),
+    delay: const Duration(milliseconds: 300),
+  );
+  @override
+  Future<MembershipSummary> customerMembership(String customerId) =>
+      _later(() => store.customerMembershipSummary(customerId));
+  @override
+  Future<MembershipSummary> enrolMembership(EnrolMembershipInput input) =>
+      _later(
+        () => store.enrolMembership(input),
+        delay: const Duration(milliseconds: 400),
+      );
+  @override
+  Future<MembershipSummary> recordMembershipInvoicePayment({
+    required String membershipId,
+    required String invoiceId,
+    required CounterPaymentMethod method,
+    required String clientOpId,
+  }) => _later(
+    () => store.recordMembershipInvoicePayment(
+      membershipId: membershipId,
+      invoiceId: invoiceId,
+      method: method,
+      clientOpId: clientOpId,
+    ),
+    delay: const Duration(milliseconds: 300),
+  );
+  @override
   Future<OpsSummary> opsSummary({required String outletId}) =>
       _later(() => store.opsSummary(outletId));
   @override
@@ -257,11 +381,57 @@ class DemoStaffRepository implements StaffRepository {
   Future<List<Quotation>> quotations({String? outletId}) =>
       _later(() => store.outletQuotations(outletId));
   @override
+  Future<Quotation> quotation(String id) =>
+      _later(() => store.quotationDetail(id));
+  @override
   Future<Quotation> quoteQuotation(String id, QuoteInput input) =>
       _later(() => store.quoteQuotation(id, input));
   @override
   Future<Quotation> convertQuotation(String id) =>
       _later(() => store.convertQuotation(id));
+  @override
+  Future<Quotation> raiseQuotation(
+    StaffQuotationInput input, {
+    List<DeferredPhoto> deferredPhotos = const [],
+  }) => _later(
+    () => store.raiseQuotation(input),
+    delay: const Duration(milliseconds: 400),
+  );
+  @override
+  Future<Attachment> uploadQuotationPhoto(
+    String quotationId,
+    Uint8List bytes, {
+    String? caption,
+    String? mimeType,
+    String? filename,
+  }) => _later(
+    () => store.uploadQuotationPhoto(
+      quotationId,
+      bytes,
+      caption: caption,
+      mimeType: mimeType,
+      filename: filename,
+    ),
+    delay: const Duration(milliseconds: 250),
+  );
+  @override
+  Future<void> deleteQuotationPhoto(String quotationId, String attachmentId) =>
+      _later(() => store.deleteQuotationPhoto(quotationId, attachmentId));
+  @override
+  Future<SharedQuoteLink> shareQuotation(String quotationId) =>
+      _later(() => store.shareQuotation(quotationId));
+  @override
+  Future<Uint8List> quotationPdf(String quotationId) =>
+      _later(() => store.quotationPdf(quotationId));
+  @override
+  Future<Uint8List> photoBytes(String url) =>
+      _later(() => store.quotationPhotoBytes(url));
+  @override
+  Stream<List<Quotation>> watchQuotations({String? outletId}) => _watch(
+    store,
+    const {'quotations'},
+    () => store.outletQuotations(outletId),
+  );
 
   static const _taskTables = {'tasks', 'work_orders', 'checklist_step_results'};
 

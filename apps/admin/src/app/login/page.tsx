@@ -61,7 +61,7 @@ export default function LoginPage() {
           <Typography variant="overline" sx={{ opacity: 0.8 }}>Admin dashboard</Typography>
           <Typography variant="h1" sx={{ fontSize: 40, mt: 1, maxWidth: 520 }}>Every outlet, every bay, live.</Typography>
           <Typography sx={{ mt: 2, opacity: 0.85, maxWidth: 460, fontSize: 15 }}>
-            Operations, quotes, loyalty configuration and stock alerts for Sparkling Sandton, Rosebank and Centurion — audited, versioned and updated in real time.
+            Operations, quotes, loyalty configuration and stock alerts for the Sparkling outlets in Pretoria, Potchefstroom, Amanzimtoti and Rustenburg — audited, versioned and updated in real time.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, mt: 3, flexWrap: 'wrap' }}>
             {['Realtime ops', 'Versioned loyalty', 'Stock alerts', 'CSV exports'].map((t) => (

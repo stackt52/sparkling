@@ -216,9 +216,8 @@ class _SlotPickerScreenState extends State<SlotPickerScreen> {
                   border: Border(top: BorderSide(color: cs.outlineVariant)),
                 ),
                 child: BottomActionBar(
-                  leadingLabel: 'Total',
-                  leadingValue: Money.formatZarCompact(flow.service!.priceCents)
-                      .replaceFirst('R', 'R '),
+                  leadingLabel: flow.isExclVat ? 'Total incl. VAT' : 'Total',
+                  leadingValue: compactZar(flow.quotedCents),
                   child: PillButton(
                     label: 'Review & pay',
                     trailingIcon: Symbols.arrow_forward_rounded,
@@ -318,7 +317,7 @@ class _SummaryBanner extends StatelessWidget {
                   ),
                   TextSpan(
                     text:
-                        ' at ${shortOutletName(flow.outlet!.name)} · ${flow.service!.name}, ±${flow.service!.durationMinutes} min.\nFree cancellation until 2 h before.',
+                        ' at ${shortOutletName(flow.outlet!.name)} · ${flow.service!.name}${flow.addons.isEmpty ? '' : ' + ${flow.addons.map((a) => a.name).join(', ')}'}, ±${flow.service!.durationMinutes} min.\nFree cancellation until 2 h before.',
                   ),
                 ],
               ),

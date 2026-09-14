@@ -333,10 +333,24 @@ class _PriceCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(b.service?.name ?? 'Service', style: style)),
+              Expanded(
+                child: Text(
+                  '${b.service?.name ?? 'Service'}${b.vehicleSize == null ? '' : ' · ${b.vehicleSize!.label.toLowerCase()}'}',
+                  style: style,
+                ),
+              ),
               Text(Money.formatZar(b.priceCents), style: style),
             ],
           ),
+          for (final a in b.addons) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(child: Text('+ ${a.name}', style: style)),
+                Text(Money.formatZar(a.priceCents), style: style),
+              ],
+            ),
+          ],
           if (b.discountCents > 0) ...[
             const SizedBox(height: 6),
             Row(
@@ -354,6 +368,15 @@ class _PriceCard extends StatelessWidget {
               ],
             ),
           ],
+          if (b.vatCents > 0) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(child: Text('VAT ${VatMode.vatPct}%', style: style)),
+                Text(Money.formatZar(b.vatCents), style: style),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           const DashedDivider(),
           const SizedBox(height: 10),
@@ -361,7 +384,11 @@ class _PriceCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  paid ? 'Paid' : 'Total due',
+                  paid
+                      ? 'Paid'
+                      : (b.totalCents == 0 && b.isIncluded)
+                      ? 'Included in your plan'
+                      : 'Total due',
                   style: SparklingTypography.titleMedium.copyWith(
                     color: cs.onSurface,
                   ),

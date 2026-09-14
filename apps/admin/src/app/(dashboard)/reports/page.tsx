@@ -32,7 +32,8 @@ const EXPORTS: { report: ReportKind; label: string; icon: string; desc: string }
   { report: 'payments', label: 'Payments', icon: 'payments', desc: 'Provider, amount, status, receipt and verification time' },
   { report: 'inventory', label: 'Inventory', icon: 'inventory_2', desc: 'Stock on hand vs thresholds per outlet' },
   { report: 'staff_performance', label: 'Staff performance', icon: 'groups', desc: 'Tasks, cycle time, compliance and points' },
-  { report: 'loyalty', label: 'Loyalty', icon: 'loyalty', desc: 'Members by tier with balances' },
+  { report: 'loyalty', label: 'Loyalty', icon: 'loyalty', desc: 'Customers by tier (= plan) with point balances' },
+  { report: 'memberships', label: 'Memberships', icon: 'workspace_premium', desc: 'Ref, customer, plan, status, period, fee, washes used / remaining, open invoice' },
 ];
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {

@@ -6,10 +6,10 @@ import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/
 import { newRewardCode } from '../lib/refs.js';
 import { ApiError } from '../middleware/errors.js';
 import type { LedgerType, LoyaltyConfig, LoyaltyTier, RequestContext } from '../types.js';
-import { applyMultiplier, getPublishedLoyaltyConfig, tierFor, tierForPoints } from './pricing.js';
+import { applyMultiplier, getPublishedLoyaltyConfig, tierFor } from './pricing.js';
 import { notify } from './notifications.js';
 
-export const TIER_ORDER: LoyaltyTier[] = ['silver', 'gold', 'platinum'];
+export const TIER_ORDER: LoyaltyTier[] = ['silver', 'gold', 'platinum', 'black'];
 
 export function tierRank(t: LoyaltyTier): number {
   return TIER_ORDER.indexOf(t);
@@ -69,22 +69,20 @@ export async function postLedger(input: LedgerEntryInput): Promise<{ inserted: b
   return { inserted: true, id: (res.data as { id: string }).id };
 }
 
-/** Recomputes the tier from lifetime points against the published config. */
-export async function refreshTier(customerId: string, config?: LoyaltyConfig | null): Promise<LoyaltyTier> {
+/**
+ * Returns the customer's current tier. Since membership plans (migration 0010,
+ * docs/MEMBERSHIPS.md) the tier IS the plan: it is set by the live membership
+ * (`memberships_sync_tier` trigger / `services/memberships.syncTier`) and never
+ * promoted from points — `min_points`/`max_points` in the loyalty config are
+ * informational only. Kept as a no-op so callers (earn on completion) stay unchanged.
+ */
+export async function refreshTier(customerId: string, _config?: LoyaltyConfig | null): Promise<LoyaltyTier> {
   const db = getSupabase();
-  const cfg = config === undefined ? await getPublishedLoyaltyConfig() : config;
-  const { lifetime } = await ledgerBalance(customerId);
-  const target = tierForPoints(cfg, lifetime);
   const acct = unwrap<{ tier: LoyaltyTier } | null>(
     await db.from('loyalty_accounts').select('tier').eq('customer_id', customerId).maybeSingle(),
     'loyalty account',
   );
-  const current = acct?.tier ?? 'silver';
-  if (tierRank(target) > tierRank(current)) {
-    await db.from('loyalty_accounts').update({ tier: target, tier_since: new Date().toISOString() }).eq('customer_id', customerId);
-    return target;
-  }
-  return current;
+  return acct?.tier ?? 'silver';
 }
 
 /** Earn on booking completion: idempotency key `booking:<id>:earn`. */

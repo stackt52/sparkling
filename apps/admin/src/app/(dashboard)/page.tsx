@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import Box from '@mui/material/Box';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import PageHeader from '@/components/layout/PageHeader';
 import { LiveChip, NavyPill, OutletPill, PeriodPill } from '@/components/ui/Pills';
@@ -18,6 +19,7 @@ import { can } from '@/lib/rbac';
 
 export default function OverviewPage() {
   const api = useApi();
+  const router = useRouter();
   const { role } = useAuth();
   const { outletId, period } = useFilters();
   const { updatedAt, mode } = useLive(['kpis', 'exceptions', 'activity', 'bookings']);
@@ -42,6 +44,9 @@ export default function OverviewPage() {
               <NavyPill icon="download" onClick={() => void exportCsv('bookings', { date: new Date().toISOString().slice(0, 10) })} disabled={busy === 'bookings'}>
                 Export CSV
               </NavyPill>
+            )}
+            {can(role, 'booking:create') && (
+              <NavyPill icon="directions_walk" onClick={() => router.push('/bookings/new')}>Walk-in</NavyPill>
             )}
           </>
         }

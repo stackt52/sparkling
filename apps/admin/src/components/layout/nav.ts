@@ -16,7 +16,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/work-orders', label: 'Work', icon: 'checklist', cap: 'view:work_orders' },
   { href: '/staff', label: 'Staff', icon: 'groups', cap: 'view:staff', match: ['/staff'] },
   { href: '/customers', label: 'Customers', icon: 'person_search', cap: 'view:customers' },
-  { href: '/loyalty', label: 'Loyalty', icon: 'loyalty', cap: 'view:loyalty' },
+  { href: '/loyalty', label: 'Memberships', icon: 'loyalty', cap: 'view:loyalty' },
   { href: '/notifications', label: 'Messages', icon: 'forum', cap: 'view:notifications' },
   { href: '/inventory', label: 'Stock', icon: 'inventory_2', cap: 'view:inventory' },
   { href: '/reports', label: 'Reports', icon: 'monitoring', cap: 'view:reports' },

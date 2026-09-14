@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../api/api_exception.dart';
 import '../auth/auth_service.dart';
 import '../models/models.dart';
 import '../models/json.dart' as j;
+import 'demo_catalogue.dart';
+
+export 'demo_catalogue.dart';
 
 /// Emitted by [DemoStore.changes] after every mutation.
 class DemoChange {
@@ -61,22 +66,40 @@ class DemoStore {
   // Ids
   // ---------------------------------------------------------------------------
 
-  static const String outletSandton = 'a0000000-0000-4000-8000-000000000001';
-  static const String outletRosebank = 'a0000000-0000-4000-8000-000000000002';
-  static const String outletCenturion = 'a0000000-0000-4000-8000-000000000003';
+  // Real outlets (backend/supabase/seed_catalogue.sql).
+  static const String outletMenlyn = DemoCatalogueIds.outletMen;
+  static const String outletGlenVillage = DemoCatalogueIds.outletGlv;
+  static const String outletPotch = DemoCatalogueIds.outletPot;
+  static const String outletToti = DemoCatalogueIds.outletTot;
+  static const String outletRustenburg = DemoCatalogueIds.outletRus;
 
   static const String tplValet = 'c0000000-0000-4000-8000-000000000001';
   static const String tplExpress = 'c0000000-0000-4000-8000-000000000002';
   static const String tplBody = 'c0000000-0000-4000-8000-000000000003';
 
-  static const String svcExpress = 'b0000000-0000-4000-8000-000000000001';
-  static const String svcValet = 'b0000000-0000-4000-8000-000000000002';
-  static const String svcDetail = 'b0000000-0000-4000-8000-000000000003';
-  static const String svcInterior = 'b0000000-0000-4000-8000-000000000004';
-  static const String svcDent = 'b0000000-0000-4000-8000-000000000011';
-  static const String svcScratch = 'b0000000-0000-4000-8000-000000000012';
-  static const String svcBumper = 'b0000000-0000-4000-8000-000000000013';
-  static const String svcPanel = 'b0000000-0000-4000-8000-000000000014';
+  // Canonical services used by the seeded bookings / quotes.
+  static const String svcExtWash = DemoCatalogueIds.extWash;
+  static const String svcExtWashTyreBumper = DemoCatalogueIds.extWashTyreBumper;
+  static const String svcSparklingWash = DemoCatalogueIds.sparklingWash;
+  static const String svcExecWash = DemoCatalogueIds.execWash;
+  static const String svcEngineChassisCombo =
+      DemoCatalogueIds.engineChassisCombo;
+  static const String svcAutoDetailInterior =
+      DemoCatalogueIds.autoDetailInterior;
+  static const String svcAutoDetailComplete =
+      DemoCatalogueIds.autoDetailComplete;
+  static const String svcFullMonty = DemoCatalogueIds.fullMonty;
+  static const String svcAddonOdour = DemoCatalogueIds.addonOdour;
+  static const String svcHeadlight = DemoCatalogueIds.headlightRenewal;
+  static const String svcSpotRepair = DemoCatalogueIds.spotRepair;
+  static const String svcBumperScuff = DemoCatalogueIds.bumperScuff;
+  static const String svcPdr = DemoCatalogueIds.pdr;
+  static const String svcCeramic = DemoCatalogueIds.ceramicCoating;
+  static const String svcTarRemoval = DemoCatalogueIds.tarRemoval;
+
+  /// Where the demo customer "is" for outlet distances (Lynnwood, Pretoria).
+  static const double demoLatitude = -25.7650;
+  static const double demoLongitude = 28.2650;
 
   static const String vehCorolla = 'd0000000-0000-4000-8000-000000000001';
   static const String vehPolo = 'd0000000-0000-4000-8000-000000000002';
@@ -92,7 +115,7 @@ class DemoStore {
       '30000000-0000-4000-8000-000000000001'; // WO-2026-4821
   static const String taskInService = '40000000-0000-4000-8000-000000000001';
 
-  /// Thabo's Express Wash from earlier today: verified, keys not yet released
+  /// Thabo's exterior wash from earlier today: verified, keys not yet released
   /// (collection OTP `73104`).
   static const String bookingReady =
       '10000000-0000-4000-8000-000000000010'; // SPK-2026-0098
@@ -100,7 +123,7 @@ class DemoStore {
       '30000000-0000-4000-8000-000000000006'; // WO-2026-4820
   static const String taskReady = '40000000-0000-4000-8000-000000000006';
 
-  /// Naledi's verified Express Wash (WO-2026-4822) — hand-over OTP.
+  /// Naledi's verified exterior wash (WO-2026-4822) — hand-over OTP.
   static const String woVerified = '30000000-0000-4000-8000-000000000002';
 
   /// Wrong-OTP attempts allowed before `rate_limited` (mirrors the API).
@@ -111,11 +134,35 @@ class DemoStore {
   static const String quotationQuoted =
       '20000000-0000-4000-8000-000000000001'; // QT-2026-0041
 
+  /// Minimum gap between `POST /quotations/:id/share` calls per quotation.
+  static const Duration shareCooldown = Duration(seconds: 60);
+
+  /// Damage photos per quotation (mirrors the API limit).
+  static const int maxQuotationPhotos = 10;
+
+  // Membership plans (migration 0010) and demo memberships (seed_memberships.sql).
+  static const String planGold = 'c1000000-0000-4000-8000-000000000001';
+  static const String planPlatinum = 'c1000000-0000-4000-8000-000000000002';
+  static const String planBlack = 'c1000000-0000-4000-8000-000000000003';
+  static const String membershipThabo = 'c4000000-0000-4000-8000-000000000001';
+  static const String membershipNaledi = 'c4000000-0000-4000-8000-000000000002';
+  static const String membershipSipho = 'c4000000-0000-4000-8000-000000000003';
+  static const String membershipZanele = 'c4000000-0000-4000-8000-000000000004';
+
+  /// Zanele's pending renewal invoice (due in 3 days).
+  static const String invoiceZaneleRenewal =
+      'c5000000-0000-4000-8000-000000000105';
+
+  /// Public quote pages live under this origin in demo mode.
+  static const String publicWebBaseUrl = 'https://demo.sparkling.local';
+
   int _bookingSeq = 97;
   int _quotationSeq = 43;
   int _workOrderSeq = 4825;
   int _receiptSeq = 70006;
   int _redemptionSeq = 1183;
+  int _membershipSeq = 5;
+  int _membershipInvoiceSeq = 106;
   int _idSeq = 1;
 
   String _newId(String prefix) =>
@@ -128,8 +175,13 @@ class DemoStore {
 
   final List<Outlet> outlets = [];
   final List<Service> services = [];
-  final Map<String, Map<String, ({int? priceCents, bool isAvailable})>>
-  outletServiceOverrides = {};
+
+  /// `outlet_services` rows by outlet → service (the outlet's wording, prices
+  /// and overrides).
+  final Map<String, Map<String, DemoOfferRow>> outletOffers = {};
+
+  /// `service_components` rows (outlet-specific sets override global ones).
+  final List<DemoComponentRow> serviceComponents = [];
   final List<ChecklistTemplate> templates = [];
   final Map<String, Profile> profiles = {};
   final Map<String, List<String>> staffOutlets = {};
@@ -166,8 +218,30 @@ class DemoStore {
   >
   staffPoints = [];
   final List<AppNotification> notifications = [];
+
+  /// Damage photo bytes by attachment id (`demo://photo/<id>`).
+  final Map<String, Uint8List> photoBytes = {};
+  final Map<String, DateTime> _shareSentAt = {};
   late LoyaltyConfig loyaltyConfig;
   late LoyaltyConfig loyaltyDraft;
+
+  // ---- Memberships (docs/MEMBERSHIPS.md) ------------------------------------
+  final List<MembershipPlan> membershipPlans = [];
+  final List<Membership> memberships = [];
+
+  /// `membership_selections`: membership id → { group code: entitlement code }.
+  final Map<String, Map<String, String>> membershipSelections = {};
+
+  /// Selections stored for a pending downgrade (`next_plan_id`).
+  final Map<String, Map<String, String>> membershipNextSelections = {};
+
+  /// Append-only usage rows (`+1` redeem / `−1` release).
+  final List<MembershipUsage> membershipUsage = [];
+  final List<MembershipInvoice> membershipInvoices = [];
+
+  /// Upgrade invoices awaiting payment: invoice id → target plan + options.
+  final Map<String, ({String planId, Map<String, String> selections})>
+  _pendingUpgrades = {};
   final Map<String, bool> featureFlags = {};
   final Set<String> _idempotencyKeys = {};
 
@@ -185,61 +259,37 @@ class DemoStore {
     final t = ten;
     final n = now;
 
-    outlets.addAll([
-      Outlet(
-        id: outletSandton,
-        code: 'SAN',
-        name: 'Sparkling Sandton',
-        addressLine: '14 Rivonia Rd, Sandton',
-        city: 'Johannesburg',
-        province: 'Gauteng',
-        latitude: -26.1076,
-        longitude: 28.0567,
-        phone: '+27 11 555 0101',
-        email: 'sandton@sparkling.co.za',
-        bayCount: 4,
-        rating: 4.8,
-        openingHours: _defaultHours,
-        distanceKm: 2.1,
-      ),
-      Outlet(
-        id: outletRosebank,
-        code: 'ROS',
-        name: 'Sparkling Rosebank',
-        addressLine: 'Cradock Ave, Rosebank',
-        city: 'Johannesburg',
-        province: 'Gauteng',
-        latitude: -26.1450,
-        longitude: 28.0430,
-        phone: '+27 11 555 0102',
-        email: 'rosebank@sparkling.co.za',
-        bayCount: 3,
-        rating: 4.7,
-        openingHours: _defaultHours,
-        distanceKm: 5.4,
-      ),
-      Outlet(
-        id: outletCenturion,
-        code: 'CEN',
-        name: 'Sparkling Centurion',
-        addressLine: 'Lenchen Ave, Centurion',
-        city: 'Centurion',
-        province: 'Gauteng',
-        latitude: -25.8600,
-        longitude: 28.1890,
-        phone: '+27 12 555 0103',
-        email: 'centurion@sparkling.co.za',
-        bayCount: 3,
-        rating: 4.6,
-        openingHours: _defaultHours,
-        distanceKm: 31.0,
-      ),
-    ]);
+    const ratings = {'MEN': 4.8, 'GLV': 4.9, 'POT': 4.7, 'TOT': 4.6, 'RUS': 4.7};
+    for (final r in demoOutletRows) {
+      outlets.add(
+        Outlet(
+          id: r.id,
+          code: r.code,
+          name: r.name,
+          addressLine: r.addressLine,
+          city: r.city,
+          province: r.province,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          phone: r.phone,
+          email: r.email,
+          bayCount: r.bayCount,
+          rating: ratings[r.code] ?? 4.7,
+          openingHours: _defaultHours,
+          distanceKm: _distanceKm(
+            demoLatitude,
+            demoLongitude,
+            r.latitude,
+            r.longitude,
+          ),
+        ),
+      );
+    }
 
     templates.addAll([
       ChecklistTemplate(
         id: tplValet,
-        name: 'Full valet checklist',
+        name: 'Sparkling wash checklist',
         category: ServiceCategory.carWash,
         version: 3,
         steps: const [
@@ -297,7 +347,7 @@ class DemoStore {
       ),
       ChecklistTemplate(
         id: tplExpress,
-        name: 'Express wash checklist',
+        name: 'Exterior wash checklist',
         category: ServiceCategory.carWash,
         version: 2,
         steps: const [
@@ -385,110 +435,39 @@ class DemoStore {
       ),
     ]);
 
-    services.addAll([
-      const Service(
-        id: svcExpress,
-        code: 'EXPRESS',
-        name: 'Express Wash',
-        description: 'Exterior wash, wheels and hand dry',
-        category: ServiceCategory.carWash,
-        durationMinutes: 20,
-        basePriceCents: 12000,
-        icon: 'water_drop',
-        checklistTemplateId: tplExpress,
-        sortOrder: 10,
-      ),
-      const Service(
-        id: svcValet,
-        code: 'VALET',
-        name: 'Full Valet',
-        description: 'Exterior + interior vacuum, dash and windows',
-        category: ServiceCategory.carWash,
-        durationMinutes: 60,
-        basePriceCents: 22000,
-        icon: 'local_car_wash',
-        checklistTemplateId: tplValet,
-        sortOrder: 20,
-      ),
-      const Service(
-        id: svcDetail,
-        code: 'DETAIL',
-        name: 'Premium Detail',
-        description: 'Clay bar, polish, wax and full interior detail',
-        category: ServiceCategory.carWash,
-        durationMinutes: 120,
-        basePriceCents: 45000,
-        icon: 'auto_awesome',
-        checklistTemplateId: tplValet,
-        sortOrder: 30,
-      ),
-      const Service(
-        id: svcInterior,
-        code: 'INTERIOR',
-        name: 'Interior Deep Clean',
-        description: 'Seats, carpets and upholstery shampoo',
-        category: ServiceCategory.carWash,
-        durationMinutes: 90,
-        basePriceCents: 28000,
-        icon: 'cleaning_services',
-        checklistTemplateId: tplValet,
-        sortOrder: 40,
-      ),
-      const Service(
-        id: svcDent,
-        code: 'DENT',
-        name: 'Dent removal',
-        description: 'Paintless dent removal',
-        category: ServiceCategory.autoBody,
-        durationMinutes: 240,
-        isQuoteBased: true,
-        icon: 'car_crash',
-        checklistTemplateId: tplBody,
-        sortOrder: 110,
-      ),
-      const Service(
-        id: svcScratch,
-        code: 'SCRATCH',
-        name: 'Scratch repair',
-        description: 'Scratch and scuff repair with blend',
-        category: ServiceCategory.autoBody,
-        durationMinutes: 240,
-        isQuoteBased: true,
-        icon: 'car_crash',
-        checklistTemplateId: tplBody,
-        sortOrder: 120,
-      ),
-      const Service(
-        id: svcBumper,
-        code: 'BUMPER',
-        name: 'Bumper repair',
-        description: 'Plastic bumper repair and respray',
-        category: ServiceCategory.autoBody,
-        durationMinutes: 480,
-        isQuoteBased: true,
-        icon: 'car_crash',
-        checklistTemplateId: tplBody,
-        sortOrder: 130,
-      ),
-      const Service(
-        id: svcPanel,
-        code: 'PANEL',
-        name: 'Panel respray',
-        description: 'Single panel respray',
-        category: ServiceCategory.autoBody,
-        durationMinutes: 960,
-        isQuoteBased: true,
-        icon: 'car_crash',
-        checklistTemplateId: tplBody,
-        sortOrder: 140,
-      ),
-    ]);
-    outletServiceOverrides[outletSandton] = {
-      svcValet: (priceCents: 24000, isAvailable: true),
-    };
-    outletServiceOverrides[outletCenturion] = {
-      svcPanel: (priceCents: null, isAvailable: false),
-    };
+    for (final r in demoServiceRows) {
+      final isCombo =
+          r.groupName == ServiceGroups.combinations ||
+          r.code == 'SPARKLING_WASH' ||
+          r.code == 'EXEC_WASH';
+      services.add(
+        Service(
+          id: r.id,
+          code: r.code,
+          name: r.name,
+          description: r.description,
+          category: ServiceCategory.fromDb(r.category),
+          groupName: r.groupName,
+          durationMinutes: r.durationMinutes,
+          isQuoteBased: r.pricingMode == 'by_quote',
+          pricingMode: PricingMode.fromDb(r.pricingMode),
+          vatMode: VatMode.fromDb(r.vatMode),
+          isAddon: r.isAddon,
+          addonGroupName: r.addonGroupName,
+          icon: r.icon,
+          checklistTemplateId: r.category == 'auto_body'
+              ? tplBody
+              : isCombo
+              ? tplValet
+              : tplExpress,
+          sortOrder: r.sortOrder,
+        ),
+      );
+    }
+    for (final o in demoOfferRows) {
+      outletOffers.putIfAbsent(o.outletId, () => {})[o.serviceId] = o;
+    }
+    serviceComponents.addAll(demoComponentRows);
 
     void person(
       String id,
@@ -597,15 +576,22 @@ class DemoStore {
       marketing: true,
     );
 
+    const allOutlets = [
+      outletMenlyn,
+      outletGlenVillage,
+      outletPotch,
+      outletToti,
+      outletRustenburg,
+    ];
     staffOutlets.addAll({
-      'seed_ayesha': [outletSandton, outletRosebank],
-      'seed_johan': [outletSandton],
-      'seed_pieter': [outletSandton],
-      'seed_lerato': [outletSandton],
-      'seed_sipho_staff': [outletSandton],
-      'seed_thandi': [outletRosebank],
-      'seed_admin': [outletSandton, outletRosebank, outletCenturion],
-      'seed_finance': [outletSandton, outletRosebank, outletCenturion],
+      'seed_ayesha': [outletMenlyn, outletGlenVillage],
+      'seed_johan': [outletMenlyn],
+      'seed_pieter': [outletMenlyn],
+      'seed_lerato': [outletMenlyn],
+      'seed_sipho_staff': [outletMenlyn],
+      'seed_thandi': [outletGlenVillage],
+      'seed_admin': allOutlets,
+      'seed_finance': allOutlets,
     });
     staffSkills.addAll({
       'seed_pieter': ['wash', 'detail'],
@@ -636,6 +622,7 @@ class DemoStore {
         discExpiry: DateTime(2027, 3, 31),
         source: VehicleSource.scan,
         discVerified: true,
+        sizeClass: VehicleSize.large,
       ),
       Vehicle(
         id: vehPolo,
@@ -676,6 +663,7 @@ class DemoStore {
         discExpiry: DateTime(2026, 10, 15),
         source: VehicleSource.scan,
         discVerified: true,
+        sizeClass: VehicleSize.large,
       ),
       Vehicle(
         id: vehBmw,
@@ -702,20 +690,30 @@ class DemoStore {
         earnMultiplier: 1.0,
         discountPct: 0,
       ),
+      // Tier = membership plan: discounts live on the plan (docs/MEMBERSHIPS.md),
+      // min/max points are informational only.
       LoyaltyTierConfig(
         tier: LoyaltyTier.gold,
         name: 'Gold',
         minPoints: 500,
         maxPoints: 1999,
         earnMultiplier: 1.25,
-        discountPct: 10,
+        discountPct: 0,
       ),
       LoyaltyTierConfig(
         tier: LoyaltyTier.platinum,
         name: 'Platinum',
         minPoints: 2000,
+        maxPoints: 4999,
         earnMultiplier: 1.5,
-        discountPct: 15,
+        discountPct: 0,
+      ),
+      LoyaltyTierConfig(
+        tier: LoyaltyTier.black,
+        name: 'Black',
+        minPoints: 5000,
+        earnMultiplier: 1.75,
+        discountPct: 0,
       ),
     ];
     loyaltyConfig = LoyaltyConfig(
@@ -751,8 +749,8 @@ class DemoStore {
     rewards.addAll(const [
       Reward(
         id: 'f0000000-0000-4000-8000-000000000001',
-        name: 'Free Express Wash',
-        description: 'One express wash at any outlet',
+        name: 'Free Sparkling Wash',
+        description: 'One Sparkling Wash at any outlet',
         icon: 'water_drop',
         pointsCost: 600,
         minTier: LoyaltyTier.silver,
@@ -769,8 +767,8 @@ class DemoStore {
       ),
       Reward(
         id: 'f0000000-0000-4000-8000-000000000003',
-        name: 'Full Valet upgrade',
-        description: 'Upgrade any Express to a Full Valet',
+        name: 'Executive wash upgrade',
+        description: 'Upgrade any Sparkling Wash to an Executive wash',
         icon: 'local_car_wash',
         pointsCost: 900,
         minTier: LoyaltyTier.gold,
@@ -778,8 +776,8 @@ class DemoStore {
       ),
       Reward(
         id: 'f0000000-0000-4000-8000-000000000004',
-        name: 'Premium Detail R150 off',
-        description: 'Discount voucher for Premium Detail',
+        name: 'Auto detailing R150 off',
+        description: 'Discount voucher for Auto detailing complete & polish',
         icon: 'auto_awesome',
         pointsCost: 1200,
         minTier: LoyaltyTier.gold,
@@ -885,16 +883,19 @@ class DemoStore {
         ref: 'SPK-$_yr-0091',
         customerId: 'seed_thabo',
         vehicleId: vehCorolla,
-        outletId: outletSandton,
-        serviceId: svcValet,
+        outletId: outletMenlyn,
+        serviceId: svcSparklingWash,
         slotStart: t,
         slotEnd: t.add(const Duration(minutes: 60)),
         status: BookingStatus.inService,
-        priceCents: 22000,
-        discountCents: 2200,
-        totalCents: 19800,
+        priceCents: 15000,
+        discountCents: 1500,
+        totalCents: 13500,
         discountLabel: 'Gold −10%',
-        pointsPending: 20,
+        vehicleSize: VehicleSize.large,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 14,
         clientOpId: 'seed-op-0091',
         createdAt: n.subtract(const Duration(days: 2)),
       ),
@@ -903,16 +904,19 @@ class DemoStore {
         ref: 'SPK-$_yr-0094',
         customerId: 'seed_thabo',
         vehicleId: vehPolo,
-        outletId: outletRosebank,
-        serviceId: svcExpress,
+        outletId: outletGlenVillage,
+        serviceId: svcExecWash,
         slotStart: t.add(const Duration(hours: 23)),
-        slotEnd: t.add(const Duration(hours: 23, minutes: 20)),
+        slotEnd: t.add(const Duration(hours: 23, minutes: 30)),
         status: BookingStatus.confirmed,
-        priceCents: 12000,
-        discountCents: 1200,
-        totalCents: 10800,
+        priceCents: 25000,
+        discountCents: 2500,
+        totalCents: 22500,
         discountLabel: 'Gold −10%',
-        pointsPending: 11,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 23,
         clientOpId: 'seed-op-0094',
         createdAt: n.subtract(const Duration(hours: 3)),
       ),
@@ -921,17 +925,20 @@ class DemoStore {
         ref: 'SPK-$_yr-0067',
         customerId: 'seed_thabo',
         vehicleId: vehCorolla,
-        outletId: outletSandton,
-        serviceId: svcDetail,
+        outletId: outletMenlyn,
+        serviceId: svcAutoDetailComplete,
         slotStart: t.subtract(const Duration(days: 21)),
         slotEnd: t
             .subtract(const Duration(days: 21))
             .add(const Duration(minutes: 120)),
         status: BookingStatus.completed,
-        priceCents: 45000,
-        discountCents: 4500,
-        totalCents: 40500,
+        priceCents: 90000,
+        discountCents: 9000,
+        totalCents: 81000,
         discountLabel: 'Gold −10%',
+        vehicleSize: VehicleSize.large,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
         clientOpId: 'seed-op-0067',
         createdAt: n.subtract(const Duration(days: 24)),
       ),
@@ -940,18 +947,21 @@ class DemoStore {
         ref: 'SPK-$_yr-0098',
         customerId: 'seed_thabo',
         vehicleId: vehPolo,
-        outletId: outletSandton,
-        serviceId: svcExpress,
+        outletId: outletMenlyn,
+        serviceId: svcExtWashTyreBumper,
         slotStart: t.subtract(const Duration(hours: 2)),
         slotEnd: t
             .subtract(const Duration(hours: 2))
             .add(const Duration(minutes: 20)),
         status: BookingStatus.completed,
-        priceCents: 12000,
-        discountCents: 1200,
-        totalCents: 10800,
+        priceCents: 9000,
+        discountCents: 900,
+        totalCents: 8100,
         discountLabel: 'Gold −10%',
-        pointsPending: 11,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 8,
         clientOpId: 'seed-op-0098',
         createdAt: n.subtract(const Duration(days: 1)),
         updatedAt: t.subtract(const Duration(minutes: 100)),
@@ -961,15 +971,18 @@ class DemoStore {
         ref: 'SPK-$_yr-0052',
         customerId: 'seed_thabo',
         vehicleId: vehPolo,
-        outletId: outletSandton,
-        serviceId: svcExpress,
+        outletId: outletMenlyn,
+        serviceId: svcExtWash,
         slotStart: t.subtract(const Duration(days: 38)),
         slotEnd: t
             .subtract(const Duration(days: 38))
             .add(const Duration(minutes: 20)),
         status: BookingStatus.completed,
-        priceCents: 12000,
-        totalCents: 12000,
+        priceCents: 8000,
+        totalCents: 8000,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
         clientOpId: 'seed-op-0052',
         createdAt: n.subtract(const Duration(days: 40)),
       ),
@@ -978,14 +991,17 @@ class DemoStore {
         ref: 'SPK-$_yr-0092',
         customerId: 'seed_naledi',
         vehicleId: vehSwift,
-        outletId: outletSandton,
-        serviceId: svcExpress,
+        outletId: outletMenlyn,
+        serviceId: svcExtWash,
         slotStart: t.subtract(const Duration(minutes: 90)),
         slotEnd: t.subtract(const Duration(minutes: 70)),
         status: BookingStatus.completed,
-        priceCents: 12000,
-        totalCents: 12000,
-        pointsPending: 12,
+        priceCents: 8000,
+        totalCents: 8000,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 8,
         clientOpId: 'seed-op-0092',
         createdAt: n.subtract(const Duration(hours: 5)),
       ),
@@ -994,14 +1010,17 @@ class DemoStore {
         ref: 'SPK-$_yr-0093',
         customerId: 'seed_sipho',
         vehicleId: vehHilux,
-        outletId: outletSandton,
-        serviceId: svcInterior,
+        outletId: outletMenlyn,
+        serviceId: svcAutoDetailInterior,
         slotStart: t.add(const Duration(minutes: 30)),
         slotEnd: t.add(const Duration(minutes: 120)),
         status: BookingStatus.confirmed,
-        priceCents: 28000,
-        totalCents: 28000,
-        pointsPending: 28,
+        priceCents: 70000,
+        totalCents: 70000,
+        vehicleSize: VehicleSize.large,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 70,
         clientOpId: 'seed-op-0093',
         createdAt: n.subtract(const Duration(days: 1)),
       ),
@@ -1010,16 +1029,19 @@ class DemoStore {
         ref: 'SPK-$_yr-0095',
         customerId: 'seed_zanele',
         vehicleId: vehBmw,
-        outletId: outletSandton,
-        serviceId: svcDetail,
+        outletId: outletMenlyn,
+        serviceId: svcAutoDetailComplete,
         slotStart: t.add(const Duration(hours: 2)),
         slotEnd: t.add(const Duration(hours: 4)),
         status: BookingStatus.confirmed,
-        priceCents: 45000,
-        discountCents: 6750,
-        totalCents: 38250,
+        priceCents: 85000,
+        discountCents: 12750,
+        totalCents: 72250,
         discountLabel: 'Platinum −15%',
-        pointsPending: 68,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 72,
         clientOpId: 'seed-op-0095',
         createdAt: n.subtract(const Duration(hours: 1)),
       ),
@@ -1028,14 +1050,17 @@ class DemoStore {
         ref: 'SPK-$_yr-0096',
         customerId: 'seed_naledi',
         vehicleId: vehSwift,
-        outletId: outletRosebank,
-        serviceId: svcValet,
+        outletId: outletGlenVillage,
+        serviceId: svcSparklingWash,
         slotStart: t.add(const Duration(hours: 3)),
         slotEnd: t.add(const Duration(hours: 4)),
         status: BookingStatus.pending,
-        priceCents: 22000,
-        totalCents: 22000,
-        pointsPending: 22,
+        priceCents: 16000,
+        totalCents: 16000,
+        vehicleSize: VehicleSize.small,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
+        pointsPending: 16,
         clientOpId: 'seed-op-0096',
         createdAt: n.subtract(const Duration(minutes: 20)),
       ),
@@ -1044,13 +1069,16 @@ class DemoStore {
         ref: 'SPK-$_yr-0090',
         customerId: 'seed_sipho',
         vehicleId: vehHilux,
-        outletId: outletSandton,
-        serviceId: svcExpress,
+        outletId: outletMenlyn,
+        serviceId: svcExtWash,
         slotStart: t.subtract(const Duration(hours: 3)),
         slotEnd: t.subtract(const Duration(minutes: 160)),
         status: BookingStatus.cancelled,
-        priceCents: 12000,
-        totalCents: 12000,
+        priceCents: 9000,
+        totalCents: 9000,
+        vehicleSize: VehicleSize.large,
+        pricingMode: PricingMode.from,
+        vatMode: VatMode.incl,
         cancelReason: 'Customer request',
         clientOpId: 'seed-op-0090',
         createdAt: n.subtract(const Duration(days: 1)),
@@ -1064,16 +1092,29 @@ class DemoStore {
         ref: 'QT-$_yr-0041',
         customerId: 'seed_thabo',
         vehicleId: vehCorolla,
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         category: 'Bumper',
         description:
             'Rear bumper scuffed in parking lot, paint cracked on left corner.',
         status: QuotationStatus.quoted,
         amountCents: 385000,
         lineItems: const [
-          LineItem(label: 'Bumper repair & respray', amountCents: 320000),
-          LineItem(label: 'Blend to quarter panel', amountCents: 65000),
+          LineItem(
+            label: 'Bumper scuff repair & respray',
+            amountCents: 320000,
+            category: 'Bumper',
+            description: 'Rear bumper, left corner — fill, sand and respray.',
+            serviceId: svcBumperScuff,
+          ),
+          LineItem(
+            label: 'Blend to quarter panel',
+            amountCents: 65000,
+            category: 'Paint',
+            description: 'Colour blend into the rear quarter so the join is invisible.',
+            serviceId: svcSpotRepair,
+          ),
         ],
+        itemsNote: 'Parts on hand · 2 working days once the car is in.',
         assessorId: 'seed_sipho_staff',
         assessorName: 'Sipho Ndlovu',
         validUntil: n.add(const Duration(days: 14)),
@@ -1081,34 +1122,57 @@ class DemoStore {
         clientOpId: 'seed-op-qt41',
         createdAt: n.subtract(const Duration(days: 3)),
         vehicleLabel: 'Corolla Cross · KL 45 MN GP',
-        outletName: 'Sparkling Sandton',
+        outletName: 'Sparkling Auto Care Centre Menlyn',
+        customerName: 'Thabo Nkosi',
+        publicUrl: '$publicWebBaseUrl/q/seed-token-qt41',
+        pdfUrl: '/v1/quotations/$quotationQuoted/pdf',
+        attachments: [
+          _seedPhoto(
+            '20000000-0000-4000-8000-0000000000a1',
+            quotationQuoted,
+            'Rear bumper',
+            n.subtract(const Duration(days: 3)),
+          ),
+          _seedPhoto(
+            '20000000-0000-4000-8000-0000000000a2',
+            quotationQuoted,
+            'Paint crack close-up',
+            n.subtract(const Duration(days: 3)),
+          ),
+        ],
       ),
       Quotation(
         id: '20000000-0000-4000-8000-000000000002',
         ref: 'QT-$_yr-0042',
         customerId: 'seed_zanele',
         vehicleId: vehBmw,
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         category: 'Dent',
         description: 'Door ding on driver door, no paint damage.',
         status: QuotationStatus.requested,
         clientOpId: 'seed-op-qt42',
         createdAt: n.subtract(const Duration(hours: 6)),
         vehicleLabel: '330i · BW 33 RG GP',
-        outletName: 'Sparkling Sandton',
+        outletName: 'Sparkling Auto Care Centre Menlyn',
+        customerName: 'Zanele Mthembu',
       ),
       Quotation(
         id: '20000000-0000-4000-8000-000000000003',
         ref: 'QT-$_yr-0038',
         customerId: 'seed_sipho',
         vehicleId: vehHilux,
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         category: 'Scratch',
         description: 'Key scratch along passenger side.',
         status: QuotationStatus.accepted,
         amountCents: 210000,
         lineItems: const [
-          LineItem(label: 'Scratch repair & blend', amountCents: 210000),
+          LineItem(
+            label: 'Scratch repair & blend',
+            amountCents: 210000,
+            category: 'Scratch',
+            serviceId: svcSpotRepair,
+          ),
         ],
         assessorId: 'seed_sipho_staff',
         assessorName: 'Sipho Ndlovu',
@@ -1116,10 +1180,15 @@ class DemoStore {
         quotedAt: n.subtract(const Duration(days: 4)),
         decidedAt: n.subtract(const Duration(days: 2)),
         decisionBy: 'seed_sipho',
+        decisionSource: QuoteDecisionSource.publicLink,
+        decisionByName: 'Sipho Dlamini',
+        customerName: 'Sipho Dlamini',
+        publicUrl: '$publicWebBaseUrl/q/seed-token-qt38',
+        pdfUrl: '/v1/quotations/20000000-0000-4000-8000-000000000003/pdf',
         clientOpId: 'seed-op-qt38',
         createdAt: n.subtract(const Duration(days: 6)),
         vehicleLabel: 'Hilux · DN 07 KX GP',
-        outletName: 'Sparkling Sandton',
+        outletName: 'Sparkling Auto Care Centre Menlyn',
       ),
     ]);
 
@@ -1128,11 +1197,11 @@ class DemoStore {
       WorkOrder(
         id: woInService,
         ref: 'WO-$_yr-4821',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         bookingId: bookingInService,
         vehicleId: vehCorolla,
         customerId: 'seed_thabo',
-        serviceId: svcValet,
+        serviceId: svcSparklingWash,
         status: WorkStatus.inProgress,
         priority: 1,
         bay: 'Bay 2',
@@ -1148,11 +1217,11 @@ class DemoStore {
       WorkOrder(
         id: woReady,
         ref: 'WO-$_yr-4820',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         bookingId: bookingReady,
         vehicleId: vehPolo,
         customerId: 'seed_thabo',
-        serviceId: svcExpress,
+        serviceId: svcExtWashTyreBumper,
         status: WorkStatus.verified,
         priority: 2,
         bay: 'Bay 1',
@@ -1171,11 +1240,11 @@ class DemoStore {
       WorkOrder(
         id: woVerified,
         ref: 'WO-$_yr-4822',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         bookingId: '10000000-0000-4000-8000-000000000005',
         vehicleId: vehSwift,
         customerId: 'seed_naledi',
-        serviceId: svcExpress,
+        serviceId: svcExtWash,
         status: WorkStatus.verified,
         priority: 2,
         bay: 'Bay 1',
@@ -1194,11 +1263,11 @@ class DemoStore {
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000003',
         ref: 'WO-$_yr-4823',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         bookingId: '10000000-0000-4000-8000-000000000006',
         vehicleId: vehHilux,
         customerId: 'seed_sipho',
-        serviceId: svcInterior,
+        serviceId: svcAutoDetailInterior,
         status: WorkStatus.blocked,
         priority: 1,
         bay: 'Bay 3',
@@ -1215,11 +1284,11 @@ class DemoStore {
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000004',
         ref: 'WO-$_yr-4824',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         bookingId: '10000000-0000-4000-8000-000000000007',
         vehicleId: vehBmw,
         customerId: 'seed_zanele',
-        serviceId: svcDetail,
+        serviceId: svcAutoDetailComplete,
         status: WorkStatus.queued,
         priority: 2,
         checklistTemplateId: tplValet,
@@ -1231,11 +1300,11 @@ class DemoStore {
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000005',
         ref: 'WO-$_yr-4818',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         quotationId: '20000000-0000-4000-8000-000000000003',
         vehicleId: vehHilux,
         customerId: 'seed_sipho',
-        serviceId: svcScratch,
+        serviceId: svcSpotRepair,
         status: WorkStatus.assigned,
         priority: 2,
         bay: 'Body 1',
@@ -1257,8 +1326,8 @@ class DemoStore {
       Task(
         id: taskReady,
         workOrderId: woReady,
-        outletId: outletSandton,
-        title: 'Express Wash · CJ 12 PZ GP',
+        outletId: outletMenlyn,
+        title: 'Exterior wash, tyre shine & bumper polish · CJ 12 PZ GP',
         assigneeId: 'seed_lerato',
         assigneeName: 'Lerato Mahlangu',
         status: WorkStatus.verified,
@@ -1271,8 +1340,8 @@ class DemoStore {
       Task(
         id: taskInService,
         workOrderId: woInService,
-        outletId: outletSandton,
-        title: 'Full Valet · KL 45 MN GP',
+        outletId: outletMenlyn,
+        title: 'Sparkling Wash · KL 45 MN GP',
         assigneeId: 'seed_pieter',
         assigneeName: 'Pieter van der Merwe',
         status: WorkStatus.inProgress,
@@ -1284,8 +1353,8 @@ class DemoStore {
       Task(
         id: '40000000-0000-4000-8000-000000000002',
         workOrderId: '30000000-0000-4000-8000-000000000002',
-        outletId: outletSandton,
-        title: 'Express Wash · HR 88 TS GP',
+        outletId: outletMenlyn,
+        title: 'Exterior wash · HR 88 TS GP',
         assigneeId: 'seed_lerato',
         assigneeName: 'Lerato Mahlangu',
         status: WorkStatus.verified,
@@ -1298,8 +1367,8 @@ class DemoStore {
       Task(
         id: '40000000-0000-4000-8000-000000000003',
         workOrderId: '30000000-0000-4000-8000-000000000003',
-        outletId: outletSandton,
-        title: 'Interior Deep Clean · DN 07 KX GP',
+        outletId: outletMenlyn,
+        title: 'Auto detailing interior · DN 07 KX GP',
         assigneeId: 'seed_lerato',
         assigneeName: 'Lerato Mahlangu',
         status: WorkStatus.blocked,
@@ -1312,8 +1381,8 @@ class DemoStore {
       Task(
         id: '40000000-0000-4000-8000-000000000004',
         workOrderId: '30000000-0000-4000-8000-000000000004',
-        outletId: outletSandton,
-        title: 'Premium Detail · BW 33 RG GP',
+        outletId: outletMenlyn,
+        title: 'Auto detailing complete & polish · BW 33 RG GP',
         status: WorkStatus.queued,
         priority: 2,
         dueAt: t.add(const Duration(hours: 4)),
@@ -1321,8 +1390,8 @@ class DemoStore {
       Task(
         id: '40000000-0000-4000-8000-000000000005',
         workOrderId: '30000000-0000-4000-8000-000000000005',
-        outletId: outletSandton,
-        title: 'Scratch repair · DN 07 KX GP',
+        outletId: outletMenlyn,
+        title: 'Spot repair & blending · DN 07 KX GP',
         assigneeId: 'seed_sipho_staff',
         assigneeName: 'Sipho Ndlovu',
         status: WorkStatus.assigned,
@@ -1490,7 +1559,7 @@ class DemoStore {
         customerId: 'seed_thabo',
         providerRef: 'pi_sbx_0091',
         methodId: '50000000-0000-4000-8000-000000000001',
-        amountCents: 19800,
+        amountCents: 13500,
         status: PaymentStatus.successful,
         receiptNo: 'RCP-70001',
         idempotencyKey: 'pay-seed-0091',
@@ -1503,7 +1572,7 @@ class DemoStore {
         customerId: 'seed_thabo',
         providerRef: 'pi_sbx_0067',
         methodId: '50000000-0000-4000-8000-000000000001',
-        amountCents: 40500,
+        amountCents: 81000,
         status: PaymentStatus.successful,
         receiptNo: 'RCP-70002',
         idempotencyKey: 'pay-seed-0067',
@@ -1516,7 +1585,7 @@ class DemoStore {
         customerId: 'seed_thabo',
         providerRef: 'pi_sbx_0052',
         methodId: '50000000-0000-4000-8000-000000000001',
-        amountCents: 12000,
+        amountCents: 8000,
         status: PaymentStatus.successful,
         receiptNo: 'RCP-70003',
         idempotencyKey: 'pay-seed-0052',
@@ -1528,7 +1597,7 @@ class DemoStore {
         bookingId: '10000000-0000-4000-8000-000000000005',
         customerId: 'seed_naledi',
         providerRef: 'pi_sbx_0092',
-        amountCents: 12000,
+        amountCents: 8000,
         status: PaymentStatus.successful,
         receiptNo: 'RCP-70004',
         idempotencyKey: 'pay-seed-0092',
@@ -1540,7 +1609,7 @@ class DemoStore {
         bookingId: '10000000-0000-4000-8000-000000000007',
         customerId: 'seed_zanele',
         providerRef: 'pi_sbx_0095',
-        amountCents: 38250,
+        amountCents: 72250,
         status: PaymentStatus.pending,
         idempotencyKey: 'pay-seed-0095',
         createdAt: n.subtract(const Duration(minutes: 30)),
@@ -1551,7 +1620,7 @@ class DemoStore {
         customerId: 'seed_thabo',
         providerRef: 'pi_sbx_0094',
         methodId: '50000000-0000-4000-8000-000000000001',
-        amountCents: 10800,
+        amountCents: 22500,
         status: PaymentStatus.successful,
         receiptNo: 'RCP-70005',
         idempotencyKey: 'pay-seed-0094',
@@ -1610,7 +1679,7 @@ class DemoStore {
       'booking',
       '10000000-0000-4000-8000-000000000004',
       'SPK-$_yr-0031',
-      'Premium Detail',
+      'Auto detailing complete & polish',
       'll-thabo-0031',
       'seed_admin',
       95,
@@ -1634,7 +1703,7 @@ class DemoStore {
       'booking',
       '10000000-0000-4000-8000-000000000004',
       'SPK-$_yr-0052',
-      'Express Wash',
+      'Exterior wash',
       'll-thabo-0052',
       'seed_admin',
       40,
@@ -1658,7 +1727,7 @@ class DemoStore {
       'booking',
       '10000000-0000-4000-8000-000000000003',
       'SPK-$_yr-0067',
-      'Premium Detail',
+      'Auto detailing complete & polish',
       'll-thabo-0067',
       'seed_admin',
       21,
@@ -1670,7 +1739,7 @@ class DemoStore {
       'booking',
       null,
       'SPK-$_yr-0078',
-      'Full Valet',
+      'Sparkling Wash',
       'll-thabo-0078',
       'seed_admin',
       9,
@@ -1694,7 +1763,7 @@ class DemoStore {
       'booking',
       '10000000-0000-4000-8000-000000000005',
       'SPK-$_yr-0092',
-      'Express Wash',
+      'Exterior wash',
       'll-naledi-0092',
       'seed_admin',
       0,
@@ -1719,7 +1788,7 @@ class DemoStore {
       'booking',
       null,
       'SPK-${n.year - 1}-0410',
-      'Panel respray',
+      'Spot repair & blending',
       'll-sipho-0410',
       'seed_admin',
       150,
@@ -1737,24 +1806,8 @@ class DemoStore {
       10,
     );
     _idempotencyKeys.addAll(loyaltyLedger.map((e) => e.idempotencyKey!));
-    loyaltyTiers.addAll({
-      'seed_thabo': (
-        tier: LoyaltyTier.gold,
-        tierSince: n.subtract(const Duration(days: 95)),
-      ),
-      'seed_naledi': (
-        tier: LoyaltyTier.gold,
-        tierSince: n.subtract(const Duration(days: 60)),
-      ),
-      'seed_sipho': (
-        tier: LoyaltyTier.platinum,
-        tierSince: n.subtract(const Duration(days: 150)),
-      ),
-      'seed_zanele': (
-        tier: LoyaltyTier.gold,
-        tierSince: n.subtract(const Duration(days: 10)),
-      ),
-    });
+    // Loyalty tiers derive from the memberships seeded below (tier = plan).
+    _seedMemberships(n);
     redemptions.add(
       RewardRedemption(
         id: _newId('a'),
@@ -1794,7 +1847,7 @@ class DemoStore {
 
     inv(
       '70000000-0000-4000-8000-000000000001',
-      outletSandton,
+      outletMenlyn,
       'SHP-INT',
       'Interior shampoo 5L',
       'bottle',
@@ -1804,7 +1857,7 @@ class DemoStore {
     ); // last bottle used → out
     inv(
       '70000000-0000-4000-8000-000000000002',
-      outletSandton,
+      outletMenlyn,
       'WAX-CRN',
       'Carnauba wax 500ml',
       'tin',
@@ -1814,7 +1867,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000003',
-      outletSandton,
+      outletMenlyn,
       'TWL-MF',
       'Microfibre towels',
       'pack',
@@ -1824,7 +1877,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000004',
-      outletSandton,
+      outletMenlyn,
       'TYR-SHN',
       'Tyre shine 1L',
       'bottle',
@@ -1834,7 +1887,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000005',
-      outletSandton,
+      outletMenlyn,
       'SNW-FOAM',
       'Snow foam 5L',
       'bottle',
@@ -1844,7 +1897,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000006',
-      outletSandton,
+      outletMenlyn,
       'GLS-CLN',
       'Glass cleaner 1L',
       'bottle',
@@ -1854,7 +1907,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000007',
-      outletSandton,
+      outletMenlyn,
       'PNT-CLR',
       'Clear coat 1L',
       'tin',
@@ -1864,7 +1917,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000011',
-      outletRosebank,
+      outletGlenVillage,
       'SHP-INT',
       'Interior shampoo 5L',
       'bottle',
@@ -1874,7 +1927,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000012',
-      outletRosebank,
+      outletGlenVillage,
       'WAX-CRN',
       'Carnauba wax 500ml',
       'tin',
@@ -1884,7 +1937,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000013',
-      outletRosebank,
+      outletGlenVillage,
       'TWL-MF',
       'Microfibre towels',
       'pack',
@@ -1894,7 +1947,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000021',
-      outletCenturion,
+      outletPotch,
       'SNW-FOAM',
       'Snow foam 5L',
       'bottle',
@@ -1904,7 +1957,7 @@ class DemoStore {
     );
     inv(
       '70000000-0000-4000-8000-000000000022',
-      outletCenturion,
+      outletPotch,
       'TYR-SHN',
       'Tyre shine 1L',
       'bottle',
@@ -1944,7 +1997,7 @@ class DemoStore {
         if (g > count) break;
         staffPoints.add((
           staffId: staff,
-          outletId: outletSandton,
+          outletId: outletMenlyn,
           delta: pts,
           eventType: 'task_completed',
           key: 'sp-$staff-$g',
@@ -1955,7 +2008,7 @@ class DemoStore {
     staffPoints.addAll([
       (
         staffId: 'seed_pieter',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         delta: 50,
         eventType: 'streak_5_days',
         key: 'sp-pieter-streak-1',
@@ -1963,7 +2016,7 @@ class DemoStore {
       ),
       (
         staffId: 'seed_lerato',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         delta: 20,
         eventType: 'p1_on_time',
         key: 'sp-lerato-p1-1',
@@ -1971,7 +2024,7 @@ class DemoStore {
       ),
       (
         staffId: 'seed_pieter',
-        outletId: outletSandton,
+        outletId: outletMenlyn,
         delta: 15,
         eventType: 'verified_first_time',
         key: 'sp-pieter-vft-1',
@@ -1999,7 +2052,7 @@ class DemoStore {
         channel: NotifyChannel.whatsapp,
         templateKey: 'booking_confirmed',
         body:
-            'Hi Thabo, your Sparkling booking SPK-$_yr-0094 is confirmed for tomorrow 09:00 at Sparkling Rosebank.',
+            'Hi Thabo, your Sparkling booking SPK-$_yr-0094 is confirmed for tomorrow 09:00 at Sparkling Elite Centre Glen Village.',
         status: NotifyStatus.delivered,
         payload: const {'type': 'booking', 'id': bookingNext},
         sentAt: n.subtract(const Duration(hours: 3)),
@@ -2012,7 +2065,7 @@ class DemoStore {
         channel: NotifyChannel.whatsapp,
         templateKey: 'pickup_otp',
         title: 'Ready for collection',
-        body: 'Your Volkswagen Polo Vivo is ready at Sparkling Sandton. Collection OTP: 73104 — show it at the counter to collect your keys.',
+        body: 'Your Volkswagen Polo Vivo is ready at Sparkling Auto Care Centre Menlyn. Collection OTP: 73104 — show it at the counter to collect your keys.',
         status: NotifyStatus.delivered,
         providerRef: 'SM7f3c0d9e4a1b4c8d9e0f1a2b3c4d5e6f',
         providerStatus: 'delivered',
@@ -2040,7 +2093,7 @@ class DemoStore {
         channel: NotifyChannel.push,
         templateKey: 'task_assigned',
         title: 'New task',
-        body: 'WO-$_yr-4821 assigned to you · Full Valet · Bay 2.',
+        body: 'WO-$_yr-4821 assigned to you · Sparkling Wash · Bay 2.',
         status: NotifyStatus.sent,
         payload: const {'type': 'task', 'id': taskInService},
         sentAt: n.subtract(const Duration(minutes: 35)),
@@ -2052,7 +2105,7 @@ class DemoStore {
         channel: NotifyChannel.push,
         templateKey: 'low_stock',
         title: 'Low stock alert',
-        body: 'Interior shampoo 5L at Sparkling Sandton is out of stock (0/4).',
+        body: 'Interior shampoo 5L at Sparkling Auto Care Centre Menlyn is out of stock (0/4).',
         status: NotifyStatus.sent,
         payload: const {
           'type': 'inventory_item',
@@ -2065,6 +2118,34 @@ class DemoStore {
   }
 
   String get _yr => _year();
+
+  /// Registers a small striped PNG as a demo damage photo.
+  Attachment _seedPhoto(
+    String id,
+    String quotationId,
+    String caption,
+    DateTime at,
+  ) {
+    final bytes = base64Decode(
+      photoBytes.length.isEven ? _demoPngGrey : _demoPngBlue,
+    );
+    photoBytes[id] = bytes;
+    return Attachment(
+      id: id,
+      entityId: quotationId,
+      mimeType: 'image/png',
+      sizeBytes: bytes.length,
+      width: 96,
+      height: 72,
+      caption: caption,
+      uploadedBy: 'seed_sipho_staff',
+      createdAt: at,
+      url: 'demo://photo/$id',
+    );
+  }
+
+  static const String _demoPngGrey = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAxklEQVR42u3YoRGEQBREwRc3AZzF4EjgwiSDMUi66tsxT+12x+8ad97/cV/Yps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7epg6TZtJMmkkzaSbNpJm0OkyaSTNpJs2kmTSTZtLqMGkmzaSZNJNm0kyaSXtnM2kmzaSZNJNm0kyaSTNpdZg0k2bSTJpJM2kmzaTVYdJMmkkzaSbNpJk0k/YLYdJM+uX2AVN/5sraXG0wAAAAAElFTkSuQmCC';
+  static const String _demoPngBlue = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAx0lEQVR42u3YMRGEQBREwSeG/KzgABtoONU4mISQrvrpJC/a7Y7zHve7/uO+sE2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU0dJs2kmTSTZtJMmkkzaXWYNJNm0kyaSTNpJs2k1WHSTJpJM2kmzaSZNJP2zmbSTJpJM2kmzaSZNJNm0uowaSbNpJk0k2bSTJpJq8OkmTSTZtJMmkkzaSbtF8KkmfTL7QNFnjnSFnTnPAAAAABJRU5ErkJggg==';
 
   static const Map<String, List<String>?> _defaultHours = {
     'mon': ['07:30', '17:30'],
@@ -2143,31 +2224,242 @@ class DemoStore {
     }
   }
 
-  OutletService outletService(String outletId, String serviceId) {
-    final s =
-        serviceById(serviceId) ??
-        (throw ApiException(
-          code: 'not_found',
-          message: 'Service not found',
-          statusCode: 404,
-        ));
-    final o = outletServiceOverrides[outletId]?[serviceId];
-    final price = o?.priceCents ?? s.basePriceCents;
-    return OutletService(
+  // ---- Catalogue pricing engine (mirrors backend services/pricing.ts) ------
+
+  /// Components of [parentId] at [outletId]: the outlet's own rows when it
+  /// has any, otherwise the global default set.
+  List<DemoComponentRow> _componentsFor(String outletId, String parentId) {
+    final rows = serviceComponents.where((c) => c.parentServiceId == parentId);
+    final own = rows.where((c) => c.outletId == outletId).toList();
+    final set = own.isNotEmpty
+        ? own
+        : rows.where((c) => c.outletId == null).toList();
+    return set..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  }
+
+  /// The outlet's wording for [serviceId] (falls back to the canonical name).
+  String _offerName(String outletId, String serviceId) =>
+      outletOffers[outletId]?[serviceId]?.displayName ??
+      serviceById(serviceId)?.name ??
+      serviceId;
+
+  /// Builds the documented offer for a service the outlet carries, or null
+  /// when the outlet does not offer it.
+  OutletService? _offer(
+    String outletId,
+    String serviceId, {
+    VehicleSize? size,
+  }) {
+    final svc = serviceById(serviceId);
+    final row = outletOffers[outletId]?[serviceId];
+    if (svc == null || row == null || !svc.isActive) return null;
+    final mode = row.pricingMode == null
+        ? svc.pricingMode
+        : PricingMode.fromDb(row.pricingMode);
+    final vat = row.vatMode == null ? svc.vatMode : VatMode.fromDb(row.vatMode);
+    final includes = [
+      for (final c in _componentsFor(outletId, serviceId))
+        if (serviceById(c.childServiceId) case final child?)
+          ServiceRef(
+            serviceId: child.id,
+            code: child.code,
+            name: _offerName(outletId, child.id),
+          ),
+    ];
+    final includedIn = [
+      for (final parent in outletOffers[outletId]!.keys)
+        if (parent != serviceId &&
+            _componentsFor(
+              outletId,
+              parent,
+            ).any((c) => c.childServiceId == serviceId))
+          parent,
+    ];
+    final offer = OutletService(
       outletId: outletId,
-      service: s,
-      priceCents: price,
-      pointsEstimate: (price / 100 * loyaltyConfig.rules.pointsPerRand).round(),
-      isAvailable: o?.isAvailable ?? true,
+      serviceId: svc.id,
+      code: svc.code,
+      name: row.displayName,
+      category: svc.category,
+      description: svc.description,
+      groupName: svc.groupName,
+      durationMinutes: svc.durationMinutes,
+      icon: svc.icon,
+      pricingMode: mode,
+      vatMode: vat,
+      priceSmallCents: mode == PricingMode.byQuote
+          ? null
+          : row.priceSmallCents ?? svc.priceSmallCents,
+      priceLargeCents: mode == PricingMode.byQuote
+          ? null
+          : row.priceLargeCents ?? svc.priceLargeCents,
+      priceGeneralCents: mode == PricingMode.byQuote
+          ? null
+          : row.priceGeneralCents ?? svc.priceGeneralCents,
+      pricedFor: size,
+      isAddon: svc.isAddon,
+      addonGroupName: svc.addonGroupName,
+      includes: includes,
+      includedIn: includedIn,
+      isAvailable: row.isAvailable,
+      sortOrder: row.sortOrder,
+      notes: row.notes,
+      pointsPerRand: loyaltyConfig.rules.pointsPerRand,
+      checklistTemplateId: svc.checklistTemplateId,
+    );
+    final resolved = offer.priceFor(size ?? VehicleSize.small);
+    return offer.copyWith(
+      priceCents: resolved,
+      clearPrice: resolved == null,
+      pointsEstimate: offer.pointsFor(size ?? VehicleSize.small),
     );
   }
 
-  List<OutletService> outletServices(String outletId) =>
-      services
-          .where((s) => s.isActive)
-          .map((s) => outletService(outletId, s.id))
+  /// One offer of the outlet (404 when the outlet does not carry it).
+  OutletService outletService(
+    String outletId,
+    String serviceId, {
+    VehicleSize? size,
+  }) =>
+      _offer(outletId, serviceId, size: size) ??
+      (throw ApiException(
+        code: 'not_found',
+        message: 'Service not offered at this outlet',
+        statusCode: 404,
+      ));
+
+  /// `GET /outlets/:id/services` — all offers of the outlet in sort order.
+  List<OutletService> outletServices(String outletId, {VehicleSize? size}) =>
+      (outletOffers[outletId]?.keys ?? const <String>[])
+          .map((id) => _offer(outletId, id, size: size))
+          .whereType<OutletService>()
           .toList()
-        ..sort((a, b) => a.service.sortOrder.compareTo(b.service.sortOrder));
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+  /// The catalogue envelope with the group list in display order.
+  OutletCatalogue outletCatalogue(String outletId, {VehicleSize? vehicleSize}) {
+    final offers = outletServices(outletId, size: vehicleSize);
+    final groups = offers.map((o) => o.groupName).toSet().toList()
+      ..sort((a, b) => ServiceGroups.order(a).compareTo(ServiceGroups.order(b)));
+    return OutletCatalogue(
+      outletId: outletId,
+      offers: offers,
+      groups: groups,
+      vehicleSize: vehicleSize,
+    );
+  }
+
+  /// Server-side pricing of a booking: size resolution (request → vehicle
+  /// → small), by-quote refusal (409 `validation_error` `{reason:'by_quote'}`),
+  /// add-on group validation, the membership benefit (covered service →
+  /// base waived, else the plan discount by scope — docs/MEMBERSHIPS.md) and
+  /// 15 % VAT on `excl` offers. [discountPct] is a legacy flat discount used
+  /// only when the plan gives nothing (0 for every tier now).
+  ({
+    OutletService offer,
+    VehicleSize size,
+    int base,
+    List<BookingAddon> addons,
+    int addonsCents,
+    int discount,
+    String? discountLabel,
+    int vat,
+    int total,
+    BookingMembership? membership,
+    String? membershipId,
+    String? entitlementId,
+  })
+  priceBooking({
+    required String outletId,
+    required String serviceId,
+    required Vehicle vehicle,
+    VehicleSize? vehicleSize,
+    List<String> addonServiceIds = const [],
+    String? customerId,
+    int discountPct = 0,
+  }) {
+    final outlet = outletById(outletId);
+    final offer = outletService(outletId, serviceId);
+    if (!offer.isAvailable) {
+      throw ApiException(
+        code: 'validation_error',
+        message: '${offer.name} is not available at ${outlet?.name ?? 'this outlet'}',
+        statusCode: 400,
+      );
+    }
+    if (offer.isAddon) {
+      throw ApiException(
+        code: 'validation_error',
+        message: '${offer.name} is an add-on — choose a main service first.',
+        statusCode: 400,
+      );
+    }
+    if (offer.isByQuote) {
+      throw ApiException(
+        code: 'validation_error',
+        message: '${offer.name} is priced by quote — request a quotation instead.',
+        statusCode: 409,
+        details: const [
+          {'reason': 'by_quote'},
+        ],
+        data: {'reason': 'by_quote', 'service_id': serviceId},
+      );
+    }
+    final size = vehicleSize ?? vehicle.sizeClass;
+    final base = offer.priceFor(size)!;
+    final addons = <BookingAddon>[];
+    for (final id in addonServiceIds.toSet()) {
+      final a = _offer(outletId, id, size: size);
+      if (a == null || !a.isAvailable) {
+        throw ApiException(
+          code: 'validation_error',
+          message: 'Add-on not offered at ${outlet?.name ?? 'this outlet'}',
+          statusCode: 400,
+        );
+      }
+      final price = a.priceFor(size);
+      if (!a.isAddon ||
+          (a.addonGroupName ?? a.groupName) != offer.groupName ||
+          price == null) {
+        throw ApiException(
+          code: 'validation_error',
+          message: '${a.name} cannot be added to ${offer.name}',
+          statusCode: 400,
+        );
+      }
+      addons.add(BookingAddon(serviceId: a.serviceId, name: a.name, priceCents: price));
+    }
+    final addonsCents = addons.fold(0, (sum, a) => sum + a.priceCents);
+    final mp = customerId == null
+        ? null
+        : _membershipPricing(
+            customerId: customerId,
+            offer: offer,
+            base: base,
+            addonsCents: addonsCents,
+          );
+    var discount = mp?.discount ?? 0;
+    var label = mp?.label;
+    if (discount == 0 && discountPct > 0) {
+      discount = ((base + addonsCents) * discountPct / 100).round();
+      label = null;
+    }
+    final vat = offer.vatMode.vatOn(base + addonsCents - discount);
+    return (
+      offer: offer,
+      size: size,
+      base: base,
+      addons: addons,
+      addonsCents: addonsCents,
+      discount: discount,
+      discountLabel: label,
+      vat: vat,
+      total: base + addonsCents - discount + vat,
+      membership: mp?.block,
+      membershipId: mp?.membership?.id,
+      entitlementId: mp?.entitlement?.id,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Profile
@@ -2203,7 +2495,27 @@ class DemoStore {
   List<Vehicle> myVehicles() =>
       vehicles.where((v) => v.customerId == uid && v.isActive).toList();
 
-  Vehicle addVehicle(VehicleInput input) {
+  Vehicle addVehicle(VehicleInput input) => _addVehicleFor(uid, input);
+
+  /// Staff route `POST /staff/customers/:id/vehicles` (STF-012).
+  Vehicle createCustomerVehicle(String customerId, VehicleInput input) {
+    _requireRole(role.isStaff);
+    final p = requireProfile(customerId);
+    if (p.role != UserRole.customer) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Not a customer profile',
+        statusCode: 400,
+      );
+    }
+    return _addVehicleFor(customerId, input, staff: true);
+  }
+
+  Vehicle _addVehicleFor(
+    String customerId,
+    VehicleInput input, {
+    bool staff = false,
+  }) {
     final norm = Vehicle.normaliseRegistration(input.registrationNo);
     if (norm.length < 2) {
       throw ApiException(
@@ -2215,7 +2527,7 @@ class DemoStore {
     final dup = vehicles
         .where(
           (v) =>
-              v.customerId == uid &&
+              v.customerId == customerId &&
               v.isActive &&
               (v.normalisedRegistration == norm ||
                   (input.vin != null && v.vin == input.vin)),
@@ -2224,14 +2536,16 @@ class DemoStore {
     if (dup != null && !input.force) {
       throw ApiException(
         code: 'conflict',
-        message: 'You already have a vehicle with this registration or VIN.',
+        message: staff
+            ? 'This customer already has a vehicle with this registration or VIN.'
+            : 'You already have a vehicle with this registration or VIN.',
         statusCode: 409,
         data: {'existing_vehicle_id': dup.id},
       );
     }
     final v = Vehicle(
       id: _newId('d'),
-      customerId: uid,
+      customerId: customerId,
       registrationNo: input.registrationNo.toUpperCase(),
       vin: input.vin,
       engineNo: input.engineNo,
@@ -2245,6 +2559,7 @@ class DemoStore {
       discVerified:
           input.source == VehicleSource.scan && input.discHash != null,
       discHash: input.discHash,
+      sizeClass: input.sizeClass ?? VehicleSize.small,
       createdAt: now,
       updatedAt: now,
     );
@@ -2270,6 +2585,7 @@ class DemoStore {
       year: input.year,
       licenceNo: input.licenceNo,
       discExpiry: input.discExpiry,
+      sizeClass: input.sizeClass,
       updatedAt: now,
     );
     vehicles[i] = v;
@@ -2289,6 +2605,152 @@ class DemoStore {
     vehicles[i] = vehicles[i].copyWith(isActive: false, updatedAt: now);
     _notify('vehicles', id);
   }
+
+  // ---------------------------------------------------------------------------
+  // Walk-in customers (STF-010/012) — `GET/POST /staff/customers`
+  // ---------------------------------------------------------------------------
+
+  /// `GET /staff/customers` row for [customerId].
+  CustomerSummary customerSummary(String customerId) {
+    final p = requireProfile(customerId);
+    final brief = membershipBriefOf(customerId);
+    final acc = loyaltyTiers.containsKey(customerId) ||
+            brief != null ||
+            loyaltyLedger.any((e) => e.customerId == customerId)
+        ? accountOf(customerId)
+        : null;
+    return CustomerSummary(
+      id: p.id,
+      fullName: p.fullName,
+      email: p.email,
+      phone: p.phone,
+      marketingOptIn: p.marketingOptIn,
+      whatsappOptIn: p.whatsappOptIn,
+      loyalty: acc == null
+          ? null
+          : CustomerLoyaltySummary(
+              tier: acc.tier,
+              balancePoints: acc.balancePoints,
+              discountPct: loyaltyConfig.tierConfig(acc.tier)?.discountPct ?? 0,
+              planCode: brief?.planCode,
+              planName: brief?.planName,
+              includedRemaining: brief?.includedRemaining,
+            ),
+      vehicles: vehicles
+          .where((v) => v.customerId == customerId && v.isActive)
+          .map(CustomerVehicleSummary.fromVehicle)
+          .toList(),
+    );
+  }
+
+  /// Name / phone / e-mail / plate search over customer profiles (min 2
+  /// chars; phone digits and plates are compared normalised).
+  List<CustomerSummary> searchCustomers(String query, {int limit = 20}) {
+    _requireRole(role.isStaff);
+    final q = query.trim().toLowerCase();
+    if (q.length < 2) return const [];
+    final digits = q.replaceAll(RegExp(r'[^0-9]'), '');
+    final plate = q.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    final phoneQuery = digits.length >= 3 && digits.length >= q.length ~/ 2;
+    final matches = <CustomerSummary>[];
+    for (final p in profiles.values) {
+      if (p.role != UserRole.customer || !p.isActive) continue;
+      final byName = p.fullName.toLowerCase().contains(q);
+      final byEmail = (p.email ?? '').toLowerCase().contains(q);
+      final phoneKey = CustomerInput.phoneKey(p.phone);
+      final byPhone =
+          phoneQuery && digits.isNotEmpty && phoneKey.contains(digits) ||
+          phoneQuery &&
+              digits.startsWith('0') &&
+              phoneKey.contains(digits.substring(1));
+      final byPlate =
+          plate.length >= 2 &&
+          vehicles.any(
+            (v) =>
+                v.customerId == p.id &&
+                v.isActive &&
+                v.normalisedRegistration.contains(plate),
+          );
+      if (byName || byEmail || byPhone || byPlate) {
+        matches.add(customerSummary(p.id));
+      }
+    }
+    matches.sort((a, b) => a.fullName.compareTo(b.fullName));
+    return matches.take(limit).toList();
+  }
+
+  /// `POST /staff/customers` — registers a walk-in profile (`walkin_<id>`).
+  /// Duplicate phone / e-mail → 409 with `existing_customer`.
+  CustomerSummary createCustomer(CustomerInput input) {
+    _requireRole(role.isStaff);
+    if (_idempotencyKeys.contains(input.clientOpId)) {
+      final existing = _walkInOps[input.clientOpId];
+      if (existing != null) return customerSummary(existing);
+    }
+    final name = input.fullName.trim();
+    final phone = CustomerInput.normalisePhone(input.phone);
+    if (name.length < 2) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Enter the customer\'s full name',
+        statusCode: 400,
+      );
+    }
+    if (phone.length < 10) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Enter a valid mobile number',
+        statusCode: 400,
+      );
+    }
+    final email = input.email?.trim().toLowerCase();
+    final phoneKey = CustomerInput.phoneKey(phone);
+    final dup = profiles.values
+        .where(
+          (p) =>
+              p.role == UserRole.customer &&
+              (CustomerInput.phoneKey(p.phone) == phoneKey ||
+                  (email != null &&
+                      email.isNotEmpty &&
+                      p.email?.toLowerCase() == email)),
+        )
+        .firstOrNull;
+    if (dup != null) {
+      final existing = customerSummary(dup.id).toJson();
+      throw ApiException(
+        code: 'conflict',
+        message:
+            '${dup.fullName} is already registered with this ${CustomerInput.phoneKey(dup.phone) == phoneKey ? 'phone number' : 'e-mail address'}.',
+        statusCode: 409,
+        details: [
+          {'existing_customer': existing},
+        ],
+        data: {
+          'existing_customer': existing,
+          'details': {'existing_customer': existing},
+        },
+      );
+    }
+    final id = 'walkin_${_newId('w')}';
+    profiles[id] = Profile(
+      id: id,
+      role: UserRole.customer,
+      fullName: name,
+      email: email?.isEmpty ?? true ? null : email,
+      phone: phone,
+      marketingOptIn: input.marketingOptIn,
+      whatsappOptIn: input.whatsappOptIn,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _idempotencyKeys.add(input.clientOpId);
+    _walkInOps[input.clientOpId] = id;
+    _notify('profiles', id);
+    return customerSummary(id);
+  }
+
+  /// client_op_id → created walk-in profile id (idempotent replays).
+  final Map<String, String> _walkInOps = {};
 
   // ---------------------------------------------------------------------------
   // Availability & bookings
@@ -2396,7 +2858,7 @@ class DemoStore {
           ? null
           : ServiceSummary(
               id: service.id,
-              name: service.name,
+              name: _offerName(b.outletId ?? '', service.id),
               durationMinutes: service.durationMinutes,
               category: service.category,
               icon: service.icon,
@@ -2479,14 +2941,15 @@ class DemoStore {
           message: 'Outlet not found',
           statusCode: 400,
         ));
-    final os = outletService(input.outletId, input.serviceId);
-    if (!os.isAvailable) {
-      throw ApiException(
-        code: 'validation_error',
-        message: '${os.name} is not available at ${outlet.name}',
-        statusCode: 400,
-      );
-    }
+    final quote = priceBooking(
+      outletId: input.outletId,
+      serviceId: input.serviceId,
+      vehicle: vehicle,
+      vehicleSize: input.vehicleSize,
+      addonServiceIds: input.addonServiceIds,
+      customerId: uid,
+    );
+    final os = quote.offer;
     final end = input.slotStart.add(Duration(minutes: os.durationMinutes));
     final booked = bookings
         .where(
@@ -2505,33 +2968,41 @@ class DemoStore {
       );
     }
 
-    final tier = loyaltyTiers[uid]?.tier ?? LoyaltyTier.silver;
-    final tierCfg = loyaltyConfig.tierConfig(tier);
-    final discountPct = tierCfg?.discountPct ?? 0;
-    final discount = (os.priceCents * discountPct / 100).round();
-    final total = os.priceCents - discount;
+    final total = quote.total;
     final b = Booking(
       id: _newId('1'),
       ref: 'SPK-$_yr-${(_bookingSeq++).toString().padLeft(4, '0')}',
       customerId: uid,
-      status: BookingStatus.pending,
+      // Nothing to pay (service included in the plan) → confirmed at once.
+      status: total == 0 ? BookingStatus.confirmed : BookingStatus.pending,
       slotStart: input.slotStart,
       slotEnd: end,
       vehicleId: input.vehicleId,
       outletId: input.outletId,
       serviceId: input.serviceId,
-      priceCents: os.priceCents,
-      discountCents: discount,
+      priceCents: quote.base,
+      discountCents: quote.discount,
       totalCents: total,
-      discountLabel: discountPct > 0 ? '${tier.label} −$discountPct%' : null,
+      discountLabel: quote.discountLabel,
+      vehicleSize: quote.size,
+      pricingMode: os.pricingMode,
+      vatMode: os.vatMode,
+      addons: quote.addons,
+      addonsCents: quote.addonsCents,
+      vatCents: quote.vat,
       pointsPending: (total / 100 * loyaltyConfig.rules.pointsPerRand).round(),
       notes: input.notes,
       clientOpId: input.clientOpId,
       createdAt: now,
       updatedAt: now,
+      membershipId: quote.membershipId,
+      entitlementId: quote.entitlementId,
+      membershipBenefit: quote.membership?.benefit,
+      membership: quote.membership,
     );
     bookings.add(b);
     _idempotencyKeys.add(input.clientOpId);
+    _redeemMembershipUsage(b);
     _notify('bookings', b.id);
     return expandBooking(b, detail: true);
   }
@@ -2558,6 +3029,7 @@ class DemoStore {
       cancelReason: reason ?? 'Cancelled by customer',
       updatedAt: now,
     );
+    _releaseMembershipUsage(bookings[i]);
     _notify('bookings', id);
     return expandBooking(bookings[i], detail: true);
   }
@@ -2610,6 +3082,211 @@ class DemoStore {
 
   Booking checkinBooking(String id, {String? bay, int? priority}) {
     _requireRole(role.isStaff);
+    return _checkin(id, bay: bay, priority: priority);
+  }
+
+  /// `POST /bookings` from the staff app with `walk_in: true` (STF-010/012):
+  /// slot defaults to now on the outlet grid, capacity is enforced per bay,
+  /// status starts `confirmed`, and `checkin` creates the work order + task.
+  Booking createWalkInBooking(WalkInBookingInput input) {
+    _requireRole(role.isStaff);
+    if (_idempotencyKeys.contains(input.clientOpId)) {
+      final existing = bookings
+          .where((b) => b.clientOpId == input.clientOpId)
+          .firstOrNull;
+      if (existing != null) return expandBooking(existing, detail: true);
+    }
+    final myOutlets = staffOutlets[uid] ?? const <String>[];
+    if (!myOutlets.contains(input.outletId) && !role.isManager) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'You can only book walk-ins at your own outlet.',
+        statusCode: 403,
+      );
+    }
+    final customer = requireProfile(input.customerId);
+    if (customer.role != UserRole.customer) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Not a customer profile',
+        statusCode: 400,
+      );
+    }
+    final vehicle = vehicleById(input.vehicleId);
+    if (vehicle == null || vehicle.customerId != customer.id || !vehicle.isActive) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Choose one of the customer\'s vehicles',
+        statusCode: 400,
+      );
+    }
+    final outlet =
+        outletById(input.outletId) ??
+        (throw ApiException(
+          code: 'validation_error',
+          message: 'Outlet not found',
+          statusCode: 400,
+        ));
+    final quote = priceBooking(
+      outletId: input.outletId,
+      serviceId: input.serviceId,
+      vehicle: vehicle,
+      vehicleSize: input.vehicleSize,
+      addonServiceIds: input.addonServiceIds,
+      customerId: customer.id,
+    );
+    final os = quote.offer;
+    final start = input.slotStart == null
+        ? _roundToGrid(now, outlet.slotMinutes)
+        : input.slotStart!.toLocal();
+    final end = start.add(Duration(minutes: os.durationMinutes));
+    final booked = bookings
+        .where(
+          (b) =>
+              b.outletId == input.outletId &&
+              b.status.isActive &&
+              b.slotStart.isBefore(end) &&
+              b.slotEnd.isAfter(start),
+        )
+        .length;
+    if (booked >= outlet.bayCount) {
+      throw ApiException(
+        code: 'conflict',
+        message: input.slotStart == null
+            ? 'All ${outlet.bayCount} bays are busy right now — pick a later slot.'
+            : 'Slot is no longer available',
+        statusCode: 409,
+      );
+    }
+
+    final total = quote.total;
+    final b = Booking(
+      id: _newId('1'),
+      ref: 'SPK-$_yr-${(_bookingSeq++).toString().padLeft(4, '0')}',
+      customerId: customer.id,
+      status: BookingStatus.confirmed,
+      slotStart: start,
+      slotEnd: end,
+      vehicleId: input.vehicleId,
+      outletId: input.outletId,
+      serviceId: input.serviceId,
+      priceCents: quote.base,
+      discountCents: quote.discount,
+      totalCents: total,
+      discountLabel: quote.discountLabel,
+      vehicleSize: quote.size,
+      pricingMode: os.pricingMode,
+      vatMode: os.vatMode,
+      addons: quote.addons,
+      addonsCents: quote.addonsCents,
+      vatCents: quote.vat,
+      pointsPending: (total / 100 * loyaltyConfig.rules.pointsPerRand).round(),
+      notes: input.notes ?? 'Walk-in',
+      clientOpId: input.clientOpId,
+      createdAt: now,
+      updatedAt: now,
+      membershipId: quote.membershipId,
+      entitlementId: quote.entitlementId,
+      membershipBenefit: quote.membership?.benefit,
+      membership: quote.membership,
+    );
+    bookings.add(b);
+    _idempotencyKeys.add(input.clientOpId);
+    _redeemMembershipUsage(b);
+    _notify('bookings', b.id);
+    final checkin = input.checkin;
+    if (checkin == null) return expandBooking(b, detail: true);
+    return _checkin(b.id, bay: checkin.bay, priority: checkin.priority);
+  }
+
+  /// `POST /payments/record` — staff-attested cash / card-terminal payment.
+  Payment recordPayment(RecordPaymentInput input) {
+    _requireRole(role.isStaff);
+    final existing = payments
+        .where((p) => p.idempotencyKey == input.idempotencyKey)
+        .firstOrNull;
+    if (existing != null) return existing;
+    // Queued behind an offline walk-in: resolve the booking by its op id.
+    final byOp = input.bookingClientOpId == null
+        ? null
+        : bookings
+              .where((b) => b.clientOpId == input.bookingClientOpId)
+              .firstOrNull;
+    final b = byOp ?? _requireBooking(input.bookingId);
+    final myOutlets = staffOutlets[uid] ?? const <String>[];
+    if (!myOutlets.contains(b.outletId) && !role.isManager) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'This booking belongs to another outlet.',
+        statusCode: 403,
+      );
+    }
+    if (input.amountCents != b.totalCents) {
+      throw ApiException(
+        code: 'validation_error',
+        message:
+            'Amount must equal the booking total (${Money.formatZar(b.totalCents)}).',
+        statusCode: 400,
+      );
+    }
+    if (payments.any((p) => p.bookingId == b.id && p.status.isVerified)) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'This booking is already paid.',
+        statusCode: 409,
+      );
+    }
+    final receiptNo = 'RCP-${_receiptSeq++}';
+    final p = Payment(
+      id: _newId('6'),
+      bookingId: b.id,
+      customerId: b.customerId,
+      provider: 'pos',
+      providerRef: input.reference,
+      amountCents: b.totalCents,
+      status: PaymentStatus.successful,
+      receiptNo: receiptNo,
+      idempotencyKey: input.idempotencyKey,
+      verifiedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      receipt: {
+        'receipt_no': receiptNo,
+        'amount_cents': b.totalCents,
+        'method': input.method.db,
+        'reference': input.reference,
+        'recorded_by': nameOf(uid),
+        'paid_at': j.iso(now),
+      },
+    );
+    payments.add(p);
+    final bi = bookings.indexWhere((x) => x.id == b.id);
+    if (bi >= 0 && bookings[bi].status == BookingStatus.pending) {
+      bookings[bi] = bookings[bi].copyWith(
+        status: BookingStatus.confirmed,
+        updatedAt: now,
+      );
+      _notify('bookings', b.id);
+    }
+    _pushNotification(
+      b.customerId,
+      'payment_successful',
+      'Payment received',
+      '${Money.formatZar(p.amountCents)} received (${input.method.label.toLowerCase()}). Receipt $receiptNo.',
+      {'type': 'payment', 'id': p.id},
+    );
+    _notify('payments', p.id);
+    return p;
+  }
+
+  /// Floors [t] to the outlet slot grid (e.g. 10:13 → 10:00 on a 30-min grid).
+  static DateTime _roundToGrid(DateTime t, int slotMinutes) {
+    final m = slotMinutes <= 0 ? 30 : slotMinutes;
+    final minute = (t.minute ~/ m) * m;
+    return DateTime(t.year, t.month, t.day, t.hour, minute);
+  }
+
+  Booking _checkin(String id, {String? bay, int? priority}) {
     final i = bookings.indexWhere((b) => b.id == id);
     final b = _requireBooking(id);
     if (!(b.status == BookingStatus.confirmed ||
@@ -2681,12 +3358,16 @@ class DemoStore {
   // ---------------------------------------------------------------------------
 
   List<Quotation> myQuotations() =>
-      quotations.where((q) => q.customerId == uid).toList()
+      quotations
+          .where((q) => q.customerId == uid)
+          .map(_expandQuotation)
+          .toList()
         ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now));
 
   List<Quotation> outletQuotations(String? outletId) =>
       quotations
           .where((q) => outletId == null || q.outletId == outletId)
+          .map(_expandQuotation)
           .toList()
         ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now));
 
@@ -2699,7 +3380,357 @@ class DemoStore {
         statusCode: 403,
       );
     }
+    return _expandQuotation(q);
+  }
+
+  /// `public_url` is a staff-only field; every response carries `pdf_url`.
+  Quotation _expandQuotation(Quotation q) => q.copyWith(
+    clearPublicUrl: !role.isStaff,
+    pdfUrl: q.pdfUrl ?? '/v1/quotations/${q.id}/pdf',
+  );
+
+  int _publicTokenSeq = 0;
+  String _newPublicToken() =>
+      'demo-${(_publicTokenSeq++).toString().padLeft(4, '0')}-${_newId('t').substring(24)}';
+
+  // ---- Staff-raised quotations (STF-010/012, CUS-030..034) -----------------
+
+  /// Staff `POST /quotations` — one step to a `quoted` quotation with the
+  /// items sum as amount, a fresh public link and (optionally) the
+  /// `quote_ready` push + WhatsApp.
+  Quotation raiseQuotation(StaffQuotationInput input) {
+    _requireRole(role.isStaff, 'Only staff can raise quotations.');
+    final existing = quotations
+        .where((q) => q.clientOpId == input.clientOpId)
+        .firstOrNull;
+    if (existing != null) return _expandQuotation(existing);
+    final myOutlets = staffOutlets[uid] ?? const <String>[];
+    if (!myOutlets.contains(input.outletId) && !role.isManager) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'You can only raise quotes at your own outlet.',
+        statusCode: 403,
+      );
+    }
+    final customer = requireProfile(input.customerId);
+    if (customer.role != UserRole.customer) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Not a customer profile',
+        statusCode: 400,
+      );
+    }
+    final vehicle = vehicleById(input.vehicleId);
+    if (vehicle == null ||
+        vehicle.customerId != customer.id ||
+        !vehicle.isActive) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Choose one of the customer\'s vehicles',
+        statusCode: 400,
+      );
+    }
+    if (input.items.isEmpty) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Add at least one item',
+        statusCode: 400,
+      );
+    }
+    for (final item in input.items) {
+      if (item.label.trim().isEmpty || item.amountCents <= 0) {
+        throw ApiException(
+          code: 'validation_error',
+          message: 'Every item needs a title and an amount',
+          statusCode: 400,
+        );
+      }
+      final sid = item.serviceId;
+      if (sid != null && serviceById(sid) == null) {
+        throw ApiException(
+          code: 'validation_error',
+          message: 'Unknown service',
+          statusCode: 400,
+        );
+      }
+    }
+    final today = DateTime(now.year, now.month, now.day);
+    final vu = input.validUntil;
+    if (DateTime(vu.year, vu.month, vu.day).isBefore(today)) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'valid_until must be today or later',
+        statusCode: 400,
+      );
+    }
+    final outlet =
+        outletById(input.outletId) ??
+        (throw ApiException(
+          code: 'validation_error',
+          message: 'Outlet not found',
+          statusCode: 400,
+        ));
+    final id = _newId('2');
+    final token = _newPublicToken();
+    final q = Quotation(
+      id: id,
+      ref: 'QT-$_yr-${(_quotationSeq++).toString().padLeft(4, '0')}',
+      customerId: customer.id,
+      vehicleId: vehicle.id,
+      outletId: outlet.id,
+      category: input.category,
+      description: input.description.trim(),
+      status: QuotationStatus.quoted,
+      amountCents: input.totalCents,
+      lineItems: input.items.map((i) => i.toLineItem()).toList(),
+      itemsNote: input.itemsNote,
+      assessorId: uid,
+      assessorName: nameOf(uid),
+      validUntil: DateTime(vu.year, vu.month, vu.day, 23, 59, 59),
+      quotedAt: now,
+      clientOpId: input.clientOpId,
+      createdAt: now,
+      updatedAt: now,
+      vehicleLabel: '${vehicle.shortName} · ${vehicle.registrationNo}',
+      outletName: outlet.name,
+      customerName: customer.fullName,
+      publicUrl: '$publicWebBaseUrl/q/$token',
+      pdfUrl: '/v1/quotations/$id/pdf',
+    );
+    quotations.add(q);
+    _idempotencyKeys.add(input.clientOpId);
+    if (input.sendToCustomer) _sendQuoteReady(q);
+    _notify('quotations', q.id);
     return q;
+  }
+
+  void _sendQuoteReady(Quotation q) {
+    final body =
+        '${q.ref}: ${Money.formatZar(q.amountCents ?? 0)}. Accept or decline in the app.';
+    _pushNotification(
+      q.customerId,
+      'quote_ready',
+      'Your quotation is ready',
+      body,
+      {'type': 'quotation', 'id': q.id},
+    );
+    final customer = profileById(q.customerId);
+    if (customer?.whatsappOptIn ?? false) {
+      _pushNotification(
+        q.customerId,
+        'quote_ready',
+        null,
+        'Hi ${customer!.fullName.split(' ').first}, your Sparkling quote ${q.ref} '
+            '(${Money.formatZar(q.amountCents ?? 0)}) is ready: ${q.publicUrl}',
+        {'type': 'quotation', 'id': q.id},
+        channel: NotifyChannel.whatsapp,
+      );
+    }
+  }
+
+  /// `POST /quotations/:id/photos` — bytes are kept in memory and served at
+  /// `demo://photo/<attachmentId>`.
+  Attachment uploadQuotationPhoto(
+    String quotationId,
+    Uint8List bytes, {
+    String? caption,
+    String? mimeType,
+    String? filename,
+  }) {
+    final i = quotations.indexWhere((q) => q.id == quotationId);
+    final q = _requireQuotation(quotationId);
+    if (q.customerId != uid && !role.isStaff) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'Not your quotation',
+        statusCode: 403,
+      );
+    }
+    if (bytes.isEmpty) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Empty photo',
+        statusCode: 400,
+      );
+    }
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Photo is larger than 10 MB',
+        statusCode: 400,
+      );
+    }
+    if (q.attachments.length >= maxQuotationPhotos) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Up to $maxQuotationPhotos photos per quotation',
+        statusCode: 400,
+      );
+    }
+    final id = _newId('e');
+    photoBytes[id] = bytes;
+    final a = Attachment(
+      id: id,
+      entityId: quotationId,
+      mimeType: mimeType ?? _sniffMime(bytes, filename),
+      sizeBytes: bytes.length,
+      caption: (caption?.trim().isEmpty ?? true) ? null : caption!.trim(),
+      uploadedBy: uid,
+      createdAt: now,
+      url: 'demo://photo/$id',
+    );
+    quotations[i] = q.copyWith(
+      attachments: [...q.attachments, a],
+      updatedAt: now,
+    );
+    _notify('quotations', quotationId);
+    return a;
+  }
+
+  static String _sniffMime(Uint8List bytes, String? filename) {
+    if (bytes.length > 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+    if ((filename ?? '').toLowerCase().endsWith('.png')) return 'image/png';
+    return 'image/jpeg';
+  }
+
+  /// `DELETE /quotations/:id/photos/:attachmentId` (staff, before decision).
+  void deleteQuotationPhoto(String quotationId, String attachmentId) {
+    _requireRole(role.isStaff);
+    final i = quotations.indexWhere((q) => q.id == quotationId);
+    final q = _requireQuotation(quotationId);
+    if (q.isDecided) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'Photos are locked once the quote is decided.',
+        statusCode: 409,
+      );
+    }
+    if (!q.attachments.any((a) => a.id == attachmentId)) {
+      throw ApiException(
+        code: 'not_found',
+        message: 'Photo not found',
+        statusCode: 404,
+      );
+    }
+    photoBytes.remove(attachmentId);
+    quotations[i] = q.copyWith(
+      attachments: q.attachments.where((a) => a.id != attachmentId).toList(),
+      updatedAt: now,
+    );
+    _notify('quotations', quotationId);
+  }
+
+  /// `GET /quotations/:id/photos/:attachmentId` (`demo://photo/<id>`).
+  Uint8List quotationPhotoBytes(String url) {
+    final id = url.startsWith('demo://photo/')
+        ? url.substring('demo://photo/'.length)
+        : url.split('/').last;
+    final bytes = photoBytes[id];
+    if (bytes == null) {
+      throw ApiException(
+        code: 'not_found',
+        message: 'Photo not found',
+        statusCode: 404,
+      );
+    }
+    final owner = quotations
+        .where((q) => q.attachments.any((a) => a.id == id))
+        .firstOrNull;
+    if (owner != null && owner.customerId != uid && !role.isStaff) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'Not your quotation',
+        statusCode: 403,
+      );
+    }
+    return bytes;
+  }
+
+  /// `POST /quotations/:id/share` — rotates the token, re-sends
+  /// `quote_ready`; 429 within [shareCooldown].
+  SharedQuoteLink shareQuotation(String quotationId) {
+    _requireRole(role.isStaff);
+    final i = quotations.indexWhere((q) => q.id == quotationId);
+    final q = _requireQuotation(quotationId);
+    final last = _shareSentAt[quotationId];
+    if (last != null && now.difference(last) < shareCooldown) {
+      final wait = shareCooldown - now.difference(last);
+      throw ApiException(
+        code: 'rate_limited',
+        message: 'Link already sent — try again in ${wait.inSeconds} s.',
+        statusCode: 429,
+        data: {'retry_after_seconds': wait.inSeconds},
+      );
+    }
+    final token = _newPublicToken();
+    final expires = now.add(const Duration(days: 30));
+    quotations[i] = q.copyWith(
+      publicUrl: '$publicWebBaseUrl/q/$token',
+      updatedAt: now,
+    );
+    _shareSentAt[quotationId] = now;
+    _sendQuoteReady(quotations[i]);
+    _notify('quotations', quotationId);
+    return SharedQuoteLink(publicUrl: quotations[i].publicUrl!, expiresAt: expires);
+  }
+
+  /// `GET /quotations/:id/pdf` — a small but valid single-page PDF.
+  Uint8List quotationPdf(String quotationId) {
+    final q = quotationDetail(quotationId);
+    final lines = <String>[
+      'Sparkling quotation ${q.ref}',
+      '${q.outletName ?? ''}  -  ${q.vehicleLabel ?? ''}',
+      for (final li in q.lineItems)
+        '${li.label}  ${Money.formatZar(li.totalCents)}',
+      'Total ${Money.formatZar(q.amountCents ?? 0)}',
+      if (q.validUntil != null) 'Valid until ${j.isoDate(q.validUntil)}',
+      'Status ${q.status.label}',
+    ];
+    return buildPlaceholderPdf(lines);
+  }
+
+  /// Minimal PDF 1.4 writer (Helvetica text lines, A4) with a correct xref
+  /// table so viewers open it without repair.
+  static Uint8List buildPlaceholderPdf(List<String> lines) {
+    String esc(String s) => s
+        .replaceAll('\\', '\\\\')
+        .replaceAll('(', '\\(')
+        .replaceAll(')', '\\)')
+        .replaceAll(RegExp(r'[^\x20-\x7E]'), '?');
+    final content = StringBuffer('BT /F1 14 Tf 60 780 Td 18 TL\n');
+    for (final l in lines) {
+      content.write('(${esc(l)}) Tj T*\n');
+    }
+    content.write('ET');
+    final objects = <String>[
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R '
+          '/Resources << /Font << /F1 5 0 R >> >> >>',
+      '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ];
+    final out = StringBuffer('%PDF-1.4\n');
+    final offsets = <int>[];
+    for (var i = 0; i < objects.length; i++) {
+      offsets.add(out.length);
+      out.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+    }
+    final xref = out.length;
+    out.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+    for (final o in offsets) {
+      out.write('${o.toString().padLeft(10, '0')} 00000 n \n');
+    }
+    out.write(
+      'trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n',
+    );
+    return Uint8List.fromList(latin1.encode(out.toString()));
   }
 
   Quotation createQuotation(QuotationInput input) {
@@ -2795,6 +3826,26 @@ class DemoStore {
         statusCode: 403,
       );
     }
+    if (q.isDecided) {
+      throw ApiException(
+        code: 'conflict',
+        message:
+            'This quotation was already ${q.status == QuotationStatus.declined ? 'declined' : 'accepted'} ${q.decisionSource?.label ?? 'in app'}.',
+        statusCode: 409,
+        data: {'decided_at': j.iso(q.decidedAt), 'status': q.status.db},
+      );
+    }
+    final expired =
+        q.status == QuotationStatus.expired ||
+        (q.validUntil != null && q.validUntil!.isBefore(now));
+    if (expired) {
+      throw ApiException(
+        code: 'gone',
+        message: 'This quotation has expired — ask the outlet for a new one.',
+        statusCode: 410,
+        data: {'ref': q.ref, 'status': QuotationStatus.expired.db},
+      );
+    }
     if (q.status != QuotationStatus.quoted) {
       throw ApiException(
         code: 'invalid_transition',
@@ -2807,10 +3858,19 @@ class DemoStore {
       decidedAt: now,
       decisionBy: uid,
       decisionNote: note,
+      decisionSource: QuoteDecisionSource.app,
+      decisionByName: nameOf(uid),
       updatedAt: now,
     );
+    _pushNotification(
+      q.assessorId ?? 'seed_johan',
+      'quote_decided',
+      'Quote ${accept ? 'accepted' : 'declined'}',
+      '${q.ref} ${accept ? 'accepted' : 'declined'} in app by ${nameOf(uid) ?? 'the customer'}.',
+      {'type': 'quotation', 'id': id},
+    );
     _notify('quotations', id);
-    return quotations[i];
+    return _expandQuotation(quotations[i]);
   }
 
   Quotation convertQuotation(String id) {
@@ -2827,12 +3887,17 @@ class DemoStore {
         statusCode: 409,
       );
     }
-    final service = services.firstWhere(
-      (s) =>
-          s.category == ServiceCategory.autoBody &&
-          s.name.toLowerCase().startsWith(q.category.toLowerCase()),
-      orElse: () => serviceById(svcScratch)!,
-    );
+    final linked = q.lineItems
+        .map((i) => i.serviceId)
+        .whereType<String>()
+        .map(serviceById)
+        .whereType<Service>()
+        .firstOrNull;
+    final code = QuoteCategories.serviceCodeFor(q.category.split(',').first.trim());
+    final service =
+        linked ??
+        services.where((s) => s.code == code).firstOrNull ??
+        serviceById(svcSpotRepair)!;
     final template = templateById(service.checklistTemplateId);
     final vehicle = vehicleById(q.vehicleId)!;
     final wo = WorkOrder(
@@ -2910,6 +3975,14 @@ class DemoStore {
         statusCode: 409,
       );
     }
+    if (b.totalCents <= 0) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Nothing to pay — this service is included in your plan.',
+        statusCode: 400,
+        data: {'reason': 'nothing_to_pay'},
+      );
+    }
     final p = Payment(
       id: _newId('6'),
       bookingId: bookingId,
@@ -2962,6 +4035,9 @@ class DemoStore {
       },
     );
     payments[i] = p;
+    if (p.membershipInvoiceId != null) {
+      _applyMembershipInvoicePaid(p.membershipInvoiceId!, p.id);
+    }
     final bi = bookings.indexWhere((b) => b.id == p.bookingId);
     if (bi >= 0 && bookings[bi].status == BookingStatus.pending) {
       bookings[bi] = bookings[bi].copyWith(
@@ -3047,6 +4123,7 @@ class DemoStore {
       tierConfig: loyaltyConfig.tiers,
       nextTier: nextTier,
       publishedVersion: loyaltyConfig.version,
+      membership: membershipBriefOf(uid),
     );
   }
 
@@ -3158,12 +4235,7 @@ class DemoStore {
       ),
     );
     _idempotencyKeys.add(key);
-    final lifetime = lifetimeOf(b.customerId);
-    final newTier = loyaltyConfig.tierFor(lifetime);
-    final current = loyaltyTiers[b.customerId];
-    if (current == null || newTier.index > current.tier.index) {
-      loyaltyTiers[b.customerId] = (tier: newTier, tierSince: now);
-    }
+    // Tier = plan (docs/MEMBERSHIPS.md): points no longer promote tiers.
     _pushNotification(
       b.customerId,
       'points_posted',
@@ -4177,6 +5249,1285 @@ class DemoStore {
   }
 
   // ---------------------------------------------------------------------------
+  // Memberships (docs/MEMBERSHIPS.md) — plans, allowances, pricing, lifecycle
+  // ---------------------------------------------------------------------------
+
+  /// Adds calendar months, clamping to the last day of the target month.
+  static DateTime addMonths(DateTime d, int months) {
+    final y = d.year + ((d.month - 1 + months) ~/ 12);
+    final m = (d.month - 1 + months) % 12 + 1;
+    final lastDay = DateTime(y, m + 1, 0).day;
+    final day = math.min(d.day, lastDay);
+    return d.isUtc
+        ? DateTime.utc(y, m, day, d.hour, d.minute, d.second, d.millisecond)
+        : DateTime(y, m, day, d.hour, d.minute, d.second, d.millisecond);
+  }
+
+  static DateTime _addYears(DateTime d, int years) => addMonths(d, 12 * years);
+
+  MembershipPlan? planById(String id) =>
+      membershipPlans.where((p) => p.id == id).firstOrNull;
+  MembershipPlan? planByCode(String code) =>
+      membershipPlans.where((p) => p.code == code).firstOrNull;
+
+  MembershipPlan _requirePlan(String code) =>
+      planByCode(code) ??
+      (throw ApiException(
+        code: 'not_found',
+        message: 'Plan "$code" not found',
+        statusCode: 404,
+      ));
+
+  /// The customer's one live (pending / active / past_due) membership.
+  Membership? liveMembership(String customerId) => memberships
+      .where((m) => m.customerId == customerId && m.isLive)
+      .firstOrNull;
+
+  Membership _requireLiveMembership(String customerId) =>
+      liveMembership(customerId) ??
+      (throw ApiException(
+        code: 'not_found',
+        message: 'No active membership',
+        statusCode: 404,
+      ));
+
+  /// Tier = plan: the live active / past-due membership's plan tier, else
+  /// silver (`memberships_sync_tier`).
+  LoyaltyTier tierOf(String customerId) {
+    final m = liveMembership(customerId);
+    if (m == null || m.isPending) return LoyaltyTier.silver;
+    return planById(m.planId)?.tier ?? LoyaltyTier.silver;
+  }
+
+  void _syncTier(String customerId) {
+    final tier = tierOf(customerId);
+    final current = loyaltyTiers[customerId];
+    if (current?.tier == tier) return;
+    if (tier == LoyaltyTier.silver) {
+      loyaltyTiers.remove(customerId);
+    } else {
+      loyaltyTiers[customerId] = (
+        tier: tier,
+        tierSince: liveMembership(customerId)?.startedAt ?? now,
+      );
+    }
+    _notify('loyalty_accounts', customerId);
+  }
+
+  void _validateSelections(MembershipPlan plan, Map<String, String> selections) {
+    for (final g in plan.chooseOneGroups) {
+      final code = selections[g.code];
+      if (code == null || g.entitlement(code) == null) {
+        throw ApiException(
+          code: 'validation_error',
+          message:
+              'Choose one option for "${g.name}" (${g.entitlements.map((e) => e.code).join(' / ')}).',
+          statusCode: 400,
+          data: {'group_code': g.code},
+        );
+      }
+    }
+  }
+
+  /// `[anniversary, anniversary + 1 year)` covering now.
+  (DateTime, DateTime) _membershipYear(Membership m) {
+    var start = m.startedAt ?? m.currentPeriodStart ?? now;
+    while (!_addYears(start, 1).isAfter(now)) {
+      start = _addYears(start, 1);
+    }
+    return (start, _addYears(start, 1));
+  }
+
+  (DateTime, DateTime) _entitlementPeriod(
+    Membership m,
+    MembershipEntitlement e,
+  ) => e.period == EntitlementPeriod.year
+      ? _membershipYear(m)
+      : (
+          m.currentPeriodStart ?? now,
+          m.currentPeriodEnd ?? addMonths(m.currentPeriodStart ?? now, 1),
+        );
+
+  Allowance _allowanceOf(
+    Membership m,
+    MembershipPlan plan,
+    MembershipEntitlement e,
+  ) {
+    final (start, end) = _entitlementPeriod(m, e);
+    final used = membershipUsage
+        .where(
+          (u) =>
+              u.membershipId == m.id &&
+              u.entitlementId == e.id &&
+              u.periodStart.isAtSameMomentAs(start),
+        )
+        .fold(0, (s, u) => s + u.quantity);
+    return Allowance(
+      entitlementId: e.id,
+      entitlementCode: e.code,
+      groupCode: plan.groupOf(e)?.code ?? '',
+      label: e.label,
+      quantity: e.quantity,
+      used: used,
+      remaining: math.max(0, e.quantity - used),
+      period: e.period,
+      periodStart: start,
+      periodEnd: end,
+      itemName: e.itemName,
+    );
+  }
+
+  /// Remaining quantity per selected entitlement for the current period(s).
+  List<Allowance> allowancesFor(Membership m) {
+    final plan = planById(m.planId);
+    if (plan == null) return const [];
+    final sel = membershipSelections[m.id] ?? const <String, String>{};
+    return [
+      for (final e in plan.selectedEntitlements(sel)) _allowanceOf(m, plan, e),
+    ];
+  }
+
+  /// `GET /memberships/me` for [customerId] ([MembershipSummary.none] when
+  /// the customer has no live membership).
+  MembershipSummary membershipSummary(String customerId) {
+    final m = liveMembership(customerId);
+    if (m == null) return MembershipSummary.none;
+    final plan = planById(m.planId);
+    final sel = membershipSelections[m.id] ?? const <String, String>{};
+    final invoices =
+        membershipInvoices.where((i) => i.membershipId == m.id).toList()
+          ..sort(
+            (a, b) => (b.periodStart ?? b.createdAt ?? now).compareTo(
+              a.periodStart ?? a.createdAt ?? now,
+            ),
+          );
+    final open =
+        invoices.where((i) => i.isPending).toList()
+          ..sort((a, b) => (a.dueAt ?? now).compareTo(b.dueAt ?? now));
+    return MembershipSummary(
+      membership: m.copyWith(planCode: plan?.code),
+      plan: plan,
+      selections: Map.unmodifiable(sel),
+      allowances: allowancesFor(m),
+      openInvoice: open.firstOrNull,
+      invoices: invoices.take(12).toList(),
+      nextRenewalAt: m.cancelAtPeriodEnd ? null : m.currentPeriodEnd,
+      benefitsSummary: plan?.benefitsSummary(sel),
+    );
+  }
+
+  /// The `membership` block of `GET /loyalty/account` / `GET /me`.
+  MembershipBrief? membershipBriefOf(String customerId) {
+    final m = liveMembership(customerId);
+    final plan = m == null ? null : planById(m.planId);
+    if (m == null || plan == null) return null;
+    return MembershipBrief(
+      planCode: plan.code,
+      planName: plan.name,
+      status: m.status,
+      periodEnd: m.currentPeriodEnd,
+      allowances: allowancesFor(m),
+    );
+  }
+
+  /// `GET /memberships/plans`.
+  MembershipPlanList membershipPlanList() {
+    final live = liveMembership(uid);
+    return MembershipPlanList(
+      plans: membershipPlans.where((p) => p.isActive).toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder)),
+      currentPlanCode: live == null ? null : planById(live.planId)?.code,
+    );
+  }
+
+  /// Plan benefit on a priced service (docs/MEMBERSHIPS.md "Pricing rules"
+  /// 2–3): covered with allowance → base waived; otherwise the plan discount
+  /// by scope. `past_due` / `pending` → no benefits.
+  ({
+    int discount,
+    String? label,
+    BookingMembership? block,
+    Membership? membership,
+    MembershipEntitlement? entitlement,
+  })
+  _membershipPricing({
+    required String customerId,
+    required OutletService offer,
+    required int base,
+    required int addonsCents,
+  }) {
+    const none = (
+      discount: 0,
+      label: null,
+      block: null,
+      membership: null,
+      entitlement: null,
+    );
+    final m = liveMembership(customerId);
+    if (m == null || !m.benefitsActive) return none;
+    final plan = planById(m.planId);
+    if (plan == null) return none;
+    final summary = membershipSummary(customerId);
+    final covering = summary.coveringAllowance(offer.code);
+    if (covering != null) {
+      final e = plan.entitlementById(covering.entitlementId)!;
+      final after = covering.remaining - 1;
+      return (
+        discount: base,
+        label: 'Included in ${plan.name} · $after of ${covering.quantity} left',
+        block: BookingMembership(
+          planCode: plan.code,
+          planName: plan.name,
+          benefit: MembershipBenefit.included,
+          entitlementCode: e.code,
+          remainingAfter: after,
+          periodEnd: covering.periodEnd,
+        ),
+        membership: m,
+        entitlement: e,
+      );
+    }
+    final pct = summary.discountPctFor(offer.code);
+    if (pct > 0) {
+      return (
+        discount: ((base + addonsCents) * pct / 100).round(),
+        label: '${plan.name} −$pct%',
+        block: BookingMembership(
+          planCode: plan.code,
+          planName: plan.name,
+          benefit: MembershipBenefit.discount,
+          periodEnd: m.currentPeriodEnd,
+        ),
+        membership: m,
+        entitlement: null,
+      );
+    }
+    return (
+      discount: 0,
+      label: null,
+      block: BookingMembership(
+        planCode: plan.code,
+        planName: plan.name,
+        periodEnd: m.currentPeriodEnd,
+      ),
+      membership: m,
+      entitlement: null,
+    );
+  }
+
+  /// `priceService` as a [PriceQuote] (what `POST /bookings` would record).
+  PriceQuote quoteBooking({
+    required String outletId,
+    required String serviceId,
+    required Vehicle vehicle,
+    VehicleSize? vehicleSize,
+    List<String> addonServiceIds = const [],
+    String? customerId,
+  }) {
+    final q = priceBooking(
+      outletId: outletId,
+      serviceId: serviceId,
+      vehicle: vehicle,
+      vehicleSize: vehicleSize,
+      addonServiceIds: addonServiceIds,
+      customerId: customerId ?? vehicle.customerId,
+    );
+    return PriceQuote(
+      priceCents: q.base,
+      addons: q.addons,
+      addonsCents: q.addonsCents,
+      discountCents: q.discount,
+      discountLabel: q.discountLabel,
+      vatCents: q.vat,
+      totalCents: q.total,
+      pointsPending: (q.total / 100 * loyaltyConfig.rules.pointsPerRand).round(),
+      vehicleSize: q.size,
+      pricingMode: q.offer.pricingMode,
+      vatMode: q.offer.vatMode,
+      membership: q.membership,
+    );
+  }
+
+  /// `+1` usage row when a booking redeemed an entitlement
+  /// (key `booking:<id>:membership`, idempotent).
+  void _redeemMembershipUsage(Booking b) {
+    if (!b.isIncluded || b.membershipId == null || b.entitlementId == null) {
+      return;
+    }
+    final key = 'booking:${b.id}:membership';
+    if (_idempotencyKeys.contains(key)) return;
+    final m = memberships.where((m) => m.id == b.membershipId).firstOrNull;
+    final plan = m == null ? null : planById(m.planId);
+    final e = plan?.entitlementById(b.entitlementId!);
+    if (m == null || e == null) return;
+    final (start, end) = _entitlementPeriod(m, e);
+    membershipUsage.add(
+      MembershipUsage(
+        id: _newId('u'),
+        membershipId: m.id,
+        entitlementId: e.id,
+        bookingId: b.id,
+        quantity: 1,
+        periodStart: start,
+        periodEnd: end,
+        idempotencyKey: key,
+        createdBy: uid,
+        createdAt: now,
+      ),
+    );
+    _idempotencyKeys.add(key);
+    _notify('membership_usage', b.id);
+  }
+
+  /// `−1` release row when an included booking is cancelled
+  /// (key `booking:<id>:membership_release`, idempotent).
+  void _releaseMembershipUsage(Booking b) {
+    if (!b.isIncluded || b.membershipId == null) return;
+    final key = 'booking:${b.id}:membership_release';
+    if (_idempotencyKeys.contains(key)) return;
+    final redeemed = membershipUsage
+        .where((u) => u.bookingId == b.id && u.quantity > 0)
+        .firstOrNull;
+    if (redeemed == null) return;
+    membershipUsage.add(
+      MembershipUsage(
+        id: _newId('u'),
+        membershipId: redeemed.membershipId,
+        entitlementId: redeemed.entitlementId,
+        bookingId: b.id,
+        quantity: -1,
+        periodStart: redeemed.periodStart,
+        periodEnd: redeemed.periodEnd,
+        idempotencyKey: key,
+        createdBy: uid,
+        createdAt: now,
+      ),
+    );
+    _idempotencyKeys.add(key);
+    _notify('membership_usage', b.id);
+  }
+
+  MembershipInvoice _newInvoice(
+    Membership m,
+    MembershipPlan plan, {
+    required DateTime periodStart,
+    required DateTime periodEnd,
+    required String idempotencyKey,
+    DateTime? dueAt,
+  }) => MembershipInvoice(
+    id: _newId('5'),
+    ref: 'MINV-$_yr-${(_membershipInvoiceSeq++).toString().padLeft(4, '0')}',
+    membershipId: m.id,
+    customerId: m.customerId,
+    periodStart: periodStart,
+    periodEnd: periodEnd,
+    amountCents: plan.monthlyFeeCents,
+    status: MembershipInvoiceStatus.pending,
+    dueAt: dueAt ?? periodStart,
+    idempotencyKey: idempotencyKey,
+    createdAt: now,
+  );
+
+  PaymentIntentResult _membershipPaymentIntent(
+    MembershipInvoice inv, {
+    required String idempotencyKey,
+  }) {
+    final existing = payments
+        .where(
+          (p) =>
+              p.membershipInvoiceId == inv.id &&
+              (p.idempotencyKey == idempotencyKey ||
+                  p.status == PaymentStatus.pending),
+        )
+        .firstOrNull;
+    if (existing != null) {
+      return PaymentIntentResult(
+        payment: existing,
+        clientSecret:
+            'sbx_secret_${existing.id.substring(existing.id.length - 6)}',
+      );
+    }
+    final p = Payment(
+      id: _newId('6'),
+      membershipInvoiceId: inv.id,
+      customerId: inv.customerId,
+      providerRef: 'pi_sbx_${inv.ref.split('-').last}',
+      methodId: paymentMethods
+          .where((m) => m.customerId == inv.customerId && m.isDefault)
+          .firstOrNull
+          ?.id,
+      amountCents: inv.amountCents,
+      status: PaymentStatus.pending,
+      idempotencyKey: idempotencyKey,
+      createdAt: now,
+      updatedAt: now,
+    );
+    payments.add(p);
+    _notify('payments', p.id);
+    return PaymentIntentResult(
+      payment: p,
+      clientSecret: 'sbx_secret_${p.id.substring(p.id.length - 6)}',
+    );
+  }
+
+  String _benefitsLine(Membership m) {
+    final plan = planById(m.planId);
+    if (plan == null) return '';
+    return plan.benefitsSummary(membershipSelections[m.id] ?? const {});
+  }
+
+  /// Marks the invoice paid and activates / renews / upgrades the
+  /// membership (webhook + counter payments share this path).
+  void _applyMembershipInvoicePaid(String invoiceId, String paymentId) {
+    final ii = membershipInvoices.indexWhere((i) => i.id == invoiceId);
+    if (ii < 0) return;
+    var inv = membershipInvoices[ii];
+    if (inv.isPaid) return;
+    inv = inv.copyWith(
+      status: MembershipInvoiceStatus.paid,
+      paidAt: now,
+      paymentId: paymentId,
+    );
+    membershipInvoices[ii] = inv;
+    final mi = memberships.indexWhere((m) => m.id == inv.membershipId);
+    if (mi < 0) return;
+    var m = memberships[mi];
+    final upgrade = _pendingUpgrades.remove(inv.id);
+    String key;
+    if (upgrade != null) {
+      m = m.copyWith(
+        planId: upgrade.planId,
+        planCode: planById(upgrade.planId)?.code,
+        status: MembershipStatus.active,
+        currentPeriodStart: now,
+        currentPeriodEnd: addMonths(now, 1),
+        clearNextPlan: true,
+        updatedAt: now,
+      );
+      membershipSelections[m.id] = Map.of(upgrade.selections);
+      key = 'membership_activated';
+    } else if (m.isPending) {
+      m = m.copyWith(
+        status: MembershipStatus.active,
+        startedAt: now,
+        currentPeriodStart: now,
+        currentPeriodEnd: addMonths(now, 1),
+        updatedAt: now,
+      );
+      key = 'membership_activated';
+    } else {
+      // Renewal: roll the period (applying a pending downgrade).
+      final start = inv.periodStart ?? m.currentPeriodEnd ?? now;
+      var planId = m.planId;
+      Map<String, String>? sel;
+      if (m.nextPlanId != null) {
+        planId = m.nextPlanId!;
+        sel =
+            membershipNextSelections.remove(m.id) ??
+            planById(planId)?.defaultSelections();
+      }
+      m = m.copyWith(
+        planId: planId,
+        planCode: planById(planId)?.code,
+        status: MembershipStatus.active,
+        currentPeriodStart: start,
+        currentPeriodEnd: inv.periodEnd ?? addMonths(start, 1),
+        clearNextPlan: true,
+        updatedAt: now,
+      );
+      if (sel != null) membershipSelections[m.id] = sel;
+      key = 'membership_renewed';
+    }
+    memberships[mi] = m;
+    _syncTier(m.customerId);
+    final plan = planById(m.planId);
+    _pushNotification(
+      m.customerId,
+      key,
+      key == 'membership_renewed'
+          ? '${plan?.name} membership renewed'
+          : 'Welcome to Sparkling ${plan?.name}',
+      key == 'membership_renewed'
+          ? 'Paid ${Money.formatZar(inv.amountCents)}. Your washes have been reset for the month.'
+          : 'Your ${plan?.name} membership is active until ${SparklingDates.dayMonth(m.currentPeriodEnd!)}. ${_benefitsLine(m)}',
+      {'type': 'membership', 'id': m.id},
+    );
+    _notify('membership_invoices', inv.id);
+    _notify('memberships', m.id);
+  }
+
+  /// `POST /memberships` — pending membership + first invoice + sandbox
+  /// payment intent; activation happens when the payment is confirmed.
+  SubscribeResult subscribeMembership({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+    MembershipPaymentMethod paymentMethod = MembershipPaymentMethod.card,
+  }) {
+    _requireRole(role == UserRole.customer, 'Only customers can subscribe.');
+    final existing = memberships
+        .where((m) => m.clientOpId == clientOpId)
+        .firstOrNull;
+    if (existing != null) return _subscribeResultFor(existing);
+    final plan = _requirePlan(planCode);
+    final live = liveMembership(uid);
+    if (live != null) {
+      throw ApiException(
+        code: 'conflict',
+        message:
+            'You already have a ${planById(live.planId)?.name ?? ''} membership (${live.status.label.toLowerCase()}).',
+        statusCode: 409,
+        data: {'membership_id': live.id, 'status': live.status.db},
+      );
+    }
+    _validateSelections(plan, selections);
+    final m = Membership(
+      id: _newId('7'),
+      ref: 'MEM-$_yr-${(_membershipSeq++).toString().padLeft(4, '0')}',
+      customerId: uid,
+      planId: plan.id,
+      planCode: plan.code,
+      status: MembershipStatus.pending,
+      paymentMethod: paymentMethod,
+      clientOpId: clientOpId,
+      createdBy: uid,
+      createdAt: now,
+      updatedAt: now,
+    );
+    memberships.add(m);
+    membershipSelections[m.id] = Map.of(selections);
+    final inv = _newInvoice(
+      m,
+      plan,
+      periodStart: now,
+      periodEnd: addMonths(now, 1),
+      idempotencyKey: 'subscribe:${m.id}',
+    );
+    membershipInvoices.add(inv);
+    _idempotencyKeys.add(clientOpId);
+    _notify('memberships', m.id);
+    _notify('membership_invoices', inv.id);
+    return SubscribeResult(
+      membership: m,
+      invoice: inv,
+      payment: _membershipPaymentIntent(
+        inv,
+        idempotencyKey: 'membership:${m.id}:first',
+      ),
+    );
+  }
+
+  SubscribeResult _subscribeResultFor(Membership m) {
+    final inv = membershipInvoices
+        .where((i) => i.membershipId == m.id)
+        .firstOrNull;
+    final pay = inv == null
+        ? null
+        : payments.where((p) => p.membershipInvoiceId == inv.id).firstOrNull;
+    return SubscribeResult(
+      membership: m,
+      invoice: inv,
+      payment: pay == null || !inv!.isPending
+          ? null
+          : PaymentIntentResult(
+              payment: pay,
+              clientSecret: 'sbx_secret_${pay.id.substring(pay.id.length - 6)}',
+            ),
+    );
+  }
+
+  /// `POST /memberships/me/invoices/:id/pay`.
+  PaymentIntentResult payMembershipInvoice(
+    String invoiceId, {
+    required String idempotencyKey,
+  }) {
+    final inv =
+        membershipInvoices.where((i) => i.id == invoiceId).firstOrNull ??
+        (throw ApiException(
+          code: 'not_found',
+          message: 'Invoice not found',
+          statusCode: 404,
+        ));
+    if (inv.customerId != uid && role == UserRole.customer) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'Not your invoice',
+        statusCode: 403,
+      );
+    }
+    if (!inv.isPending) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
+        statusCode: 409,
+      );
+    }
+    return _membershipPaymentIntent(inv, idempotencyKey: idempotencyKey);
+  }
+
+  /// `PUT /memberships/me/selections` — 409 once anything was used.
+  MembershipSummary changeMembershipSelections(Map<String, String> selections) {
+    final m = _requireLiveMembership(uid);
+    final plan = planById(m.planId)!;
+    _validateSelections(plan, selections);
+    final used = allowancesFor(m).where((a) => a.used > 0).toList();
+    if (used.isNotEmpty) {
+      throw ApiException(
+        code: 'conflict',
+        message:
+            'You have already used ${used.first.used} of your ${used.first.noun.toLowerCase()} allowance this month — options can change from ${SparklingDates.dayMonth(m.currentPeriodEnd ?? now)}.',
+        statusCode: 409,
+        data: {'period_end': j.iso(m.currentPeriodEnd)},
+      );
+    }
+    membershipSelections[m.id] = Map.of(selections);
+    _notify('memberships', m.id);
+    return membershipSummary(uid);
+  }
+
+  /// `POST /memberships/me/change-plan` — upgrade now (new invoice +
+  /// payment), downgrade at renewal (`next_plan_id`).
+  SubscribeResult changeMembershipPlan({
+    required String planCode,
+    required Map<String, String> selections,
+    required String clientOpId,
+  }) {
+    var m = _requireLiveMembership(uid);
+    final current = planById(m.planId)!;
+    final target = _requirePlan(planCode);
+    if (target.id == current.id) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'You are already on ${current.name}.',
+        statusCode: 400,
+      );
+    }
+    _validateSelections(target, selections);
+    final mi = memberships.indexWhere((x) => x.id == m.id);
+    if (target.monthlyFeeCents > current.monthlyFeeCents) {
+      final inv = _newInvoice(
+        m,
+        target,
+        periodStart: now,
+        periodEnd: addMonths(now, 1),
+        idempotencyKey: 'upgrade:${m.id}:$clientOpId',
+      );
+      membershipInvoices.add(inv);
+      _pendingUpgrades[inv.id] = (
+        planId: target.id,
+        selections: Map.of(selections),
+      );
+      _notify('membership_invoices', inv.id);
+      return SubscribeResult(
+        membership: m,
+        invoice: inv,
+        payment: _membershipPaymentIntent(inv, idempotencyKey: clientOpId),
+      );
+    }
+    m = m.copyWith(nextPlanId: target.id, updatedAt: now);
+    memberships[mi] = m;
+    membershipNextSelections[m.id] = Map.of(selections);
+    _notify('memberships', m.id);
+    return SubscribeResult(membership: m);
+  }
+
+  /// `POST /memberships/me/cancel`.
+  MembershipSummary cancelMembership({bool atPeriodEnd = true}) {
+    var m = _requireLiveMembership(uid);
+    final mi = memberships.indexWhere((x) => x.id == m.id);
+    final plan = planById(m.planId);
+    if (atPeriodEnd && m.isActive) {
+      m = m.copyWith(
+        cancelAtPeriodEnd: true,
+        cancelledAt: now,
+        clearNextPlan: true,
+        updatedAt: now,
+      );
+    } else {
+      m = m.copyWith(
+        status: MembershipStatus.cancelled,
+        cancelledAt: now,
+        endedAt: now,
+        clearNextPlan: true,
+        updatedAt: now,
+      );
+    }
+    memberships[mi] = m;
+    for (var i = 0; i < membershipInvoices.length; i++) {
+      final inv = membershipInvoices[i];
+      if (inv.membershipId == m.id && inv.isPending) {
+        membershipInvoices[i] = inv.copyWith(
+          status: MembershipInvoiceStatus.voided,
+        );
+      }
+    }
+    _pendingUpgrades.removeWhere((_, u) => false);
+    _syncTier(m.customerId);
+    _pushNotification(
+      m.customerId,
+      'membership_cancelled',
+      'Membership cancelled',
+      m.isLive
+          ? 'Your ${plan?.name} membership ends on ${SparklingDates.dayMonth(m.currentPeriodEnd ?? now)}. You can rejoin any time.'
+          : 'Your ${plan?.name} membership has ended. You can rejoin any time.',
+      {'type': 'membership', 'id': m.id},
+    );
+    _notify('memberships', m.id);
+    return membershipSummary(uid);
+  }
+
+  /// `GET /staff/customers/:id/membership`.
+  MembershipSummary customerMembershipSummary(String customerId) {
+    _requireRole(role.isStaff);
+    requireProfile(customerId);
+    return membershipSummary(customerId);
+  }
+
+  /// `POST /staff/customers/:id/membership` — enrol at the counter: active
+  /// immediately, invoice paid, POS payment recorded.
+  MembershipSummary enrolMembership(EnrolMembershipInput input) {
+    _requireRole(role.isStaff);
+    if (_idempotencyKeys.contains(input.clientOpId)) {
+      return membershipSummary(input.customerId);
+    }
+    final customer = requireProfile(input.customerId);
+    if (customer.role != UserRole.customer) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'Not a customer profile',
+        statusCode: 400,
+      );
+    }
+    final plan = _requirePlan(input.planCode);
+    final live = liveMembership(customer.id);
+    if (live != null) {
+      throw ApiException(
+        code: 'conflict',
+        message:
+            '${customer.fullName.split(' ').first} already has a ${planById(live.planId)?.name ?? ''} membership (${live.status.label.toLowerCase()}).',
+        statusCode: 409,
+        data: {'membership_id': live.id, 'status': live.status.db},
+      );
+    }
+    _validateSelections(plan, input.selections);
+    final m = Membership(
+      id: _newId('7'),
+      ref: 'MEM-$_yr-${(_membershipSeq++).toString().padLeft(4, '0')}',
+      customerId: customer.id,
+      planId: plan.id,
+      planCode: plan.code,
+      status: MembershipStatus.active,
+      startedAt: now,
+      currentPeriodStart: now,
+      currentPeriodEnd: addMonths(now, 1),
+      paymentMethod: input.paymentMethod.stored,
+      clientOpId: input.clientOpId,
+      createdBy: uid,
+      createdAt: now,
+      updatedAt: now,
+    );
+    memberships.add(m);
+    membershipSelections[m.id] = Map.of(input.selections);
+    final receiptNo = 'RCP-${_receiptSeq++}';
+    final p = Payment(
+      id: _newId('6'),
+      customerId: customer.id,
+      provider: 'pos',
+      providerRef: 'pos_${m.ref.split('-').last}',
+      amountCents: plan.monthlyFeeCents,
+      status: PaymentStatus.successful,
+      receiptNo: receiptNo,
+      idempotencyKey: input.clientOpId,
+      verifiedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      receipt: {
+        'receipt_no': receiptNo,
+        'amount_cents': plan.monthlyFeeCents,
+        'method': input.paymentMethod.db,
+        'recorded_by': nameOf(uid),
+        'paid_at': j.iso(now),
+      },
+    );
+    final inv = _newInvoice(
+      m,
+      plan,
+      periodStart: m.currentPeriodStart!,
+      periodEnd: m.currentPeriodEnd!,
+      idempotencyKey: 'enrol:${m.id}',
+    ).copyWith(
+      status: MembershipInvoiceStatus.paid,
+      paidAt: now,
+      paymentId: p.id,
+    );
+    payments.add(p.copyWith(status: PaymentStatus.successful));
+    // The payment row needs the invoice id — rebuild with it.
+    payments[payments.length - 1] = Payment(
+      id: p.id,
+      membershipInvoiceId: inv.id,
+      customerId: p.customerId,
+      provider: p.provider,
+      providerRef: p.providerRef,
+      amountCents: p.amountCents,
+      status: p.status,
+      receiptNo: p.receiptNo,
+      idempotencyKey: p.idempotencyKey,
+      verifiedAt: p.verifiedAt,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      receipt: p.receipt,
+    );
+    membershipInvoices.add(inv);
+    _idempotencyKeys.add(input.clientOpId);
+    _syncTier(customer.id);
+    _pushNotification(
+      customer.id,
+      'membership_activated',
+      'Welcome to Sparkling ${plan.name}',
+      'Your ${plan.name} membership is active until ${SparklingDates.dayMonth(m.currentPeriodEnd!)}. ${_benefitsLine(m)}',
+      {'type': 'membership', 'id': m.id},
+    );
+    _notify('memberships', m.id);
+    _notify('membership_invoices', inv.id);
+    _notify('payments', p.id);
+    return membershipSummary(customer.id);
+  }
+
+  /// `POST /staff/memberships/:id/invoices/:invoiceId/record-payment`.
+  MembershipSummary recordMembershipInvoicePayment({
+    required String membershipId,
+    required String invoiceId,
+    required CounterPaymentMethod method,
+    required String clientOpId,
+  }) {
+    _requireRole(role.isStaff);
+    final m =
+        memberships.where((x) => x.id == membershipId).firstOrNull ??
+        (throw ApiException(
+          code: 'not_found',
+          message: 'Membership not found',
+          statusCode: 404,
+        ));
+    if (_idempotencyKeys.contains(clientOpId)) {
+      return membershipSummary(m.customerId);
+    }
+    final inv =
+        membershipInvoices
+            .where((i) => i.id == invoiceId && i.membershipId == m.id)
+            .firstOrNull ??
+        (throw ApiException(
+          code: 'not_found',
+          message: 'Invoice not found',
+          statusCode: 404,
+        ));
+    if (!inv.isPending) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
+        statusCode: 409,
+      );
+    }
+    final receiptNo = 'RCP-${_receiptSeq++}';
+    final p = Payment(
+      id: _newId('6'),
+      membershipInvoiceId: inv.id,
+      customerId: m.customerId,
+      provider: 'pos',
+      providerRef: 'pos_${inv.ref.split('-').last}',
+      amountCents: inv.amountCents,
+      status: PaymentStatus.successful,
+      receiptNo: receiptNo,
+      idempotencyKey: clientOpId,
+      verifiedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      receipt: {
+        'receipt_no': receiptNo,
+        'amount_cents': inv.amountCents,
+        'method': method.db,
+        'recorded_by': nameOf(uid),
+        'paid_at': j.iso(now),
+      },
+    );
+    payments.add(p);
+    _idempotencyKeys.add(clientOpId);
+    _applyMembershipInvoicePaid(inv.id, p.id);
+    _notify('payments', p.id);
+    return membershipSummary(m.customerId);
+  }
+
+  /// The daily `membershipRenewals` job (docs/MEMBERSHIPS.md): ends
+  /// memberships cancelled at period end, raises the next invoice 3 days
+  /// before renewal and marks unpaid periods `past_due`. The sandbox card
+  /// auto-charge (step 4) is intentionally not simulated so a past-due
+  /// member can be demonstrated.
+  void runMembershipRenewals() {
+    for (var i = 0; i < memberships.length; i++) {
+      var m = memberships[i];
+      if (!m.isLive || m.isPending) continue;
+      final end = m.currentPeriodEnd;
+      if (end == null) continue;
+      if (m.cancelAtPeriodEnd && !end.isAfter(now)) {
+        m = m.copyWith(
+          status: MembershipStatus.expired,
+          endedAt: now,
+          updatedAt: now,
+        );
+        memberships[i] = m;
+        _syncTier(m.customerId);
+        _notify('memberships', m.id);
+        continue;
+      }
+      final key = 'renewal:${m.id}:${j.isoDate(end)}';
+      final hasNext = membershipInvoices.any((x) => x.idempotencyKey == key);
+      if (!m.cancelAtPeriodEnd &&
+          !hasNext &&
+          !end.isAfter(now.add(const Duration(days: 3)))) {
+        final plan = planById(m.nextPlanId ?? m.planId)!;
+        final inv = _newInvoice(
+          m,
+          plan,
+          periodStart: end,
+          periodEnd: addMonths(end, 1),
+          idempotencyKey: key,
+          dueAt: end,
+        );
+        membershipInvoices.add(inv);
+        _pushNotification(
+          m.customerId,
+          'membership_renewal_due',
+          '${plan.name} membership renewal',
+          'Your ${plan.name} membership renews on ${SparklingDates.dayMonth(end)} (${Money.formatZar(inv.amountCents)}).',
+          {'type': 'membership', 'id': m.id},
+        );
+        _notify('membership_invoices', inv.id);
+      }
+      if (m.isActive && !end.isAfter(now)) {
+        final unpaid = membershipInvoices.any(
+          (x) => x.membershipId == m.id && x.isPending,
+        );
+        if (unpaid) {
+          m = m.copyWith(status: MembershipStatus.pastDue, updatedAt: now);
+          memberships[i] = m;
+          final plan = planById(m.planId);
+          _pushNotification(
+            m.customerId,
+            'membership_past_due',
+            'Membership payment due',
+            'Your ${plan?.name} benefits are paused until ${Money.formatZar(plan?.monthlyFeeCents ?? 0)} is paid.',
+            {'type': 'membership', 'id': m.id},
+          );
+          _notify('memberships', m.id);
+        }
+      }
+    }
+  }
+
+  // ---- Seed (mirrors backend/supabase/seed_memberships.sql) ----------------
+
+  void _seedMemberships(DateTime n) {
+    EntitlementService es(String id, {bool primary = false}) {
+      final s = serviceById(id)!;
+      return EntitlementService(
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        isPrimary: primary,
+      );
+    }
+
+    final sparkling = [es(DemoCatalogueIds.sparklingWash, primary: true)];
+    final exterior = [
+      es(DemoCatalogueIds.extWash, primary: true),
+      es(DemoCatalogueIds.extWashTyre),
+      es(DemoCatalogueIds.washGo),
+    ];
+    MembershipEntitlement ent(
+      int n,
+      String code,
+      String label,
+      int qty,
+      List<EntitlementService> services, {
+      EntitlementPeriod period = EntitlementPeriod.month,
+      int sort = 10,
+    }) => MembershipEntitlement(
+      id: 'c3000000-0000-4000-8000-00000000000$n',
+      code: code,
+      label: label,
+      quantity: qty,
+      period: period,
+      sortOrder: sort,
+      services: services,
+    );
+    MembershipPlanGroup grp(
+      int n,
+      String code,
+      String name,
+      GroupSelection sel,
+      int sort,
+      List<MembershipEntitlement> ents,
+    ) => MembershipPlanGroup(
+      id: 'c2000000-0000-4000-8000-00000000000$n',
+      code: code,
+      name: name,
+      selection: sel,
+      sortOrder: sort,
+      entitlements: ents,
+    );
+
+    membershipPlans.addAll([
+      MembershipPlan(
+        id: planGold,
+        code: 'gold',
+        tier: LoyaltyTier.gold,
+        name: 'Gold',
+        tagline: '4 Sparkling Washes or 8 Exterior Washes a month',
+        monthlyFeeCents: 29500,
+        discountPct: 10,
+        discountScope: DiscountScope.otherServices,
+        discountNote: '10% discount on any other Sparkling service',
+        color: 'gold',
+        sortOrder: 10,
+        groups: [
+          grp(1, 'washes', 'Monthly washes', GroupSelection.chooseOne, 10, [
+            ent(1, 'G1', '4 × Sparkling Wash', 4, sparkling),
+            ent(2, 'G2', '8 × Exterior Wash', 8, exterior, sort: 20),
+          ]),
+        ],
+      ),
+      MembershipPlan(
+        id: planPlatinum,
+        code: 'platinum',
+        tier: LoyaltyTier.platinum,
+        name: 'Platinum',
+        tagline: '8 Sparkling Washes or 16 Exterior Washes a month',
+        monthlyFeeCents: 47500,
+        discountPct: 10,
+        discountScope: DiscountScope.planServices,
+        discountNote: '10% discount on the above selected services',
+        color: 'platinum',
+        sortOrder: 20,
+        groups: [
+          grp(2, 'washes', 'Monthly washes', GroupSelection.chooseOne, 10, [
+            ent(3, 'P1', '8 × Sparkling Wash', 8, sparkling),
+            ent(4, 'P2', '16 × Exterior Wash', 16, exterior, sort: 20),
+          ]),
+        ],
+      ),
+      MembershipPlan(
+        id: planBlack,
+        code: 'black',
+        tier: LoyaltyTier.black,
+        name: 'Black',
+        tagline:
+            'Washes, a monthly detail or steam clean and an annual ceramic coating',
+        monthlyFeeCents: 85000,
+        discountPct: 10,
+        discountScope: DiscountScope.planServices,
+        discountNote: '10% discount on the above selected services',
+        color: 'black',
+        sortOrder: 30,
+        groups: [
+          grp(3, 'washes', 'Monthly washes', GroupSelection.chooseOne, 10, [
+            ent(5, 'B1', '10 × Sparkling Wash per month', 10, sparkling),
+            ent(6, 'B2', '20 × Exterior Wash', 20, exterior, sort: 20),
+          ]),
+          grp(4, 'detail', 'Monthly detail', GroupSelection.chooseOne, 20, [
+            ent(7, 'B3', '1 × Auto Detail Complete per month', 1, [
+              es(DemoCatalogueIds.autoDetailComplete, primary: true),
+            ]),
+            ent(8, 'B4', '1 × Engine Steam Clean per month', 1, [
+              es(DemoCatalogueIds.engineSteam, primary: true),
+            ], sort: 20),
+          ]),
+          grp(5, 'coating', 'Annual ceramic coating', GroupSelection.all, 30, [
+            ent(9, 'B5', '1 × Ceramic coating per annum', 1, [
+              es(DemoCatalogueIds.ceramicCoating, primary: true),
+            ], period: EntitlementPeriod.year),
+          ]),
+        ],
+      ),
+    ]);
+
+    Membership mem(
+      String id,
+      int seq,
+      String customer,
+      String plan, {
+      required int startedDaysAgo,
+      required int periodStartDaysAgo,
+      DateTime? periodEnd,
+      MembershipPaymentMethod method = MembershipPaymentMethod.card,
+      String? createdBy,
+    }) {
+      final ps = n.subtract(Duration(days: periodStartDaysAgo));
+      return Membership(
+        id: id,
+        ref: 'MEM-$_yr-${seq.toString().padLeft(4, '0')}',
+        customerId: customer,
+        planId: plan,
+        planCode: planById(plan)?.code,
+        status: MembershipStatus.active,
+        startedAt: n.subtract(Duration(days: startedDaysAgo)),
+        currentPeriodStart: ps,
+        currentPeriodEnd: periodEnd ?? addMonths(ps, 1),
+        paymentMethod: method,
+        clientOpId: 'seed-mem-${customer.replaceFirst('seed_', '')}',
+        createdBy: createdBy ?? customer,
+        createdAt: n.subtract(Duration(days: startedDaysAgo)),
+      );
+    }
+
+    memberships.addAll([
+      mem(
+        membershipThabo,
+        1,
+        'seed_thabo',
+        planGold,
+        startedDaysAgo: 95,
+        periodStartDaysAgo: 5,
+      ),
+      mem(
+        membershipNaledi,
+        2,
+        'seed_naledi',
+        planGold,
+        startedDaysAgo: 60,
+        periodStartDaysAgo: 12,
+        method: MembershipPaymentMethod.cash,
+        createdBy: 'seed_johan',
+      ),
+      mem(
+        membershipSipho,
+        3,
+        'seed_sipho',
+        planPlatinum,
+        startedDaysAgo: 150,
+        periodStartDaysAgo: 20,
+      ),
+      mem(
+        membershipZanele,
+        4,
+        'seed_zanele',
+        planBlack,
+        startedDaysAgo: 27,
+        periodStartDaysAgo: 27,
+        periodEnd: n.add(const Duration(days: 3)),
+      ),
+    ]);
+    membershipSelections.addAll({
+      membershipThabo: {'washes': 'G1'},
+      membershipNaledi: {'washes': 'G2'},
+      membershipSipho: {'washes': 'P1'},
+      membershipZanele: {'washes': 'B1', 'detail': 'B3'},
+    });
+
+    void use(String mid, int entN, String key, int offsetDays) {
+      final m = memberships.firstWhere((x) => x.id == mid);
+      membershipUsage.add(
+        MembershipUsage(
+          id: _newId('u'),
+          membershipId: mid,
+          entitlementId: 'c3000000-0000-4000-8000-00000000000$entN',
+          quantity: 1,
+          periodStart: m.currentPeriodStart!,
+          periodEnd: m.currentPeriodEnd!,
+          idempotencyKey: key,
+          createdBy: m.customerId,
+          createdAt: m.currentPeriodStart!.add(Duration(days: offsetDays)),
+        ),
+      );
+      _idempotencyKeys.add(key);
+    }
+
+    use(membershipThabo, 1, 'seed-use-thabo-1', 2);
+    use(membershipNaledi, 2, 'seed-use-naledi-1', 3);
+    use(membershipNaledi, 2, 'seed-use-naledi-2', 9);
+    use(membershipSipho, 3, 'seed-use-sipho-1', 4);
+    use(membershipSipho, 3, 'seed-use-sipho-2', 11);
+    use(membershipSipho, 3, 'seed-use-sipho-3', 17);
+    use(membershipZanele, 5, 'seed-use-zanele-1', 6);
+    use(membershipZanele, 5, 'seed-use-zanele-2', 20);
+    use(membershipZanele, 7, 'seed-use-zanele-3', 14);
+
+    // Current-period invoices (paid) + their payments.
+    var seq = 101;
+    for (final m in memberships) {
+      final plan = planById(m.planId)!;
+      final invId = 'c5000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
+      final payId = '60000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
+      final card = m.paymentMethod == MembershipPaymentMethod.card;
+      membershipInvoices.add(
+        MembershipInvoice(
+          id: invId,
+          ref: 'MINV-$_yr-0$seq',
+          membershipId: m.id,
+          customerId: m.customerId,
+          periodStart: m.currentPeriodStart,
+          periodEnd: m.currentPeriodEnd,
+          amountCents: plan.monthlyFeeCents,
+          status: MembershipInvoiceStatus.paid,
+          dueAt: m.currentPeriodStart,
+          paidAt: m.currentPeriodStart,
+          paymentId: payId,
+          idempotencyKey: 'seed-minv-${m.customerId.replaceFirst('seed_', '')}-cur',
+          createdAt: m.currentPeriodStart,
+        ),
+      );
+      payments.add(
+        Payment(
+          id: payId,
+          membershipInvoiceId: invId,
+          customerId: m.customerId,
+          provider: card ? 'sandbox' : 'pos',
+          providerRef: card ? 'pi_sbx_mem_0$seq' : 'pos_mem_0$seq',
+          amountCents: plan.monthlyFeeCents,
+          status: PaymentStatus.successful,
+          receiptNo: 'RCP-70$seq',
+          idempotencyKey: 'pay-seed-mem-0$seq',
+          verifiedAt: m.currentPeriodStart,
+          createdAt: m.currentPeriodStart,
+          updatedAt: m.currentPeriodStart,
+          receipt: {
+            'receipt_no': 'RCP-70$seq',
+            'amount_cents': plan.monthlyFeeCents,
+            'method': card ? 'card' : 'cash',
+            if (!card) 'recorded_by': 'Johan Botha',
+            'paid_at': j.iso(m.currentPeriodStart),
+          },
+        ),
+      );
+      seq++;
+    }
+    // Zanele's renewal is due in 3 days: the renewal job has already raised
+    // the next invoice (pending).
+    final zanele = memberships.firstWhere((m) => m.id == membershipZanele);
+    membershipInvoices.add(
+      MembershipInvoice(
+        id: invoiceZaneleRenewal,
+        ref: 'MINV-$_yr-0105',
+        membershipId: zanele.id,
+        customerId: zanele.customerId,
+        periodStart: zanele.currentPeriodEnd,
+        periodEnd: addMonths(zanele.currentPeriodEnd!, 1),
+        amountCents: planById(planBlack)!.monthlyFeeCents,
+        status: MembershipInvoiceStatus.pending,
+        dueAt: zanele.currentPeriodEnd,
+        idempotencyKey: 'renewal:${zanele.id}:${j.isoDate(zanele.currentPeriodEnd)}',
+        createdAt: n,
+      ),
+    );
+    _membershipInvoiceSeq = 106;
+
+    for (final m in memberships) {
+      loyaltyTiers[m.customerId] = (
+        tier: planById(m.planId)!.tier,
+        tierSince: m.startedAt!,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Sync batch (ARC-004)
   // ---------------------------------------------------------------------------
 
@@ -4230,6 +6581,9 @@ class DemoStore {
               year: j.intOrNull(payload['year']),
               source: VehicleSource.fromDb(j.strOrNull(payload['source'])),
               discHash: j.strOrNull(payload['disc_hash']),
+              sizeClass: payload['size_class'] == null
+                  ? null
+                  : VehicleSize.fromDb(j.strOrNull(payload['size_class'])),
               force: j.boolOf(payload['force']),
             ),
           ).toJson(),
@@ -4242,6 +6596,21 @@ class DemoStore {
           SyncKinds.notificationRead => _markReadResult(
             j.str(payload['notification_id']),
           ),
+          SyncKinds.bookingCreateWalkIn => createWalkInBooking(
+            WalkInBookingInput.fromJson({...payload, 'client_op_id': id}),
+          ).toJson(),
+          SyncKinds.quotationRaise => raiseQuotation(
+            StaffQuotationInput.fromJson({...payload, 'client_op_id': id}),
+          ).toJson(),
+          SyncKinds.paymentRecord => recordPayment(
+            RecordPaymentInput.fromJson({
+              ...payload,
+              'idempotency_key': payload['idempotency_key'] ?? id,
+            }),
+          ).toJson(),
+          SyncKinds.membershipEnrol => enrolMembership(
+            EnrolMembershipInput.fromJson({...payload, 'client_op_id': id}),
+          ).toJson(),
           _ => throw ApiException(
             code: 'validation_error',
             message: 'Unknown operation kind "$kind"',
@@ -4268,6 +6637,22 @@ class DemoStore {
     }
     return results;
   }
+}
+
+/// Great-circle distance in km (haversine), rounded to 0.1.
+double _distanceKm(double lat1, double lng1, double lat2, double lng2) {
+  const r = 6371.0;
+  double rad(double d) => d * math.pi / 180;
+  final dLat = rad(lat2 - lat1);
+  final dLng = rad(lng2 - lng1);
+  final a =
+      math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(rad(lat1)) *
+          math.cos(rad(lat2)) *
+          math.sin(dLng / 2) *
+          math.sin(dLng / 2);
+  final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  return (r * c * 10).round() / 10;
 }
 
 String _fmtNum(double v) =>

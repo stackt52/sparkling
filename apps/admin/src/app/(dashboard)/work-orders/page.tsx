@@ -11,11 +11,10 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
-import Drawer from '@mui/material/Drawer';
-import IconButton from '@mui/material/IconButton';
 import Avatar from '@mui/material/Avatar';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/layout/PageHeader';
+import DetailDrawer from '@/components/ui/DetailDrawer';
 import { LiveChip, OutletPill } from '@/components/ui/Pills';
 import StatusChip from '@/components/ui/StatusChip';
 import LevelBar from '@/components/ui/LevelBar';
@@ -145,21 +144,52 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
     onError: (e) => toast.error(e),
   });
   const canAct = can(role, 'task:transition');
+  const canAssign = can(role, 'task:assign');
+  const transitions = w ? NEXT[w.status] ?? [] : [];
+  const hasFooter = Boolean(w) && (canAssign || (canAct && transitions.length > 0) || Boolean(reasonFor));
   return (
-    <Drawer anchor="right" open={Boolean(w)} onClose={onClose} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 460 }, borderRadius: { xs: 0, sm: '28px 0 0 28px' }, p: 3 } } }}>
+    <DetailDrawer
+      open={Boolean(w)}
+      onClose={onClose}
+      label="Work order"
+      titleId="work-order-drawer-title"
+      title={w && (
+        <>
+          <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{w.ref}</Typography>
+          <StatusChip status={w.status} />
+          <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} />
+        </>
+      )}
+      subtitle={w && <>{w.service.name} · {w.vehicle.make} {w.vehicle.model} · <span className="mono">{w.vehicle.registration_no}</span></>}
+      footer={w && hasFooter && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          {canAssign && (
+            <Button variant="outlined" fullWidth onClick={onAssign} startIcon={<MSymbol name="assignment_ind" size={20} />}>{w.assignee_id ? 'Reassign' : 'Assign'}</Button>
+          )}
+          {canAct && transitions.length > 0 && (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {transitions.map((n) => (
+                <Button key={n.to} variant={n.to === 'blocked' ? 'outlined' : 'contained'} color={n.to === 'blocked' ? 'error' : 'secondary'} size="small" startIcon={<MSymbol name={n.icon} size={18} />} onClick={() => (n.needsReason || (n.to === 'verified' && w.steps_done < w.step_count) ? setReasonFor(n.to) : m.mutate({ to: n.to }))} disabled={m.isPending}>
+                  {n.label}
+                </Button>
+              ))}
+            </Box>
+          )}
+          {reasonFor && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <TextField label={reasonFor === 'verified' ? 'Override reason (required steps incomplete)' : 'Reason'} value={reason} onChange={(e) => setReason(e.target.value)} size="small" autoFocus multiline />
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button size="small" onClick={() => setReasonFor(null)}>Cancel</Button>
+                <Button size="small" variant="contained" color="secondary" disabled={!reason.trim()} onClick={() => m.mutate({ to: reasonFor, reason })}>Confirm</Button>
+              </Box>
+            </Box>
+          )}
+        </Box>
+      )}
+    >
       {w && (
         <>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="overline" color="text.secondary">Work order</Typography>
-            <IconButton aria-label="Close" onClick={onClose}><MSymbol name="close" /></IconButton>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{w.ref}</Typography>
-            <StatusChip status={w.status} />
-            <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} />
-          </Box>
-          <Typography color="text.secondary">{w.service.name} · {w.vehicle.make} {w.vehicle.model} · <span className="mono">{w.vehicle.registration_no}</span></Typography>
-          <Tile sx={{ mt: 2, flexDirection: 'column', alignItems: 'stretch', gap: 0.5 }}>
+          <Tile sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 0.5 }}>
             <Typography variant="body2">{w.outlet.name}{w.bay ? ` · ${w.bay}` : ''} · {w.customer_name}</Typography>
             <Typography variant="body2">{w.booking_ref ? `Booking ${w.booking_ref}` : w.quotation_ref ? `Quotation ${w.quotation_ref}` : ''}</Typography>
             <Typography variant="body2">Assignee: <b>{w.assignee_name ?? 'unassigned'}</b>{w.eta_at ? ` · ETA ${fmtTime(w.eta_at)}` : ''}{w.due_at ? ` · due ${fmtTime(w.due_at)}` : ''}</Typography>
@@ -169,27 +199,6 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
             </Box>
             {w.blocked_reason && <Typography variant="body2" sx={{ color: tk.error, fontWeight: 600 }}>{w.blocked_reason}</Typography>}
           </Tile>
-          {can(role, 'task:assign') && (
-            <Button variant="outlined" sx={{ mt: 2 }} onClick={onAssign} startIcon={<MSymbol name="assignment_ind" size={20} />}>{w.assignee_id ? 'Reassign' : 'Assign'}</Button>
-          )}
-          {canAct && (NEXT[w.status] ?? []).length > 0 && (
-            <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
-              {(NEXT[w.status] ?? []).map((n) => (
-                <Button key={n.to} variant={n.to === 'blocked' ? 'outlined' : 'contained'} color={n.to === 'blocked' ? 'error' : 'secondary'} size="small" startIcon={<MSymbol name={n.icon} size={18} />} onClick={() => (n.needsReason || (n.to === 'verified' && w.steps_done < w.step_count) ? setReasonFor(n.to) : m.mutate({ to: n.to }))} disabled={m.isPending}>
-                  {n.label}
-                </Button>
-              ))}
-            </Box>
-          )}
-          {reasonFor && (
-            <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <TextField label={reasonFor === 'verified' ? 'Override reason (required steps incomplete)' : 'Reason'} value={reason} onChange={(e) => setReason(e.target.value)} size="small" autoFocus multiline />
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button size="small" onClick={() => setReasonFor(null)}>Cancel</Button>
-                <Button size="small" variant="contained" color="secondary" disabled={!reason.trim()} onClick={() => m.mutate({ to: reasonFor, reason })}>Confirm</Button>
-              </Box>
-            </Box>
-          )}
           <Typography variant="h4" sx={{ mt: 3, mb: 1 }}>Audit trail</Typography>
           <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
             {w.events.length === 0 && <Typography variant="body2" color="text.secondary">No events yet.</Typography>}
@@ -206,7 +215,7 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
         </>
       )}
       <Toast toast={toast.toast} onClose={toast.close} />
-    </Drawer>
+    </DetailDrawer>
   );
 }
 

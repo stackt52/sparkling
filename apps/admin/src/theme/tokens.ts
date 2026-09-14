@@ -110,6 +110,11 @@ export const brand = {
   azure: '#00A0E0',
   azureGradient: 'linear-gradient(135deg,#00A0E0,#0074B8)',
   goldGradient: 'linear-gradient(135deg,#F3DDA4,#E2BA5F)',
+  /** Platinum plan: brushed-steel sweep. */
+  platinumGradient: 'linear-gradient(135deg,#8BD2FF,#203060)',
+  /** Black plan: navy → black sweep with gold text (`onBlack`). */
+  blackGradient: 'linear-gradient(135deg,#0B1220,#203060)',
+  onBlack: '#E2BA5F',
   /** Chart series colours (README §3a). */
   chartCarWash: '#006398',
   chartAutoBody: '#8BD2FF',
@@ -177,4 +182,7 @@ export const tk = {
   azure: brand.azure,
   azureGradient: brand.azureGradient,
   goldGradient: brand.goldGradient,
+  platinumGradient: brand.platinumGradient,
+  blackGradient: brand.blackGradient,
+  onBlack: brand.onBlack,
 } as const;

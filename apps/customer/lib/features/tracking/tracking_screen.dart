@@ -163,6 +163,19 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                       children: [
                         _StageCard(booking: b, online: _online),
+                        if (b.hasAddons || b.vatCents > 0) ...[
+                          const SizedBox(height: 10),
+                          InfoBanner(
+                            tone: InfoTone.info,
+                            icon: Symbols.add_circle_rounded,
+                            text: [
+                              if (b.addons.isNotEmpty)
+                                'Add-ons: ${b.addons.map((a) => a.name).join(' · ')}.',
+                              if (b.vatCents > 0)
+                                'Total includes VAT ${Money.formatZar(b.vatCents)}.',
+                            ].join(' '),
+                          ),
+                        ],
                         if (b.isReadyForCollection) ...[
                           const SizedBox(height: 14),
                           PickupOtpCard(booking: b),

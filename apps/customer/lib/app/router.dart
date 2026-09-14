@@ -12,7 +12,8 @@ import '../features/booking/slot_picker_screen.dart';
 import '../features/bookings/booking_detail_screen.dart';
 import '../features/bookings/bookings_screen.dart';
 import '../features/home/home_screen.dart';
-import '../features/loyalty/loyalty_screen.dart';
+import '../features/membership/membership_screen.dart';
+import '../features/membership/subscribe_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/quotes/quote_detail_screen.dart';
@@ -36,8 +37,16 @@ abstract final class Routes {
 
   static const home = '/home';
   static const bookings = '/bookings';
-  static const loyalty = '/loyalty';
+
+  /// Membership tab (plan, allowances, points & rewards).
+  static const membership = '/membership';
+
+  /// Legacy alias of [membership] (the Rewards tab).
+  static const loyalty = membership;
   static const profile = '/profile';
+
+  /// Subscribe to / change to a plan (`extra`: [SubscribeArgs]).
+  static const membershipSubscribe = '/membership/subscribe';
 
   static const bookService = '/book';
   static const bookSlot = '/book/slot';
@@ -108,8 +117,17 @@ GoRouter buildRouter(SessionController session) {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: Routes.loyalty,
-                pageBuilder: (c, s) => fadePage(s, const LoyaltyScreen()),
+                path: Routes.membership,
+                pageBuilder: (c, s) => fadePage(s, const MembershipScreen()),
+                routes: [
+                  GoRoute(
+                    path: 'subscribe',
+                    pageBuilder: (c, s) => sharedAxisPage(
+                      s,
+                      SubscribeScreen(args: s.extra as SubscribeArgs),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -216,8 +234,14 @@ GoRouter buildRouter(SessionController session) {
         routes: [
           GoRoute(
             path: 'new',
-            pageBuilder: (c, s) =>
-                sharedAxisPage(s, const QuoteRequestScreen()),
+            pageBuilder: (c, s) => sharedAxisPage(
+              s,
+              QuoteRequestScreen(
+                args: s.extra is QuoteRequestArgs
+                    ? s.extra as QuoteRequestArgs
+                    : null,
+              ),
+            ),
           ),
           GoRoute(
             path: ':id',

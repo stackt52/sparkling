@@ -26,7 +26,7 @@ export default function SectionCard({ title, subtitle, actions, children, sx, fl
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: flush ? `${spacing.cardPadding}px` : 0, pt: flush ? `${spacing.cardPadding}px` : 0, mb: 1.5, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 0 }}>
             {typeof title === 'string' ? <Typography variant="h4" component="h2">{title}</Typography> : title}
-            {subtitle && <Typography variant="body2" color="text.secondary">{subtitle}</Typography>}
+            {subtitle && <Typography variant="body2" component="div" color="text.secondary">{subtitle}</Typography>}
           </Box>
           {actions && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>{actions}</Box>}
         </Box>

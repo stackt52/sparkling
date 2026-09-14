@@ -21,7 +21,9 @@ export default function AdminGrid<R extends GridValidRowModel>({ sx, ...props }:
         '& .MuiDataGrid-columnHeaders, & .MuiDataGrid-columnHeader': { bgcolor: 'transparent', color: tk.onSurfaceVariant },
         '& .MuiDataGrid-columnHeaderTitle': { fontWeight: 600, fontSize: 11.5, letterSpacing: '0.06em', textTransform: 'uppercase' },
         '& .MuiDataGrid-columnSeparator': { display: 'none' },
-        '& .MuiDataGrid-cell': { display: 'flex', alignItems: 'center', outline: 'none !important', borderTop: `1px solid ${tk.outlineVariant}` },
+        // lineHeight: MUI X sets cells to the row height, which makes inline children (e.g. a caption
+        // under a name) take a 59px line box and overflow the row. Use a normal text line-height instead.
+        '& .MuiDataGrid-cell': { display: 'flex', alignItems: 'center', lineHeight: 1.4, outline: 'none !important', borderTop: `1px solid ${tk.outlineVariant}` },
         '& .MuiDataGrid-cell:focus-visible': { outline: `3px solid ${tk.primary} !important`, outlineOffset: -3 },
         '& .MuiDataGrid-row:hover': { bgcolor: tk.surfaceContainer },
         '& .MuiDataGrid-row.row-clickable': { cursor: 'pointer' },

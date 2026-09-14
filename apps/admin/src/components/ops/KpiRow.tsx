@@ -9,13 +9,13 @@ import { tk } from '@/theme/tokens';
 import { num, rands } from '@/lib/format';
 import type { Kpis } from '@/lib/types';
 
-function StatCard({ label, value, sub, subTone = 'success', error }: { label: string; value: string; sub: string; subTone?: 'success' | 'neutral' | 'error'; error?: boolean }) {
+function StatCard({ label, value, sub, subTone = 'success', error, gold }: { label: string; value: string; sub: string; subTone?: 'success' | 'neutral' | 'error'; error?: boolean; gold?: boolean }) {
   const subColor = subTone === 'success' ? tk.success : subTone === 'error' ? tk.onSurfaceVariant : tk.onSurfaceVariant;
   return (
-    <Paper sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1, minHeight: 150, ...(error && { border: `2px solid color-mix(in srgb, ${tk.error} 45%, transparent)` }) }}>
-      <Typography variant="subtitle1" sx={{ color: error ? tk.error : tk.onSurfaceVariant, fontWeight: 500, fontSize: 15 }}>{label}</Typography>
+    <Paper sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1, minHeight: 150, ...(error && { border: `2px solid color-mix(in srgb, ${tk.error} 45%, transparent)` }), ...(gold && { background: `color-mix(in srgb, ${tk.goldLight} 28%, ${tk.surfaceCard})`, border: `1px solid color-mix(in srgb, ${tk.gold} 45%, transparent)` }) }}>
+      <Typography variant="subtitle1" sx={{ color: error ? tk.error : gold ? tk.onGold : tk.onSurfaceVariant, fontWeight: 500, fontSize: 15, display: 'flex', alignItems: 'center', gap: 0.75, ...(gold && { '[data-mui-color-scheme="dark"] &': { color: tk.gold } }) }}>{gold && <MSymbol name="workspace_premium" filled size={18} />}{label}</Typography>
       <Typography component="p" sx={{ fontSize: 38, fontWeight: 700, lineHeight: 1.1, color: error ? tk.error : tk.onSurface, letterSpacing: '-0.01em' }}>{value}</Typography>
-      <Typography variant="body1" sx={{ color: subColor, fontSize: 14 }}>{sub}</Typography>
+      <Typography variant="body1" sx={{ color: gold ? tk.onSurfaceVariant : subColor, fontSize: 14 }}>{sub}</Typography>
     </Paper>
   );
 }
@@ -23,8 +23,8 @@ function StatCard({ label, value, sub, subTone = 'success', error }: { label: st
 export default function KpiRow({ kpis }: { kpis: Kpis | undefined }) {
   if (!kpis) {
     return (
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)', lg: '1.5fr repeat(4, 1fr)' }, gap: '14px' }}>
-        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} variant="rounded" height={150} sx={{ borderRadius: '24px' }} />)}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' }, gap: '14px' }}>
+        {Array.from({ length: 7 }).map((_, i) => <Skeleton key={i} variant="rounded" height={150} sx={{ borderRadius: '24px', ...(i === 0 && { gridColumn: { xs: '1 / -1', md: 'span 1', lg: 'span 2' } }) }} />)}
       </Box>
     );
   }
@@ -32,8 +32,8 @@ export default function KpiRow({ kpis }: { kpis: Kpis | undefined }) {
   const ex = kpis.exceptions_breakdown;
   const exParts = [ex.blocked && `${ex.blocked} blocked`, ex.overdue && `${ex.overdue} overdue`, ex.low_stock && `${ex.low_stock} low stock`, ex.failed_payments && `${ex.failed_payments} failed payment${ex.failed_payments > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
   return (
-    <Box component="section" aria-label="Key performance indicators" sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)', lg: '1.5fr repeat(4, 1fr)' }, gap: '14px' }}>
-      <Paper sx={{ p: 2.5, gridColumn: { xs: '1 / -1', md: 'span 1', lg: 'span 1' }, background: tk.heroGradient, border: 'none', color: '#FFFFFF', display: 'flex', flexDirection: 'column', gap: 1, minHeight: 150 }}>
+    <Box component="section" aria-label="Key performance indicators" sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' }, gap: '14px' }}>
+      <Paper sx={{ p: 2.5, gridColumn: { xs: '1 / -1', md: 'span 1', lg: 'span 2' }, background: tk.heroGradient, border: 'none', color: '#FFFFFF', display: 'flex', flexDirection: 'column', gap: 1, minHeight: 150 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
           <Typography sx={{ color: '#8BD2FF', fontWeight: 500, fontSize: 15 }}>Revenue {periodWord}</Typography>
           <Chip
@@ -50,6 +50,8 @@ export default function KpiRow({ kpis }: { kpis: Kpis | undefined }) {
       <StatCard label="Active work orders" value={num(kpis.active_work_orders)} sub={`${ex.blocked} blocked · avg cycle ${kpis.avg_cycle_minutes} min`} subTone="neutral" />
       <StatCard label="Completed today" value={num(kpis.completed_today)} sub={`${kpis.cycle_delta_minutes > 0 ? '+' : ''}${kpis.cycle_delta_minutes} min vs 7-day avg`} />
       <StatCard label="Open exceptions" value={num(kpis.exceptions_count)} sub={exParts || 'All clear'} subTone="error" error />
+      <StatCard label="Active members" value={num(kpis.active_members)} sub="Gold · Platinum · Black memberships live" subTone="neutral" gold />
+      <StatCard label="Membership MRR" value={rands(kpis.membership_mrr_cents, { decimals: false })} sub="Monthly fees of active plans · renewals invoiced 3 days ahead" subTone="neutral" gold />
     </Box>
   );
 }

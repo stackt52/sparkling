@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
-/// Bottom navigation shell: Home / Bookings / Rewards / Profile (1a).
+/// Bottom navigation shell: Home / Bookings / Membership / Profile (1a).
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key, required this.shell});
 
@@ -28,9 +28,9 @@ class HomeShell extends StatelessWidget {
             label: 'Bookings',
           ),
           NavigationDestination(
-            icon: Icon(Symbols.loyalty_rounded),
-            selectedIcon: Icon(Symbols.loyalty_rounded, fill: 1),
-            label: 'Rewards',
+            icon: Icon(Symbols.workspace_premium_rounded),
+            selectedIcon: Icon(Symbols.workspace_premium_rounded, fill: 1),
+            label: 'Membership',
           ),
           NavigationDestination(
             icon: Icon(Symbols.person_rounded),

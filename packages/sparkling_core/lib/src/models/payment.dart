@@ -115,6 +115,7 @@ class Payment extends Equatable {
     required this.status,
     this.bookingId,
     this.quotationId,
+    this.membershipInvoiceId,
     this.provider = 'sandbox',
     this.providerRef,
     this.methodId,
@@ -126,11 +127,15 @@ class Payment extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.receipt,
+    this.pendingSync = false,
   });
 
   final String id;
   final String? bookingId;
   final String? quotationId;
+
+  /// Set for membership fee payments (`booking_id` stays null).
+  final String? membershipInvoiceId;
   final String customerId;
   final String provider;
   final String? providerRef;
@@ -150,12 +155,17 @@ class Payment extends Equatable {
   /// Receipt payload when included (`GET /payments/:id`).
   final Json? receipt;
 
+  /// Optimistic copy while `payment.record` is queued offline — no receipt
+  /// number until the server attests it.
+  final bool pendingSync;
+
   bool get isVerified => status.isVerified && verifiedAt != null;
 
   factory Payment.fromJson(Json json) => Payment(
     id: str(json['id']),
     bookingId: strOrNull(json['booking_id']),
     quotationId: strOrNull(json['quotation_id']),
+    membershipInvoiceId: strOrNull(json['membership_invoice_id']),
     customerId: str(json['customer_id']),
     provider: str(json['provider'], 'sandbox'),
     providerRef: strOrNull(json['provider_ref']),
@@ -170,12 +180,14 @@ class Payment extends Equatable {
     createdAt: dtOrNull(json['created_at']),
     updatedAt: dtOrNull(json['updated_at']),
     receipt: asJsonOrNull(json['receipt']),
+    pendingSync: boolOf(json['pending_sync']),
   );
 
   Json toJson() => compact({
     'id': id,
     'booking_id': bookingId,
     'quotation_id': quotationId,
+    'membership_invoice_id': membershipInvoiceId,
     'customer_id': customerId,
     'provider': provider,
     'provider_ref': providerRef,
@@ -190,6 +202,7 @@ class Payment extends Equatable {
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
     'receipt': receipt,
+    'pending_sync': pendingSync ? true : null,
   });
 
   Payment copyWith({
@@ -203,6 +216,7 @@ class Payment extends Equatable {
     id: id,
     bookingId: bookingId,
     quotationId: quotationId,
+    membershipInvoiceId: membershipInvoiceId,
     customerId: customerId,
     provider: provider,
     providerRef: providerRef,
@@ -217,6 +231,7 @@ class Payment extends Equatable {
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     receipt: receipt ?? this.receipt,
+    pendingSync: pendingSync,
   );
 
   @override
@@ -229,6 +244,7 @@ class Payment extends Equatable {
     receiptNo,
     verifiedAt,
     updatedAt,
+    pendingSync,
   ];
 }
 

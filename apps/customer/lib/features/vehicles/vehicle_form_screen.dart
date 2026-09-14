@@ -7,6 +7,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../../widgets/vehicle_size_selector.dart';
 import 'duplicate_vehicle.dart';
 
 /// Manual add / edit vehicle form (CUS-014). Scanned fields are prefilled
@@ -38,6 +39,7 @@ class _VehicleFormScreenState extends State<VehicleFormScreen> {
   late final TextEditingController _year;
   late final TextEditingController _vin;
   DateTime? _expiry;
+  VehicleSize _size = VehicleSize.small;
   bool _busy = false;
   Vehicle? _loaded;
 
@@ -55,6 +57,7 @@ class _VehicleFormScreenState extends State<VehicleFormScreen> {
     _year = TextEditingController(text: v?.year?.toString() ?? '');
     _vin = TextEditingController(text: v?.vin ?? p?.vin ?? '');
     _expiry = v?.discExpiry ?? p?.discExpiry;
+    _size = v?.sizeClass ?? VehicleSize.fromDiscDescription(p?.description);
     _loaded = v;
   }
 
@@ -78,6 +81,7 @@ class _VehicleFormScreenState extends State<VehicleFormScreen> {
         _year.text = v.year?.toString() ?? '';
         _vin.text = v.vin ?? '';
         _expiry = v.discExpiry;
+        _size = v.sizeClass;
       });
     } catch (e) {
       if (mounted) showSnack(context, describeError(e));
@@ -102,6 +106,7 @@ class _VehicleFormScreenState extends State<VehicleFormScreen> {
     discExpiry: _expiry,
     source: widget.prefill != null ? VehicleSource.scan : VehicleSource.manual,
     discHash: widget.prefill?.rawHash,
+    sizeClass: _size,
     force: force,
   );
 
@@ -294,7 +299,13 @@ class _VehicleFormScreenState extends State<VehicleFormScreen> {
                             : 'A VIN has 17 characters (no I, O, Q)';
                       },
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
+                    VehicleSizeSelector(
+                      value: _size,
+                      fromDisc: fromScan && widget.prefill?.description != null,
+                      onChanged: (s) => setState(() => _size = s),
+                    ),
+                    const SizedBox(height: 16),
                     KeyValueTile(
                       label: 'Disc expiry',
                       value: _expiry == null

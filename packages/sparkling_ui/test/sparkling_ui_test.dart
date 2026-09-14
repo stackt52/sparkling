@@ -154,6 +154,45 @@ void main() {
       expect(find.text('Gold · 1 450 pts'), findsOneWidget);
       expect(find.text('Synced 09:41'), findsOneWidget);
     });
+
+    testWidgets('Black tier pill, PlanCard and AllowanceRing render', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const Column(
+            children: [
+              TierPill(tier: LoyaltyTierKind.black, label: 'Black · 8 washes left'),
+              PlanCard(
+                tone: PlanTone.black,
+                title: 'Black',
+                tagline: 'Washes, a monthly detail and an annual coating',
+                trailing: Text('R 850 / month'),
+                child: AllowanceRing(
+                  remaining: 8,
+                  quantity: 10,
+                  title: 'Sparkling Washes',
+                  caption: '8 of 10 left · resets 5 Oct',
+                ),
+              ),
+              PlanCard(tone: PlanTone.platinum, title: 'Platinum', selected: true),
+              PlanCard(tone: PlanTone.gold, pillLabel: 'Gold member'),
+            ],
+          ),
+        ),
+      );
+      expect(find.text('Black · 8 washes left'), findsOneWidget);
+      expect(find.text('BLACK'), findsOneWidget);
+      expect(find.text('R 850 / month'), findsOneWidget);
+      expect(find.text('8/10'), findsOneWidget);
+      expect(find.text('8 of 10 left · resets 5 Oct'), findsOneWidget);
+      expect(find.text('PLATINUM'), findsOneWidget);
+      expect(find.text('Gold member'), findsOneWidget);
+      expect(PlanTone.forTier(LoyaltyTierKind.black), PlanTone.black);
+      expect(PlanTone.forKey('platinum'), PlanTone.platinum);
+      expect(PlanTone.forKey(null), PlanTone.gold);
+      expect(TierPill.nameOf(LoyaltyTierKind.black), 'Black');
+    });
   });
 
   group('ProgressRing', () {

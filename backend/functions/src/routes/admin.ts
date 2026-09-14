@@ -5,16 +5,19 @@ import { z } from 'zod';
 import { firebaseAuth } from '../lib/firebase.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
-import { isoDate, isoDateTime, pagination, parseBody, parseQuery, uuid } from '../lib/validate.js';
+import { isoDate, isoDateTime, pagination, parseBody, parseQuery, pricingMode, uuid, vatMode } from '../lib/validate.js';
 import { canSeeOutlet, requireAdmin, requireProfile, requireRole } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { audit } from '../services/audit.js';
 import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, listAdminPayments, REPORTS, staffPerformance, type ReportName } from '../services/admin.js';
+import { createService, deleteOutletService, listAdminOutletOffers, listServicesWithComponents, updateService, upsertOutletService } from '../services/catalogueAdmin.js';
 import { integrationStatus } from '../services/integrations.js';
 import { getFlags, invalidateFlags } from '../services/flags.js';
 import { resendNotification } from '../services/notifications.js';
 import { listInventory } from './inventory.js';
-import type { LoyaltyConfig, Profile, UserRole } from '../types.js';
+import { enrolSchema, recordPaymentSchema } from './staffMemberships.js';
+import { cancelMembership, enrolAtCounter, listMembers, loadPlans, membershipSummary, planStats, recordInvoicePayment, runRenewals, updatePlan } from '../services/memberships.js';
+import type { LoyaltyConfig, MembershipStatus, Profile, UserRole } from '../types.js';
 import { STAFF_ROLES } from '../types.js';
 
 export const adminRouter = Router();
@@ -153,42 +156,52 @@ adminRouter.delete('/admin/outlets/:id', requireAdmin, asyncHandler(async (req, 
   res.status(204).end();
 }));
 
+const componentInput = z.object({ child_service_id: uuid, quantity: z.number().int().min(1).max(99).optional(), sort_order: z.number().int().optional() });
+const serviceGroup = z.enum(['Car Wash Options', 'Combinations', 'Auto Body Repair']);
+const priceCents = z.number().int().min(0).max(100_000_000).nullable();
+
+/** Canonical service fields (catalogue pricing model, migration 0008). `components` replaces the global composition set. */
 const serviceSchema = z.object({
-  code: z.string().trim().min(2).max(16).toUpperCase(),
-  name: z.string().trim().min(2).max(80),
+  code: z.string().trim().min(2).max(40).toUpperCase(),
+  name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(500).nullable().optional(),
   category: z.enum(['car_wash', 'auto_body']),
   duration_minutes: z.number().int().min(5).max(24 * 60),
-  base_price_cents: z.number().int().min(0),
-  is_quote_based: z.boolean().default(false),
+  base_price_cents: z.number().int().min(0).optional(),
+  is_quote_based: z.boolean().optional(),
   points_per_rand: z.number().min(0).max(10).optional(),
   icon: z.string().max(60).nullable().optional(),
   checklist_template_id: uuid.nullable().optional(),
   is_active: z.boolean().optional(),
   sort_order: z.number().int().optional(),
+  group_name: serviceGroup.optional(),
+  pricing_mode: pricingMode.optional(),
+  vat_mode: vatMode.optional(),
+  price_small_cents: priceCents.optional(),
+  price_large_cents: priceCents.optional(),
+  price_general_cents: priceCents.optional(),
+  is_addon: z.boolean().optional(),
+  addon_group_name: serviceGroup.nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+  components: z.array(componentInput).max(50).nullable().optional(),
 });
 
 adminRouter.get('/admin/services', managerFinance, asyncHandler(async (_req, res) => {
-  res.json({ data: unwrap<unknown[]>(await getSupabase().from('services').select('*').order('sort_order'), 'services') });
+  res.json({ data: await listServicesWithComponents() });
 }));
 
 adminRouter.post('/admin/services', requireAdmin, asyncHandler(async (req, res) => {
-  const body = parseBody(serviceSchema, req.body);
-  const row = unwrap<Record<string, unknown>>(await getSupabase().from('services').insert(body).select('*').single(), 'create service');
-  await audit(req.ctx, { action: 'service.create', entity_type: 'service', entity_id: String(row.id), after: body });
-  res.status(201).json({ service: row });
+  const { components, ...fields } = parseBody(serviceSchema, req.body);
+  res.status(201).json({ service: await createService(req.ctx, fields, components) });
 }));
 
-adminRouter.patch('/admin/services/:id', requireAdmin, asyncHandler(async (req, res) => {
+const updateService_ = asyncHandler(async (req, res) => {
   const id = uuid.parse(req.params.id);
-  const body = parseBody(serviceSchema.partial(), req.body);
-  const db = getSupabase();
-  const before = unwrap<Record<string, unknown> | null>(await db.from('services').select('*').eq('id', id).maybeSingle(), 'service');
-  if (!before) throw ApiError.notFound('Service');
-  const row = unwrap<Record<string, unknown>>(await db.from('services').update(body).eq('id', id).select('*').single(), 'update service');
-  await audit(req.ctx, { action: 'service.update', entity_type: 'service', entity_id: id, before, after: body });
-  res.json({ service: row });
-}));
+  const { components, ...fields } = parseBody(serviceSchema.partial(), req.body);
+  res.json({ service: await updateService(req.ctx, id, fields, components) });
+});
+adminRouter.put('/admin/services/:id', requireAdmin, updateService_);
+adminRouter.patch('/admin/services/:id', requireAdmin, updateService_);
 
 adminRouter.delete('/admin/services/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = uuid.parse(req.params.id);
@@ -197,39 +210,50 @@ adminRouter.delete('/admin/services/:id', requireAdmin, asyncHandler(async (req,
   res.status(204).end();
 }));
 
+/** Outlet offers incl. unavailable bindings, composition resolved (`components_source: outlet|global|none`). */
 adminRouter.get('/admin/outlets/:id/services', managerFinance, asyncHandler(async (req, res) => {
   const id = uuid.parse(req.params.id);
-  res.json({ data: unwrap<unknown[]>(await getSupabase().from('outlet_services').select('*, service:services(*)').eq('outlet_id', id), 'outlet services') });
+  if (!canSeeOutlet(req.auth!, id)) throw ApiError.forbidden('Outlet is outside your scope');
+  const { offers, groups } = await listAdminOutletOffers(id);
+  res.json({ data: offers, groups });
 }));
 
 /** Whole outlet × service matrix (catalogue data). `outlet_id` narrows to one visible outlet. */
 adminRouter.get('/admin/outlet-services', managerFinance, asyncHandler(async (req, res) => {
   const q = parseQuery(z.object({ outlet_id: uuid.optional() }), req.query);
   if (q.outlet_id && !canSeeOutlet(req.auth!, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
-  let query = getSupabase().from('outlet_services').select('outlet_id, service_id, price_cents, is_available').order('outlet_id').order('service_id');
+  let query = getSupabase().from('outlet_services').select('outlet_id, service_id, price_cents, is_available, display_name, price_small_cents, price_large_cents, price_general_cents, pricing_mode, vat_mode, sort_order').order('outlet_id').order('service_id');
   if (q.outlet_id) query = query.eq('outlet_id', q.outlet_id);
   res.json({ data: unwrap<unknown[]>(await query, 'outlet services') });
 }));
 
+const outletServiceSchema = z.object({
+  display_name: z.string().trim().min(1).max(160).nullable().optional(),
+  price_small_cents: priceCents.optional(),
+  price_large_cents: priceCents.optional(),
+  price_general_cents: priceCents.optional(),
+  pricing_mode: pricingMode.nullable().optional(),
+  vat_mode: vatMode.nullable().optional(),
+  is_available: z.boolean().optional(),
+  sort_order: z.number().int().nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+  /** Legacy single price (pre-0008 admin clients). */
+  price_cents: priceCents.optional(),
+  /** Outlet-specific composition; `null` drops the outlet set so the global default applies. */
+  components: z.array(componentInput).max(50).nullable().optional(),
+});
+
 adminRouter.put('/admin/outlets/:id/services/:serviceId', requireAdmin, asyncHandler(async (req, res) => {
   const outletId = uuid.parse(req.params.id);
   const serviceId = uuid.parse(req.params.serviceId);
-  const body = parseBody(z.object({ price_cents: z.number().int().min(0).nullable().optional(), is_available: z.boolean().optional() }), req.body);
-  const db = getSupabase();
-  const before = await db.from('outlet_services').select('*').eq('outlet_id', outletId).eq('service_id', serviceId).maybeSingle();
-  const row = unwrap<Record<string, unknown>>(
-    await db.from('outlet_services').upsert({ outlet_id: outletId, service_id: serviceId, ...body }, { onConflict: 'outlet_id,service_id' }).select('*').single(),
-    'outlet service',
-  );
-  await audit(req.ctx, { action: 'outlet_service.upsert', entity_type: 'outlet_service', entity_id: `${outletId}:${serviceId}`, outlet_id: outletId, before: before.data ?? null, after: body });
-  res.json({ outlet_service: row });
+  const { components, ...fields } = parseBody(outletServiceSchema, req.body);
+  res.json({ outlet_service: await upsertOutletService(req.ctx, outletId, serviceId, fields, components) });
 }));
 
 adminRouter.delete('/admin/outlets/:id/services/:serviceId', requireAdmin, asyncHandler(async (req, res) => {
   const outletId = uuid.parse(req.params.id);
   const serviceId = uuid.parse(req.params.serviceId);
-  await getSupabase().from('outlet_services').delete().eq('outlet_id', outletId).eq('service_id', serviceId);
-  await audit(req.ctx, { action: 'outlet_service.delete', entity_type: 'outlet_service', entity_id: `${outletId}:${serviceId}`, outlet_id: outletId });
+  await deleteOutletService(req.ctx, outletId, serviceId);
   res.status(204).end();
 }));
 
@@ -390,15 +414,16 @@ adminRouter.get('/admin/customers/:id', managerPlus, asyncHandler(async (req, re
   const db = getSupabase();
   const customer = unwrap<Profile | null>(await db.from('profiles').select('*').eq('id', id).eq('role', 'customer').maybeSingle(), 'customer');
   if (!customer) throw ApiError.notFound('Customer');
-  const [vehicles, bookings, account, ledger, payments] = await Promise.all([
+  const [vehicles, bookings, account, ledger, payments, membership] = await Promise.all([
     db.from('vehicles').select('*').eq('customer_id', id).eq('is_active', true),
     db.from('bookings').select('*, outlet:outlets(name), service:services(name)').eq('customer_id', id).order('slot_start', { ascending: false }).limit(20),
     db.from('loyalty_accounts').select('*').eq('customer_id', id).maybeSingle(),
     db.from('loyalty_ledger').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
-    db.from('payments').select('id, status, amount_cents, receipt_no, created_at, booking_id').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
+    db.from('payments').select('id, status, amount_cents, receipt_no, created_at, booking_id, membership_invoice_id').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
+    membershipSummary(id),
   ]);
   await audit(req.ctx, { action: 'customer.view', entity_type: 'profile', entity_id: id });
-  res.json({ customer, vehicles: vehicles.data ?? [], bookings: bookings.data ?? [], loyalty_account: account.data ?? null, ledger: ledger.data ?? [], payments: payments.data ?? [] });
+  res.json({ customer, vehicles: vehicles.data ?? [], bookings: bookings.data ?? [], loyalty_account: account.data ?? null, ledger: ledger.data ?? [], payments: payments.data ?? [], membership });
 }));
 
 // ---------------------------------------------------------------------------
@@ -406,7 +431,7 @@ adminRouter.get('/admin/customers/:id', managerPlus, asyncHandler(async (req, re
 // ---------------------------------------------------------------------------
 
 const tierSchema = z.object({
-  tier: z.enum(['silver', 'gold', 'platinum']),
+  tier: z.enum(['silver', 'gold', 'platinum', 'black']),
   name: z.string().trim().min(1).max(40),
   min_points: z.number().int().min(0),
   max_points: z.number().int().min(0).nullable(),
@@ -470,6 +495,89 @@ adminRouter.post('/admin/loyalty/config/discard', managerPlus, asyncHandler(asyn
   await db.from('loyalty_configs').delete().eq('id', draft.id);
   await audit(req.ctx, { action: 'loyalty_config.discard', entity_type: 'loyalty_config', entity_id: draft.id, before: { version: draft.version } });
   res.json({ discarded: { id: draft.id, version: draft.version } });
+}));
+
+// ---------------------------------------------------------------------------
+// Membership plans & members (docs/MEMBERSHIPS.md — admin; every write audited)
+// ---------------------------------------------------------------------------
+
+const membershipStatusEnum = z.enum(['pending', 'active', 'past_due', 'cancelled', 'expired']);
+const planEntitlementSchema = z.object({
+  code: z.string().trim().min(1).max(16),
+  label: z.string().trim().min(1).max(120),
+  quantity: z.number().int().min(1).max(999),
+  period: z.enum(['month', 'year']).default('month'),
+  sort_order: z.number().int().optional(),
+  service_codes: z.array(z.string().trim().min(1).max(40).toUpperCase()).min(1).max(20),
+});
+const planGroupSchema = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+  selection: z.enum(['choose_one', 'all']).default('choose_one'),
+  sort_order: z.number().int().optional(),
+  entitlements: z.array(planEntitlementSchema).min(1).max(20),
+});
+const planSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  tagline: z.string().trim().max(200).nullable().optional(),
+  monthly_fee_cents: z.number().int().min(1).max(100_000_000),
+  discount_pct: z.number().min(0).max(100),
+  discount_scope: z.enum(['plan_services', 'other_services', 'all_services', 'none']),
+  discount_note: z.string().trim().max(200).nullable().optional(),
+  color: z.string().trim().max(40).nullable().optional(),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+  groups: z.array(planGroupSchema).max(10),
+});
+
+adminRouter.get('/admin/memberships/plans', managerFinance, asyncHandler(async (_req, res) => {
+  const [plans, stats] = await Promise.all([loadPlans({ includeInactive: true }), planStats()]);
+  res.json({ data: plans.map((p) => ({ ...p, ...(stats.get(p.id) ?? { member_count: 0, mrr_cents: 0 }) })) });
+}));
+
+adminRouter.put('/admin/memberships/plans/:code', managerPlus, asyncHandler(async (req, res) => {
+  const code = z.string().trim().min(2).max(40).toLowerCase().parse(req.params.code);
+  const body = parseBody(planSchema, req.body);
+  const plan = await updatePlan(req.ctx, code, body);
+  const stats = (await planStats()).get(plan.id) ?? { member_count: 0, mrr_cents: 0 };
+  res.json({ plan: { ...plan, ...stats } });
+}));
+
+adminRouter.get('/admin/memberships', managerFinance, asyncHandler(async (req, res) => {
+  const q = parseQuery(pagination.extend({ status: z.string().optional(), plan_code: z.string().max(40).optional(), q: z.string().max(80).optional() }), req.query);
+  const statuses = q.status ? q.status.split(',').map((s) => membershipStatusEnum.parse(s.trim()) as MembershipStatus) : undefined;
+  const offset = decodeCursor(q.cursor);
+  const rows = await listMembers({ status: statuses, planCode: q.plan_code, q: q.q });
+  res.json(pageResult(rows.slice(offset, offset + q.limit + 1), q.limit, offset));
+}));
+
+adminRouter.post('/admin/memberships/run-renewals', managerPlus, asyncHandler(async (req, res) => {
+  const result = await runRenewals();
+  await audit(req.ctx, { action: 'membership.run_renewals', entity_type: 'membership', after: { ...result, errors: result.errors.length } });
+  res.json(result);
+}));
+
+adminRouter.post('/admin/customers/:id/membership', managerPlus, asyncHandler(async (req, res) => {
+  const id = z.string().min(1).max(128).parse(req.params.id);
+  const body = parseBody(enrolSchema, req.body);
+  const customer = unwrap<Profile | null>(await getSupabase().from('profiles').select('*').eq('id', id).eq('role', 'customer').maybeSingle(), 'customer');
+  if (!customer || !customer.is_active) throw ApiError.notFound('Customer');
+  const r = await enrolAtCounter(req.ctx, { customerId: customer.id, planCode: body.plan_code, selections: body.selections, paymentMethod: body.payment_method, clientOpId: body.client_op_id, reference: body.reference ?? null, outletId: body.outlet_id ?? null });
+  res.status(r.duplicate ? 200 : 201).json({ membership: r.membership, invoice: r.invoice, payment: r.payment, duplicate: r.duplicate, summary: await membershipSummary(customer.id) });
+}));
+
+adminRouter.post('/admin/memberships/:id/cancel', managerPlus, asyncHandler(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const body = parseBody(z.object({ at_period_end: z.boolean().default(true), reason: z.string().trim().max(500).nullable().optional() }), req.body);
+  res.json({ membership: await cancelMembership(req.ctx, id, { atPeriodEnd: body.at_period_end, reason: body.reason ?? null }) });
+}));
+
+adminRouter.post('/admin/memberships/:id/invoices/:invoiceId/record-payment', managerPlus, asyncHandler(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const invoiceId = uuid.parse(req.params.invoiceId);
+  const body = parseBody(recordPaymentSchema, req.body);
+  const r = await recordInvoicePayment(req.ctx, id, invoiceId, { method: body.method, clientOpId: body.client_op_id, reference: body.reference ?? null, outletId: body.outlet_id ?? null });
+  res.status(r.duplicate ? 200 : 201).json(r);
 }));
 
 // ---------------------------------------------------------------------------

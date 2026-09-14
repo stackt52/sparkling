@@ -7,10 +7,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { clientOpId, isoDateTime, parseBody, uuid } from '../lib/validate.js';
+import { clientOpId, isoDateTime, parseBody, uuid, vehicleSize } from '../lib/validate.js';
 import { requireProfile } from '../middleware/auth.js';
 import { ApiError, asyncHandler, toApiError } from '../middleware/errors.js';
-import { createBooking } from '../services/bookings.js';
+import { checkInBooking, createBooking } from '../services/bookings.js';
+import { enrolAtCounter } from '../services/memberships.js';
+import { isStaff } from '../middleware/auth.js';
+import { recordPosPayment } from '../services/payments.js';
 import { recordMovement } from '../services/inventory.js';
 import { createQuotation } from '../services/quotations.js';
 import { createVehicle } from '../services/vehicles.js';
@@ -21,7 +24,7 @@ import { vehicleSchema } from './vehicles.js';
 export const syncRouter = Router();
 syncRouter.use('/sync', requireProfile);
 
-export const SYNC_KINDS = ['task.transition', 'step.result', 'inventory.movement', 'booking.create', 'quotation.create', 'vehicle.create'] as const;
+export const SYNC_KINDS = ['task.transition', 'step.result', 'inventory.movement', 'booking.create', 'booking.create_walk_in', 'payment.record', 'quotation.create', 'vehicle.create', 'membership.enrol'] as const;
 export type SyncKind = (typeof SYNC_KINDS)[number];
 
 const opSchema = z.object({
@@ -61,6 +64,8 @@ const payloadSchemas: Record<SyncKind, z.ZodTypeAny> = {
     service_id: uuid,
     slot_start: isoDateTime,
     notes: z.string().max(500).nullable().optional(),
+    vehicle_size: vehicleSize.optional(),
+    addon_service_ids: z.array(uuid).max(10).optional(),
   }),
   'quotation.create': z.object({
     vehicle_id: uuid,
@@ -70,7 +75,51 @@ const payloadSchemas: Record<SyncKind, z.ZodTypeAny> = {
     attachment_ids: z.array(uuid).max(10).optional(),
   }),
   'vehicle.create': vehicleSchema.omit({ client_op_id: true }),
+  // Staff walk-in booking queued offline (STF-012); same body as POST /bookings with walk_in.
+  'booking.create_walk_in': z.object({
+    customer_id: z.string().min(1).max(128),
+    vehicle_id: uuid,
+    outlet_id: uuid,
+    service_id: uuid,
+    slot_start: isoDateTime.nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+    checkin: z.object({ bay: z.string().trim().max(32).nullable().optional(), priority: z.number().int().min(1).max(3).optional() }).nullable().optional(),
+    vehicle_size: vehicleSize.optional(),
+    addon_service_ids: z.array(uuid).max(10).optional(),
+  }),
+  // POS payment attestation queued offline. `booking_client_op_id` lets a payment reference a
+  // booking created earlier in the same batch (its server id was unknown on the device).
+  'payment.record': z
+    .object({
+      booking_id: z.string().min(1).max(128).optional(),
+      booking_client_op_id: clientOpId.optional(),
+      method: z.enum(['cash', 'card_terminal']),
+      reference: z.string().max(120).nullable().optional(),
+      amount_cents: z.number().int().min(0),
+      idempotency_key: z.string().min(8).max(128),
+    })
+    .refine((v) => v.booking_id || v.booking_client_op_id, { message: 'booking_id or booking_client_op_id is required' }),
+  // Counter enrolment queued offline (docs/MEMBERSHIPS.md); same payload as POST /staff/customers/:id/membership.
+  'membership.enrol': z.object({
+    customer_id: z.string().min(1).max(128),
+    plan_code: z.string().trim().min(2).max(40),
+    selections: z.record(z.string().trim().min(1).max(40)).default({}),
+    payment_method: z.enum(['cash', 'card_terminal', 'eft']),
+    reference: z.string().max(120).nullable().optional(),
+    outlet_id: uuid.optional(),
+  }),
 };
+
+/** Resolves a device-side booking reference (server id or the booking's client_op_id) to a server id. */
+async function resolveBookingId(p: { booking_id?: string; booking_client_op_id?: string }): Promise<string> {
+  const db = getSupabase();
+  if (p.booking_id && !p.booking_id.startsWith('pending_')) return p.booking_id;
+  const key = p.booking_client_op_id ?? (p.booking_id ? p.booking_id.replace(/^pending_/, '') : undefined);
+  if (!key) throw ApiError.validation('booking reference missing', [{ path: 'booking_id', message: 'Required' }]);
+  const row = unwrap<{ id: string } | null>(await db.from('bookings').select('id').eq('client_op_id', key).maybeSingle(), 'booking by client_op_id');
+  if (!row) throw ApiError.conflict('Booking for this payment has not been created yet', { booking_client_op_id: key });
+  return row.id;
+}
 
 export interface SyncOpResult {
   client_op_id: string;
@@ -111,7 +160,7 @@ export async function applyOperation(ctx: RequestContext, op: z.infer<typeof opS
         break;
       }
       case 'booking.create': {
-        const r = await createBooking(ctx, { vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start, notes: p.notes, clientOpId: op.client_op_id });
+        const r = await createBooking(ctx, { vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start, notes: p.notes, clientOpId: op.client_op_id, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids });
         result = r;
         break;
       }
@@ -122,6 +171,27 @@ export async function applyOperation(ctx: RequestContext, op: z.infer<typeof opS
       }
       case 'vehicle.create': {
         const r = await createVehicle(ctx, { ...p, client_op_id: op.client_op_id });
+        result = r;
+        break;
+      }
+      case 'booking.create_walk_in': {
+        const r = await createBooking(ctx, { customerId: p.customer_id, vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start ?? null, notes: p.notes, clientOpId: op.client_op_id, walkIn: true, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids });
+        let checked: unknown;
+        if (p.checkin && !r.duplicate && ['pending', 'confirmed'].includes(r.booking.status)) {
+          checked = await checkInBooking(ctx, r.booking.id, p.checkin);
+        }
+        result = { ...r, ...(checked ? { checkin: checked } : {}) };
+        break;
+      }
+      case 'payment.record': {
+        const bookingId = await resolveBookingId(p);
+        const r = await recordPosPayment(ctx, { bookingId, method: p.method, reference: p.reference ?? null, amountCents: p.amount_cents, idempotencyKey: p.idempotency_key });
+        result = r;
+        break;
+      }
+      case 'membership.enrol': {
+        if (!isStaff(ctx.auth.role)) throw ApiError.forbidden('Counter enrolment is staff-only');
+        const r = await enrolAtCounter(ctx, { customerId: p.customer_id, planCode: p.plan_code, selections: p.selections, paymentMethod: p.payment_method, clientOpId: op.client_op_id, reference: p.reference ?? null, outletId: p.outlet_id ?? null });
         result = r;
         break;
       }

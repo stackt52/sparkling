@@ -46,10 +46,16 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final outlets = await repos.catalogue.outlets();
       if (outlets.isEmpty) return null;
-      final services = await repos.catalogue.outletServices(outlets.first.id);
-      final prices = services
-          .where((s) => s.category == ServiceCategory.carWash && s.isAvailable)
-          .map((s) => s.priceCents);
+      final catalogue = await repos.catalogue.outletServices(outlets.first.id);
+      final prices = catalogue.offers
+          .where(
+            (s) =>
+                s.category == ServiceCategory.carWash &&
+                s.isAvailable &&
+                !s.isAddon,
+          )
+          .map((s) => s.priceFromCents)
+          .whereType<int>();
       return prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b);
     } catch (_) {
       return null;
@@ -279,11 +285,20 @@ class _Greeting extends StatelessWidget {
             if (acc == null) return const SizedBox.shrink();
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: TierPill(
-                tier: tierKind(acc.tier),
-                label:
-                    '${acc.tier.label} · ${Money.formatPointsLabel(acc.balance)}',
-                onTap: () => context.go(Routes.loyalty),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 190),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: TierPill(
+                    key: const ValueKey('home-plan-pill'),
+                    tier: tierKind(acc.tier),
+                    label:
+                        acc.membership?.shortLabel ??
+                        '${acc.tier.label} · ${Money.formatPointsLabel(acc.balance)}',
+                    onTap: () => context.go(Routes.membership),
+                  ),
+                ),
               ),
             );
           },

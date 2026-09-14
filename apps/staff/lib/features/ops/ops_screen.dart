@@ -15,6 +15,7 @@ import '../../widgets/kpi_tile.dart';
 import '../../widgets/live_sync_chip.dart';
 import '../../widgets/screen_header.dart';
 import '../checklist/handover_sheet.dart';
+import '../quote/quote_widgets.dart';
 import 'assign_sheet.dart';
 
 /// Attention filter (STF-061).
@@ -32,7 +33,9 @@ class OpsScreen extends StatefulWidget {
 class _OpsScreenState extends State<OpsScreen> {
   StreamSubscription<OpsSummary>? _sub;
   StreamSubscription<List<Task>>? _doneSub;
+  StreamSubscription<List<Quotation>>? _quotesSub;
   List<Task> _done = const [];
+  List<Quotation> _quotes = const [];
   OpsSummary? _summary;
   Object? _error;
   OpsFilter _filter = OpsFilter.all;
@@ -52,6 +55,16 @@ class _OpsScreenState extends State<OpsScreen> {
           },
           onError: (Object _) {
             // The KPI stream surfaces errors; the done list is supplementary.
+          },
+        );
+    _quotesSub ??= context.repositories.staff
+        .watchQuotations(outletId: context.session.outletId)
+        .listen(
+          (list) {
+            if (mounted) setState(() => _quotes = list);
+          },
+          onError: (Object _) {
+            // Supplementary section; the KPI stream surfaces errors.
           },
         );
     _outlet ??= context.repositories.catalogue.outlet(context.session.outletId);
@@ -82,6 +95,7 @@ class _OpsScreenState extends State<OpsScreen> {
   void dispose() {
     _sub?.cancel();
     _doneSub?.cancel();
+    _quotesSub?.cancel();
     super.dispose();
   }
 
@@ -312,6 +326,47 @@ class _OpsScreenState extends State<OpsScreen> {
             filter: _filter,
             onToggle: _toggleFilter,
           );
+          final quickActions = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _QuickAction(
+                key: const ValueKey('ops-walk-in'),
+                icon: Symbols.person_add_rounded,
+                title: 'Walk-in booking',
+                subtitle: 'Register a customer, book and check in at the counter',
+                onTap: () => context.push(Routes.walkIn),
+              ),
+              const SizedBox(height: 10),
+              _QuickAction(
+                key: const ValueKey('ops-raise-quote'),
+                icon: Symbols.request_quote_rounded,
+                title: 'Raise quote',
+                subtitle: 'Itemised repair quote with photos, sent on WhatsApp',
+                onTap: () => context.push(Routes.quoteNew),
+              ),
+            ],
+          );
+          final recentQuotes = _quotes.take(5).toList();
+          final quotes = <Widget>[
+            SectionHeader(
+              title: 'Quotes',
+              trailing: Text(
+                '${_quotes.where((q) => q.status == QuotationStatus.quoted).length} awaiting',
+                style: SparklingTypography.bodyLarge.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (recentQuotes.isEmpty)
+              const ListTileCard(
+                title: Text('No quotes yet'),
+                subtitle: Text('Raise one from the quick action above.'),
+              ),
+            for (final q in recentQuotes) ...[
+              _QuoteRow(quotation: q),
+              const SizedBox(height: 10),
+            ],
+          ];
           final attention = <Widget>[
             SectionHeader(
               title: 'Needs attention',
@@ -410,10 +465,14 @@ class _OpsScreenState extends State<OpsScreen> {
                           padding: const EdgeInsets.fromLTRB(20, 0, 10, 24),
                           children: [
                             kpis,
+                            const SizedBox(height: 14),
+                            quickActions,
                             const SizedBox(height: 24),
                             ...attention,
                             const SizedBox(height: 12),
                             ...doneList,
+                            const SizedBox(height: 12),
+                            ...quotes,
                           ],
                         ),
                       ),
@@ -442,10 +501,14 @@ class _OpsScreenState extends State<OpsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     kpis,
+                    const SizedBox(height: 14),
+                    quickActions,
                     const SizedBox(height: 24),
                     ...attention,
                     const SizedBox(height: 12),
                     ...doneList,
+                    const SizedBox(height: 12),
+                    ...quotes,
                     const SizedBox(height: 12),
                     ...team,
                   ],
@@ -748,6 +811,87 @@ class _DoneRow extends StatelessWidget {
               onPressed: onHandover,
             )
           : null,
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListTileCard(
+    onTap: onTap,
+    padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+    leading: Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: context.colors.primaryContainer,
+        borderRadius: BorderRadius.circular(SparklingShapes.iconTileSmall),
+      ),
+      child: Icon(icon, color: context.colors.onPrimaryContainer, fill: 1),
+    ),
+    title: Text(title),
+    subtitle: Text(subtitle),
+    trailing: Icon(
+      Symbols.chevron_right_rounded,
+      color: context.colors.onSurfaceVariant,
+    ),
+  );
+}
+
+/// Recent outlet quotation with its status chip → `/quotes/:id`.
+class _QuoteRow extends StatelessWidget {
+  const _QuoteRow({required this.quotation});
+  final Quotation quotation;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final q = quotation;
+    return ListTileCard(
+      key: ValueKey('ops-quote-${q.id}'),
+      onTap: () => context.push(Routes.quoteDetail(q.id)),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: cs.secondaryContainer,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Symbols.request_quote_rounded,
+          color: cs.onSecondaryContainer,
+          fill: 1,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        '${q.ref} · ${q.amountCents == null ? q.category : Money.formatZar(q.amountCents!)}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        [q.customerName, q.vehicleLabel].whereType<String>().join(' · '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: StatusChip(
+        label: q.isExpired ? 'Expired' : q.status.label,
+        tone: q.isExpired ? StatusChipTone.error : quotationTone(q.status),
+        dense: true,
+      ),
     );
   }
 }

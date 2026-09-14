@@ -2,12 +2,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { isoDate, parseQuery, uuid } from '../lib/validate.js';
+import { isoDate, parseQuery, uuid, vehicleSize } from '../lib/validate.js';
 import { requireProfile } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/errors.js';
 import { getSlots } from '../services/availability.js';
+import { listOutletOffers } from '../services/catalogue.js';
+import { benefitFor, loadContext } from '../services/memberships.js';
 import { computePrice, getCustomerTier, getPublishedLoyaltyConfig, tierFor } from '../services/pricing.js';
-import type { Outlet, Service } from '../types.js';
+import type { Outlet } from '../types.js';
 
 export const catalogueRouter = Router();
 catalogueRouter.use(['/outlets', '/availability'], requireProfile);
@@ -42,36 +44,20 @@ catalogueRouter.get(
   '/outlets/:id/services',
   asyncHandler(async (req, res) => {
     const outletId = uuid.parse(req.params.id);
-    const db = getSupabase();
-    const [rows, cfg, tier] = await Promise.all([
-      db.from('outlet_services').select('price_cents, is_available, services(*)').eq('outlet_id', outletId).eq('is_available', true),
-      getPublishedLoyaltyConfig(),
-      getCustomerTier(req.auth!.uid),
-    ]);
-    const list = unwrap<Array<{ price_cents: number | null; is_available: boolean; services: Service }>>(rows, 'outlet services');
+    const q = parseQuery(z.object({ vehicle_size: vehicleSize.optional() }), req.query);
+    const [cfg, tier, membership] = await Promise.all([getPublishedLoyaltyConfig(), getCustomerTier(req.auth!.uid), q.vehicle_size ? loadContext(req.auth!.uid) : Promise.resolve(null)]);
     const tierCfg = tierFor(cfg, tier);
-    const data = list
-      .filter((r) => r.services && r.services.is_active)
-      .map((r) => {
-        const s = r.services;
-        const quote = computePrice({
-          basePriceCents: s.base_price_cents,
-          outletPriceCents: r.price_cents,
-          tier,
-          tierConfig: tierCfg,
-          pointsPerRand: Number(cfg?.rules?.points_per_rand ?? s.points_per_rand ?? 0.1),
-        });
-        return {
-          ...s,
-          price_cents: quote.price_cents,
-          discount_cents: quote.discount_cents,
-          total_cents: quote.total_cents,
-          discount_label: quote.discount_label,
-          points_estimate: quote.points_pending,
-        };
-      })
-      .sort((a, b) => a.sort_order - b.sort_order);
-    res.json({ data, tier });
+    const pointsPerRand = cfg?.rules?.points_per_rand;
+    const { offers, groups } = await listOutletOffers(outletId, { vehicleSize: q.vehicle_size ?? null, pointsPerRand: pointsPerRand === undefined ? null : Number(pointsPerRand) });
+    const data = offers.map((offer) => {
+      if (!q.vehicle_size) return offer;
+      // Resolved for the caller's vehicle size and tier (kept for older clients that read price_cents).
+      const price = offer.price_for[q.vehicle_size];
+      if (price === null) return { ...offer, price_cents: null, discount_cents: 0, total_cents: null, discount_label: null };
+      const quote = computePrice({ basePriceCents: price, vehicleSize: q.vehicle_size, pricingMode: offer.pricing_mode, vatMode: offer.vat_mode, tier, tierConfig: tierCfg, pointsPerRand: Number(pointsPerRand ?? 0.1), membership: benefitFor(offer.service_id, membership) });
+      return { ...offer, price_cents: quote.price_cents, discount_cents: quote.discount_cents, vat_cents: quote.vat_cents, total_cents: quote.total_cents, discount_label: quote.discount_label, points_estimate: quote.points_pending, price_label: quote.label, membership: quote.membership };
+    });
+    res.json({ data, groups, tier, vehicle_size: q.vehicle_size ?? null, membership: membership ? { plan_code: membership.plan.code, plan_name: membership.plan.name, status: membership.membership.status } : null });
   }),
 );
 

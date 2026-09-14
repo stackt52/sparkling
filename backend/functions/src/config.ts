@@ -26,6 +26,10 @@ export const twilioWhatsAppFromParam = defineString('TWILIO_WHATSAPP_FROM', { de
 export const publicApiBaseUrlParam = defineString('PUBLIC_API_BASE_URL', { default: '' });
 /** `twilio` | `sandbox`; defaults to twilio when the Twilio secrets are set, else sandbox. */
 export const whatsappProviderParam = defineString('WHATSAPP_PROVIDER', { default: '' });
+/** Origin of the public quote page (admin app); empty → no public link in notifications, `public_url` is null. */
+export const publicWebBaseUrlParam = defineString('PUBLIC_WEB_BASE_URL', { default: '' });
+/** Cloud Storage bucket for attachments; defaults to the project's default bucket (FIREBASE_CONFIG or <project>.firebasestorage.app). */
+export const DEFAULT_STORAGE_BUCKET = `${FIREBASE_PROJECT_ID}.firebasestorage.app`;
 
 /** True while the Firebase CLI loads the code to discover functions (no runtime values exist yet). */
 const isDeployDiscovery = (): boolean => process.env.FUNCTIONS_CONTROL_API === 'true';
@@ -67,6 +71,20 @@ export const config = {
   },
   get publicApiBaseUrl(): string {
     return readParam('PUBLIC_API_BASE_URL', '', publicApiBaseUrlParam).replace(/\/+$/, '');
+  },
+  get publicWebBaseUrl(): string {
+    return readParam('PUBLIC_WEB_BASE_URL', '', publicWebBaseUrlParam).trim().replace(/\/+$/, '');
+  },
+  get storageBucket(): string {
+    const env = process.env.STORAGE_BUCKET;
+    if (env) return env;
+    try {
+      const fc = process.env.FIREBASE_CONFIG ? (JSON.parse(process.env.FIREBASE_CONFIG) as { storageBucket?: string }) : null;
+      if (fc?.storageBucket) return fc.storageBucket;
+    } catch {
+      /* malformed FIREBASE_CONFIG: fall through */
+    }
+    return DEFAULT_STORAGE_BUCKET;
   },
   get twilioConfigured(): boolean {
     return this.twilioAccountSid.length > 0 && this.twilioAuthToken.length > 0;

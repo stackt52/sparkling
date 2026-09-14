@@ -9,6 +9,11 @@ service firebase.storage {
       allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
       allow write: if isSignedIn() && request.auth.uid == uid && request.resource.size < 15 * 1024 * 1024;
     }
+    // Quotation damage photos are written by the API (Admin SDK) and streamed back through
+    // /v1/quotations/:id/photos/* and /v1/public/quotations/:token/photos/*; clients never touch the bucket.
+    match /quotations/{quotationId}/{allPaths=**} {
+      allow read, write: if false;
+    }
     match /outlets/{outletId}/{allPaths=**} {
       allow read: if isStaff();
       allow write: if isStaff() && request.resource.size < 15 * 1024 * 1024;

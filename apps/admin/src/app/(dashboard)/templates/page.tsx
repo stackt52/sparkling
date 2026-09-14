@@ -4,7 +4,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
@@ -13,6 +12,7 @@ import Checkbox from '@mui/material/Checkbox';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/layout/PageHeader';
 import ConfigTabs from '@/components/layout/ConfigTabs';
+import DetailDrawer from '@/components/ui/DetailDrawer';
 import SectionCard from '@/components/ui/SectionCard';
 import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
@@ -70,14 +70,18 @@ function StepEditor({ step, onChange, onRemove, onMove }: { step: ChecklistStep;
 }
 
 function TemplateDrawer({ tpl, open, onClose }: { tpl: ChecklistTemplate | null; open: boolean; onClose: () => void }) {
-  return (
-    <Drawer anchor="right" open={open} onClose={onClose} slotProps={{ paper: { sx: { width: { xs: '100%', md: 720 }, borderRadius: { xs: 0, sm: '28px 0 0 28px' }, p: 3 } } }}>
-      {open && <TemplateForm tpl={tpl} onClose={onClose} />}
-    </Drawer>
-  );
+  // Remount the form each time the drawer opens so its state is re-seeded from `tpl`
+  // (the form owns the drawer so its fields can live in the fixed header/footer).
+  const [prevOpen, setPrevOpen] = React.useState(open);
+  const [session, setSession] = React.useState(0);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setSession((n) => n + 1);
+  }
+  return <TemplateForm key={session} tpl={tpl} open={open} onClose={onClose} />;
 }
 
-function TemplateForm({ tpl, onClose }: { tpl: ChecklistTemplate | null; onClose: () => void }) {
+function TemplateForm({ tpl, open, onClose }: { tpl: ChecklistTemplate | null; open: boolean; onClose: () => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -94,26 +98,35 @@ function TemplateForm({ tpl, onClose }: { tpl: ChecklistTemplate | null; onClose
   const move = (i: number, dir: -1 | 1) => { const j = i + dir; if (j < 0 || j >= steps.length) return; const next = [...steps]; [next[i], next[j]] = [next[j], next[i]]; setSteps(next); };
   return (
     <>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="h3">{tpl ? `${tpl.name} · v${tpl.version}` : 'New checklist template'}</Typography>
-        <IconButton aria-label="Close" onClick={onClose}><MSymbol name="close" /></IconButton>
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
-        <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} size="small" sx={{ flex: 1 }} />
-        <TextField select label="Category" value={category} onChange={(e) => setCategory(e.target.value as ServiceCategory)} size="small" sx={{ width: 160 }}>
-          <MenuItem value="car_wash">Car wash</MenuItem>
-          <MenuItem value="auto_body">Auto body</MenuItem>
-        </TextField>
-      </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-        {steps.map((s, i) => <StepEditor key={i} step={s} onChange={(x) => update(i, x)} onRemove={() => setSteps(steps.filter((_, j) => j !== i))} onMove={(d) => move(i, d)} />)}
-      </Box>
-      <Button variant="text" onClick={() => setSteps([...steps, { key: `step_${steps.length + 1}`, title: '', type: 'confirm', required: true }])} startIcon={<MSymbol name="add" size={18} />} sx={{ alignSelf: 'flex-start', mt: 1 }}>Add step</Button>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Publishing creates a new immutable version; in-flight work orders keep the version they started with (ADM-026).</Typography>
-      <Box sx={{ display: 'flex', gap: 1.25, mt: 2 }}>
-        <Button variant="outlined" disabled={!valid || m.isPending} onClick={() => m.mutate(false)}>Save draft</Button>
-        <Button variant="contained" color="secondary" disabled={!valid || m.isPending} onClick={() => m.mutate(true)} startIcon={<MSymbol name="publish" size={20} />}>Publish {tpl ? `v${Math.max(tpl.version, tpl.status === 'draft' ? tpl.version : tpl.version) + (tpl.status === 'draft' ? 0 : 1)}` : 'v1'}</Button>
-      </Box>
+      <DetailDrawer
+        open={open}
+        onClose={onClose}
+        width={{ xs: '100%', md: 720 }}
+        label="Checklist template"
+        titleId="template-drawer-title"
+        title={<Typography variant="h3">{tpl ? `${tpl.name} · v${tpl.version}` : 'New checklist template'}</Typography>}
+        headerExtra={
+          <Box sx={{ display: 'flex', gap: 1.5, mt: 2 }}>
+            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} size="small" sx={{ flex: 1 }} />
+            <TextField select label="Category" value={category} onChange={(e) => setCategory(e.target.value as ServiceCategory)} size="small" sx={{ width: 160 }}>
+              <MenuItem value="car_wash">Car wash</MenuItem>
+              <MenuItem value="auto_body">Auto body</MenuItem>
+            </TextField>
+          </Box>
+        }
+        footer={
+          <Box sx={{ display: 'flex', gap: 1.25 }}>
+            <Button variant="outlined" disabled={!valid || m.isPending} onClick={() => m.mutate(false)}>Save draft</Button>
+            <Button variant="contained" color="secondary" disabled={!valid || m.isPending} onClick={() => m.mutate(true)} startIcon={<MSymbol name="publish" size={20} />}>Publish {tpl ? `v${Math.max(tpl.version, tpl.status === 'draft' ? tpl.version : tpl.version) + (tpl.status === 'draft' ? 0 : 1)}` : 'v1'}</Button>
+          </Box>
+        }
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          {steps.map((s, i) => <StepEditor key={i} step={s} onChange={(x) => update(i, x)} onRemove={() => setSteps(steps.filter((_, j) => j !== i))} onMove={(d) => move(i, d)} />)}
+        </Box>
+        <Button variant="text" onClick={() => setSteps([...steps, { key: `step_${steps.length + 1}`, title: '', type: 'confirm', required: true }])} startIcon={<MSymbol name="add" size={18} />} sx={{ mt: 1 }}>Add step</Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Publishing creates a new immutable version; in-flight work orders keep the version they started with (ADM-026).</Typography>
+      </DetailDrawer>
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
   );

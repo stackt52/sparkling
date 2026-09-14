@@ -64,9 +64,11 @@ void main() {
       final inService = bookings.firstWhere(
         (b) => b.status == BookingStatus.inService,
       );
-      expect(inService.outlet?.name, 'Sparkling Sandton');
-      expect(inService.service?.name, 'Full Valet');
-      expect(inService.totalCents, 19800);
+      expect(inService.outlet?.name, 'Sparkling Auto Care Centre Menlyn');
+      expect(inService.service?.name, '"Sparkling wash" - include All of the above');
+      expect(inService.vehicleSize, VehicleSize.large);
+      expect(inService.priceCents, 15000);
+      expect(inService.totalCents, 13500);
       expect(inService.discountLabel, 'Gold −10%');
       expect(inService.workOrder?.ref, 'WO-${DateTime.now().year}-4821');
       expect(inService.workOrder?.stageCount, 7);
@@ -102,7 +104,7 @@ void main() {
       );
       final rewards = await repos.loyalty.rewards();
       expect(rewards.map((r) => r.name), isNot(contains('Priority bay')));
-      expect(rewards.map((r) => r.name), contains('Full Valet upgrade'));
+      expect(rewards.map((r) => r.name), contains('Executive wash upgrade'));
 
       final quotes = await repos.customer.quotations();
       final quoted = quotes.firstWhere(
@@ -124,36 +126,40 @@ void main() {
       'catalogue: outlets, services with outlet pricing, availability',
       () async {
         final outlets = await repos.catalogue.outlets();
-        expect(outlets.map((o) => o.name), [
-          'Sparkling Sandton',
-          'Sparkling Rosebank',
-          'Sparkling Centurion',
+        expect(outlets.map((o) => o.code), ['MEN', 'GLV', 'POT', 'TOT', 'RUS']);
+        expect(outlets.first.name, 'Sparkling Auto Care Centre Menlyn');
+        expect(outlets.every((o) => o.distanceKm != null), isTrue);
+        final catalogue = await repos.catalogue.outletServices(
+          DemoStore.outletMenlyn,
+          vehicleSize: VehicleSize.large,
+        );
+        expect(catalogue.groups, [
+          'Car Wash Options',
+          'Combinations',
+          'Auto Body Repair',
         ]);
-        final services = await repos.catalogue.outletServices(
-          DemoStore.outletSandton,
+        final wash = catalogue.byCode('SPARKLING_WASH')!;
+        expect(wash.priceCents, 15000);
+        expect(wash.pointsEstimate, 15);
+        expect(wash.includes.map((r) => r.code), contains('EXT_WASH'));
+        final potch = await repos.catalogue.outletServices(
+          DemoStore.outletPotch,
         );
-        final valet = services.firstWhere((s) => s.name == 'Full Valet');
-        expect(valet.priceCents, 24000);
-        expect(valet.pointsEstimate, 24);
-        final centurion = await repos.catalogue.outletServices(
-          DemoStore.outletCenturion,
-        );
-        expect(
-          centurion.firstWhere((s) => s.name == 'Panel respray').isAvailable,
-          isFalse,
-        );
+        // Potchefstroom does not carry paintless dent repair.
+        expect(potch.byCode('PDR'), isNull);
+        expect(potch.byCode('SPARKLING_WASH')!.priceFor(VehicleSize.small), 14000);
 
         final tomorrow = DateTime.now().add(const Duration(days: 1));
         final monday = tomorrow.weekday == DateTime.sunday
             ? tomorrow.add(const Duration(days: 1))
             : tomorrow;
         final slots = await repos.catalogue.availability(
-          outletId: DemoStore.outletSandton,
-          serviceId: DemoStore.svcExpress,
+          outletId: DemoStore.outletMenlyn,
+          serviceId: DemoStore.svcExtWash,
           date: monday,
         );
         expect(slots, isNotEmpty);
-        expect(slots.first.capacity, 4);
+        expect(slots.first.capacity, 3);
         expect(slots.every((s) => s.available), isTrue);
       },
     );
@@ -172,60 +178,88 @@ void main() {
             ? slotDay.add(const Duration(days: 1))
             : slotDay;
         final slots = await repos.catalogue.availability(
-          outletId: DemoStore.outletSandton,
-          serviceId: DemoStore.svcValet,
+          outletId: DemoStore.outletMenlyn,
+          serviceId: DemoStore.svcSparklingWash,
           date: day,
         );
         final booking = await repos.customer.createBooking(
           BookingInput(
             vehicleId: DemoStore.vehCorolla,
-            outletId: DemoStore.outletSandton,
-            serviceId: DemoStore.svcValet,
+            outletId: DemoStore.outletMenlyn,
+            serviceId: DemoStore.svcSparklingWash,
             slotStart: slots.first.slotStart,
             clientOpId: 'op-new-1',
           ),
         );
         expect(booking.ref, 'SPK-${DateTime.now().year}-0097');
-        expect(booking.status, BookingStatus.pending);
-        expect(booking.priceCents, 24000);
-        expect(booking.discountCents, 2400);
-        expect(booking.totalCents, 21600);
-        expect(booking.discountLabel, 'Gold −10%');
-        expect(booking.pointsPending, 22);
+        // Nothing to pay → confirmed straight away.
+        expect(booking.status, BookingStatus.confirmed);
+        // Corolla Cross is large → Menlyn's large Sparkling Wash price, and
+        // Thabo's Gold plan (G1: 4 × Sparkling Wash, 1 used) covers it:
+        // the base is waived and the allowance drops to 2 of 4.
+        expect(booking.vehicleSize, VehicleSize.large);
+        expect(booking.priceCents, 15000);
+        expect(booking.discountCents, 15000);
+        expect(booking.totalCents, 0);
+        expect(booking.discountLabel, 'Included in Gold · 2 of 4 left');
+        expect(booking.isIncluded, isTrue);
+        expect(booking.membership?.remainingAfter, 2);
+        expect(booking.pointsPending, 0);
 
         // Idempotent replay returns the same booking.
         final replay = await repos.customer.createBooking(
           BookingInput(
             vehicleId: DemoStore.vehCorolla,
-            outletId: DemoStore.outletSandton,
-            serviceId: DemoStore.svcValet,
+            outletId: DemoStore.outletMenlyn,
+            serviceId: DemoStore.svcSparklingWash,
             slotStart: slots.first.slotStart,
             clientOpId: 'op-new-1',
           ),
         );
         expect(replay.id, booking.id);
+        // An included booking has nothing to pay.
+        await expectLater(
+          repos.customer.createPaymentIntent(bookingId: booking.id),
+          throwsA(isA<ApiException>().having((e) => e.isValidation, 'v', true)),
+        );
 
+        // A service outside the plan (Exterior Wash is a G2 service and Thabo
+        // chose G1 — no discount) goes through the sandbox payment.
+        final paidBooking = await repos.customer.createBooking(
+          BookingInput(
+            vehicleId: DemoStore.vehCorolla,
+            outletId: DemoStore.outletMenlyn,
+            serviceId: DemoStore.svcExtWash,
+            slotStart: slots.last.slotStart,
+            clientOpId: 'op-new-2',
+          ),
+        );
+        expect(paidBooking.status, BookingStatus.pending);
+        expect(paidBooking.priceCents, 9000);
+        expect(paidBooking.discountCents, 0);
+        expect(paidBooking.totalCents, 9000);
+        expect(paidBooking.membership?.planCode, 'gold');
         final methods = await repos.customer.paymentMethods();
         expect(methods.first.displayLabel, 'Visa •••• 4242');
         final intent = await repos.customer.createPaymentIntent(
-          bookingId: booking.id,
+          bookingId: paidBooking.id,
           methodId: methods.first.id,
         );
         expect(intent.payment.status, PaymentStatus.pending);
-        expect(intent.payment.amountCents, 21600);
+        expect(intent.payment.amountCents, 9000);
         final paid = await repos.customer.confirmSandboxPayment(
           intent.payment.id,
         );
         expect(paid.status, PaymentStatus.successful);
         expect(paid.receiptNo, 'RCP-70006');
-        final confirmed = await repos.customer.booking(booking.id);
+        final confirmed = await repos.customer.booking(paidBooking.id);
         expect(confirmed.status, BookingStatus.confirmed);
         expect(confirmed.isPaid, isTrue);
 
         await Future<void>.delayed(const Duration(milliseconds: 10));
-        // Thabo's seed has five bookings; the new one makes six.
+        // Thabo's seed has five bookings; the two new ones make seven.
         expect(emissions.first, 5);
-        expect(emissions.last, 6);
+        expect(emissions.last, 7);
         await sub.cancel();
 
         // Cancel is allowed before in_service; in-service booking is not.
@@ -277,7 +311,7 @@ void main() {
       final q = await repos.customer.createQuotation(
         const QuotationInput(
           vehicleId: DemoStore.vehPolo,
-          outletId: DemoStore.outletSandton,
+          outletId: DemoStore.outletMenlyn,
           category: 'Scratch',
           description: 'Scratch along the rear door from a trolley.',
           clientOpId: 'op-q1',
@@ -311,7 +345,7 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 10));
         final reward = (await repos.loyalty.rewards()).firstWhere(
-          (r) => r.name == 'Full Valet upgrade',
+          (r) => r.name == 'Executive wash upgrade',
         );
         final redemption = await repos.loyalty.redeem(reward.id);
         expect(redemption.code, 'RW-1183');
@@ -343,7 +377,7 @@ void main() {
       final task = mine.single;
       expect(task.workOrder?.ref, 'WO-${DateTime.now().year}-4821');
       expect(task.workOrder?.progress.label, '4/7 steps');
-      expect(task.workOrder?.title, 'Full Valet — Toyota Corolla Cross');
+      expect(task.workOrder?.title, 'Sparkling Wash — Toyota Corolla Cross');
       expect(task.priority, 1);
       final queue = await repos.staff.tasks(scope: TaskScope.queue);
       expect(
@@ -492,7 +526,7 @@ void main() {
         (b) => b.id == DemoStore.bookingInService,
       );
       expect(booking.status, BookingStatus.completed);
-      expect(store.balanceOf('seed_thabo'), 1470);
+      expect(store.balanceOf('seed_thabo'), 1464);
       expect(
         store.staffPoints.where((p) => p.key == 'task:${task.id}:completed'),
         hasLength(1),
@@ -516,7 +550,7 @@ void main() {
 
       // Ops summary + assignment for the supervisor.
       final ops = await repos.staff.opsSummary(
-        outletId: DemoStore.outletSandton,
+        outletId: DemoStore.outletMenlyn,
       );
       expect(ops.counts.blocked, 1);
       expect(ops.counts.done, 3);
@@ -529,14 +563,14 @@ void main() {
           AttentionKind.lowStock,
         ]),
       );
-      final team = await repos.staff.team(outletId: DemoStore.outletSandton);
+      final team = await repos.staff.team(outletId: DemoStore.outletMenlyn);
       expect(
         team.map((m) => m.firstName),
         containsAll(['Pieter', 'Lerato', 'Sipho', 'Johan']),
       );
       final queued = (await repos.staff.tasks(
         scope: TaskScope.queue,
-        outletId: DemoStore.outletSandton,
+        outletId: DemoStore.outletMenlyn,
       )).firstWhere((t) => t.status == WorkStatus.queued);
       final assigned = await repos.staff.assignTask(
         queued,
@@ -547,7 +581,7 @@ void main() {
       expect(assigned.assigneeName, 'Pieter van der Merwe');
 
       final lb = await repos.staff.leaderboard(
-        outletId: DemoStore.outletSandton,
+        outletId: DemoStore.outletMenlyn,
       );
       expect(lb.rows.first.rank, 1);
       expect(lb.rows.map((r) => r.name), contains('Pieter van der Merwe'));
@@ -563,7 +597,7 @@ void main() {
       await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
       await Future<void>.delayed(const Duration(milliseconds: 5));
       final upcoming = (await repos.staff.outletBookings(
-        outletId: DemoStore.outletRosebank,
+        outletId: DemoStore.outletGlenVillage,
         status: BookingStatus.pending,
       )).firstWhere((b) => b.workOrder == null);
       final checked = await repos.staff.checkinBooking(
@@ -593,7 +627,7 @@ void main() {
       await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
       await Future<void>.delayed(const Duration(milliseconds: 5));
       final items = await repos.inventory.items(
-        outletId: DemoStore.outletSandton,
+        outletId: DemoStore.outletMenlyn,
       );
       expect(items.first.name, 'Interior shampoo 5L');
       expect(items.first.level, StockLevel.out);

@@ -5,13 +5,16 @@ import '../theme/colors_ext.dart';
 import '../tokens/colors.dart';
 import '../tokens/typography.dart';
 
-/// Loyalty tiers.
-enum LoyaltyTierKind { silver, gold, platinum }
+/// Loyalty tiers — since membership plans the tier is the plan
+/// (silver = no plan, gold / platinum / black = the plan).
+enum LoyaltyTierKind { silver, gold, platinum, black }
 
-/// Tier pill ("Gold · 2 450 pts", "GOLD MEMBER").
+/// Tier pill ("Gold · 2 450 pts", "GOLD MEMBER", "Black · 8 washes left").
 ///
 /// Gold uses the gold gradient; silver a cool grey; platinum a light steel
-/// gradient. In dark mode gold becomes translucent with a gold border (1k).
+/// gradient; black the navy `#0B1220 → #203060` gradient with gold text. In
+/// dark mode gold becomes translucent with a gold border (1k) and black keeps
+/// its gradient with a gold border.
 class TierPill extends StatelessWidget {
   const TierPill({
     super.key,
@@ -34,6 +37,7 @@ class TierPill extends StatelessWidget {
     LoyaltyTierKind.silver => 'Silver',
     LoyaltyTierKind.gold => 'Gold',
     LoyaltyTierKind.platinum => 'Platinum',
+    LoyaltyTierKind.black => 'Black',
   };
 
   @override
@@ -61,12 +65,21 @@ class TierPill extends StatelessWidget {
         bg = dark ? const Color(0xFF2B3C58) : const Color(0xFFE4E9EF);
         fg = dark ? const Color(0xFFD5DEEA) : const Color(0xFF3F4A57);
       case LoyaltyTierKind.platinum:
-        gradient = LinearGradient(
-          colors: dark
-              ? const [Color(0xFF3B4C69), Color(0xFF5C6F90)]
-              : const [Color(0xFFE6ECF5), Color(0xFFC5D0E0)],
-        );
-        fg = dark ? Colors.white : const Color(0xFF1E2A3A);
+        gradient = dark
+            ? SparklingColors.platinumGradientDark
+            : SparklingColors.platinumGradient;
+        fg = dark ? Colors.white : SparklingColors.onPlatinum;
+      case LoyaltyTierKind.black:
+        gradient = dark
+            ? SparklingColors.blackGradientDark
+            : SparklingColors.blackGradient;
+        fg = SparklingColors.onBlack;
+        if (dark) {
+          side = BorderSide(
+            color: SparklingColors.goldDeep.withValues(alpha: 0.7),
+            width: 1,
+          );
+        }
     }
 
     return Semantics(

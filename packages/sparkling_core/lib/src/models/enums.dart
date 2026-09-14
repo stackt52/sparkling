@@ -204,10 +204,14 @@ enum PaymentStatus implements SparklingEnum {
   bool get isVerified => this == successful;
 }
 
+/// Loyalty tier — since membership plans (migration 0009/0010) the tier *is*
+/// the customer's plan: `silver` = no plan, `gold` / `platinum` / `black` =
+/// the live membership's plan tier.
 enum LoyaltyTier implements SparklingEnum {
   silver('silver'),
   gold('gold'),
-  platinum('platinum');
+  platinum('platinum'),
+  black('black');
 
   const LoyaltyTier(this.db);
   @override
@@ -218,13 +222,18 @@ enum LoyaltyTier implements SparklingEnum {
     silver => 'Silver',
     gold => 'Gold',
     platinum => 'Platinum',
+    black => 'Black',
   };
 
   LoyaltyTier? get next => switch (this) {
     silver => gold,
     gold => platinum,
-    platinum => null,
+    platinum => black,
+    black => null,
   };
+
+  /// `true` for the paid plan tiers.
+  bool get isPlan => this != silver;
 }
 
 enum LedgerType implements SparklingEnum {

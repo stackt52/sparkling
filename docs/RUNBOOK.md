@@ -6,7 +6,7 @@
 - `psql` 15+ for applying the Supabase migrations
 
 ## 1. Database (Supabase project `uicqczgpiqkczwyssdft`)
-**Status: applied 8–9 Sep 2026** — migrations `0001_sparkling_schema`, `0002_receipt_rpc`, `0003_hardening`, `0004_whatsapp_twilio` plus the demo seed are live (applied through the Supabase MCP server; they appear under Database → Migrations). The previous `stores/orders/work_items…` tables were removed as requested.
+**Status: applied 8–9 Sep 2026** — migrations `0001_sparkling_schema`, `0002_receipt_rpc`, `0003_hardening`, `0004_whatsapp_twilio`, `0005_walk_in`, `0006_quotation_public`, `0007_outlet_legal`, `0008_catalogue_pricing`, `0009_membership_tier_black`, `0010_membership_plans` plus the demo seed and the outlet catalogue (`backend/supabase/seed_catalogue.sql`, generated from `backend/supabase/source/*.xlsx|docx` by `tools/catalogue/import_catalogue.py`) and the membership demo data (`backend/supabase/seed_memberships.sql`) are live (applied through the Supabase MCP server; they appear under Database → Migrations). The previous `stores/orders/work_items…` tables were removed as requested.
 
 The schema is a **clean-slate** migration: it drops every object in `public` and recreates everything. To re-apply or reseed later:
 
@@ -15,12 +15,14 @@ The schema is a **clean-slate** migration: it drops every object in `public` and
 export SUPABASE_DB_URL='postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres'
 ./backend/supabase/apply.sh            # migrations + demo seed
 ./backend/supabase/apply.sh --no-seed  # migrations only
+psql "$SUPABASE_DB_URL" -f backend/supabase/seed_catalogue.sql   # real outlets + price list (re-run after editing the spreadsheet + importer)
+psql "$SUPABASE_DB_URL" -f backend/supabase/seed_memberships.sql # entitlement→service mapping + demo memberships (always after the two above; seed.sql truncates them)
 ```
 Alternative: paste `backend/supabase/migrations/0001_schema.sql` then `backend/supabase/seed.sql` into the Supabase SQL editor, or authenticate the Supabase MCP server listed in `SUPABASE.md` and ask Claude to apply them.
 
 Then enable **Authentication → Third-Party Auth → Firebase** in the Supabase dashboard with project id `sparkling-4e89d`. This lets the mobile/web clients query PostgREST and subscribe to Realtime with a Firebase ID token; RLS policies read the `role` / `outlet_ids` custom claims that the API mints.
 
-Verify: `select count(*) from public.outlets;` → 3.
+Verify: `select count(*) from public.outlets;` → 5 and `select code from public.membership_plans;` → gold, platinum, black.
 
 Client credentials (publishable, safe in apps): URL `https://uicqczgpiqkczwyssdft.supabase.co`, anon key = Supabase dashboard → Project settings → API (also pre-filled in `apps/*/env/dev.json` and `apps/admin/.env.local.example`).
 
@@ -49,7 +51,13 @@ firebase functions:secrets:set TWILIO_ACCOUNT_SID --project sparkling-4e89d   # 
 firebase functions:secrets:set TWILIO_AUTH_TOKEN  --project sparkling-4e89d
 # params (non-secret) live in backend/functions/.env: TWILIO_MESSAGING_SERVICE_SID=MG4d8b6037dc3b183f43b2622307271660, PUBLIC_API_BASE_URL=https://<region>-sparkling-4e89d.cloudfunctions.net/api
 ```
+Public quotation links: set `PUBLIC_WEB_BASE_URL` in `backend/functions/.env` to the deployed admin dashboard origin (links are `<origin>/q/<token>`), and change the `quote_ready` Content template's button URL in the Twilio console to `<origin>/q/{{2}}` (variable 2 is now the public token, bound by migration 0006).
+
 Then in the Twilio console set the Messaging Service status callback to `${PUBLIC_API_BASE_URL}/v1/notifications/twilio/status` and, once the sender is confirmed, flip the `whatsapp_enabled` feature flag in Admin → Settings (it ships **off** so seeded demo numbers never receive real messages). Approved Content templates reused from the old project: quote ready `HX011c7f1b31697f8e21d36ff6b4d02b06`, collection OTP card `HX63a748f8b6680eac890e0137dfcf0fdb` (bound in `notification_templates.provider_template_sid`, migration 0004).
+
+Quotation PDFs print each outlet's legal identity and banking details: capture them under Admin → Outlets → Legal & banking (`legal_name`, `trading_as`, `company_registration_no`, `vat_number`, `registered_office`, bank account). The seeded outlets carry demo values from the legacy Menlyn quote.
+
+Membership plans (`docs/MEMBERSHIPS.md`): the three plans, their entitlement groups and the entitlement→service mapping ship in migration 0010; the tier of a customer is set by the trigger `memberships_sync_tier` from the live membership. The daily `membershipRenewals` scheduled function (02:00 Africa/Johannesburg) needs Cloud Scheduler, which `firebase deploy --only functions` provisions automatically on Blaze.
 
 ## 3. Backend API
 ```bash

@@ -165,11 +165,38 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                             ),
                             _DetailRow(
                               icon: serviceIcon(b.service?.icon),
-                              text:
-                                  '${b.service?.name ?? 'Service'} · ${paid ? 'paid' : 'due'} ${Money.formatZar(amount)}',
+                              text: b.isIncluded && b.totalCents == 0
+                                  ? '${b.service?.name ?? 'Service'} · included in your plan'
+                                  : '${b.service?.name ?? 'Service'} · ${paid ? 'paid' : 'due'} ${Money.formatZar(amount)}',
                               actionLabel: paid ? 'Receipt' : null,
                               onAction: () => _showReceipt(b),
                             ),
+                            if (b.membership?.isIncluded ?? false)
+                              _DetailRow(
+                                icon: Symbols.workspace_premium_rounded,
+                                iconColor: context.sparkling.success,
+                                text:
+                                    '${b.membership!.planName} plan · ${b.membership!.remainingAfter ?? 0} wash${b.membership!.remainingAfter == 1 ? '' : 'es'} left this month',
+                              )
+                            else if (b.discountCents > 0 && b.discountLabel != null)
+                              _DetailRow(
+                                icon: Symbols.sell_rounded,
+                                iconColor: context.sparkling.success,
+                                text:
+                                    '${b.discountLabel} · ${Money.minus} ${Money.formatZar(b.discountCents)}',
+                              ),
+                            for (final a in b.addons)
+                              _DetailRow(
+                                icon: Symbols.add_circle_rounded,
+                                text:
+                                    'Add-on · ${a.name} · ${Money.formatZar(a.priceCents)}',
+                              ),
+                            if (b.vatCents > 0)
+                              _DetailRow(
+                                icon: Symbols.receipt_long_rounded,
+                                text:
+                                    'Incl. VAT ${VatMode.vatPct}% · ${Money.formatZar(b.vatCents)}',
+                              ),
                             _DetailRow(
                               icon: Symbols.sell_rounded,
                               iconColor: context.sparkling.gold,

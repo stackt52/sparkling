@@ -26,6 +26,7 @@ export 'src/theme/colors_ext.dart';
 export 'src/theme/theme.dart';
 
 // Widgets
+export 'src/widgets/allowance_ring.dart';
 export 'src/widgets/audit_note.dart';
 export 'src/widgets/badge_tile.dart';
 export 'src/widgets/confetti_blob.dart';
@@ -41,6 +42,7 @@ export 'src/widgets/notification_bell.dart';
 export 'src/widgets/offline_banner.dart';
 export 'src/widgets/photo_placeholder.dart';
 export 'src/widgets/pill_button.dart';
+export 'src/widgets/plan_card.dart';
 export 'src/widgets/podium_widget.dart';
 export 'src/widgets/priority_chip.dart';
 export 'src/widgets/progress_ring.dart';
