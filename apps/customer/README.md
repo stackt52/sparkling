@@ -243,3 +243,6 @@ no code generation. Booking and quote drafts persist in `DraftStore` (UX-009).
 
 Generated from `assets/icon/app_icon.png` (navy `#203060` + logo) with
 `dart run flutter_launcher_icons`.
+
+## Branding
+App icon ("car swoosh") and native splash are generated — see `docs/branding/README.md`.

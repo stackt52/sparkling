@@ -160,3 +160,6 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `memberships-customer.png` | Customer drawer → Membership tab (Black plan: allowances, invoices, enrol / cancel) |
 | `memberships-walkin.png` | Walk-in service step for a Gold member — "Included in Gold · 2 of 4 left" at R 0, plan discount on other services |
 | `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |
+
+## Branding
+Favicon family (`favicon.ico`, `public/icon.svg`, `icon-192/512.png`, `apple-touch-icon.png`) is generated — see `docs/branding/README.md`.

@@ -89,6 +89,9 @@ cd ../staff && flutter run -d <android-device> --dart-define-from-file=env/demo.
 Android note: `flutter_secure_storage` requires `compileSdk 37`. Gradle downloads it as `platforms/android-37.0` but AGP looks for `platforms/android-37`; on this machine a symlink `~/Library/Android/sdk/platforms/android-37 → android-37.0` was created. On CI, install platform 37 through `sdkmanager "platforms;android-37"` instead. Run `flutter doctor --android-licenses` once if Gradle asks for licence acceptance.
 Demo sign-in accounts (after seeding and creating the users in Firebase Auth with the same e-mails): `thabo@example.com` (customer, Gold), `pieter@sparkling.co.za` (technician), `johan@sparkling.co.za` (supervisor), `ayesha@sparkling.co.za` (manager), `admin@sparkling.co.za` (admin). The API claims the seeded profile by e-mail on first sign-in.
 
+## 5b. App icons, favicon & splash
+See `docs/branding/README.md`: icons and splash screens are generated from `tools/branding/` (`generate.py`, then `flutter_launcher_icons` + `flutter_native_splash` in each app). Never edit the PNGs under `android/…/res` or `ios/Runner/Assets.xcassets` by hand.
+
 ## 6. Quality gates (ENG-002)
 ```bash
 cd backend/functions && npm run lint && npm test

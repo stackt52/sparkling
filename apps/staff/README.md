@@ -287,3 +287,6 @@ successful verification.
 * Server 409s (`conflict` / `invalid_transition`) open a dialog explaining the
   server state and refresh the screen (STF-035).
 * Layouts switch to two-pane master-detail at ≥ 840 dp (UX-005).
+
+## Branding
+App icon ("hex bolt badge") and native splash are generated — see `docs/branding/README.md`.
