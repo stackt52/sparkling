@@ -7,11 +7,11 @@ import { buildCsv } from '../csv';
 import { ApiRequestError, uuid, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type MembershipFilters, type NotificationFilters, type OutletOfferFilters, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
 import {
   SERVICE_GROUPS, VAT_RATE, priceLabel, vehicleSizeOf,
-  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingDetail, type ChecklistTemplate, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
+  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingDetail, type ChecklistTemplate, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
   type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type Outlet, type OutletServiceInput,
   type OutletServiceOffer, type Page, type Payment, type Period, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
-  type ReportSummary, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
+  type Profile, type ReportSummary, type ResetPasswordResult, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
   type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WorkOrder, type WorkStatus,
 } from '../types';
 import { applyDemoDecision, demoPhotoUrl, demoSeedToken, pdfInputFromQuotation, registerDemoPhoto, registerDemoPublicQuote, syncDemoPublicQuote, withOutletLegal } from './publicQuotes';
@@ -616,14 +616,47 @@ export class DemoApi implements AdminApi {
     await delay();
     return this.profiles.filter((p) => p.role !== 'customer').map((p) => this.toStaff(p));
   }
-  async inviteUser(body: { email: string; full_name: string; role: UserRole; outlet_ids: string[] }): Promise<StaffUser> {
+  /** Strips the demo-only staff fields (outlets, skills, availability) down to the API `Profile` shape. */
+  private static toProfile(p: (typeof DEMO_PROFILES)[number]): Profile {
+    return {
+      id: p.id, role: p.role, full_name: p.full_name, email: p.email, phone: p.phone, avatar_url: p.avatar_url, is_active: p.is_active,
+      marketing_opt_in: p.marketing_opt_in, whatsapp_opt_in: p.whatsapp_opt_in, push_opt_in: p.push_opt_in, last_seen_at: p.last_seen_at, created_at: p.created_at,
+      must_change_password: p.must_change_password, password_changed_at: p.password_changed_at,
+    };
+  }
+  /** Mirrors `tempPassword()` in backend/functions/src/routes/admin.ts (`Spk-` + 12 url-safe chars). */
+  private static tempPassword(): string {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    let out = 'Spk-';
+    for (let i = 0; i < 12; i += 1) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return out;
+  }
+  async inviteUser(body: CreateStaffInput): Promise<CreateStaffResult> {
     await delay();
     this.requireRole('admin');
-    if (this.profiles.some((p) => p.email?.toLowerCase() === body.email.toLowerCase())) throw new ApiRequestError(409, { code: 'conflict', message: 'A user with this e-mail already exists' });
-    const p = { id: nextId('usr'), role: body.role, full_name: body.full_name, email: body.email, phone: null, avatar_url: null, is_active: true, marketing_opt_in: false, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: null, created_at: nowIso(), outlet_ids: body.outlet_ids, skills: [] as string[], availability: 'available' as const };
+    if (this.profiles.some((p) => p.email?.toLowerCase() === body.email.toLowerCase())) throw new ApiRequestError(409, { code: 'conflict', message: 'A profile with this e-mail already exists' });
+    const p = { id: nextId('usr'), role: body.role, full_name: body.full_name, email: body.email, phone: body.phone?.trim() || null, avatar_url: null, is_active: true, marketing_opt_in: false, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: null, created_at: nowIso(), must_change_password: true, password_changed_at: null, outlet_ids: body.outlet_ids, skills: body.skills ?? ([] as string[]), availability: 'available' as const };
     this.profiles.push(p);
-    this.log('user.invite', 'profile', p.id, null, { email: body.email, role: body.role, outlet_ids: body.outlet_ids });
-    return this.toStaff(p);
+    this.log('user.create', 'profile', p.id, null, { email: body.email, role: body.role, outlet_ids: body.outlet_ids, invite: body.invite ?? 'password' });
+    return { profile: DemoApi.toProfile(p), uid: p.id, temporary_password: DemoApi.tempPassword(), invite_link: body.invite === 'link' ? `https://sparkling-4e89d.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=demo-${p.id}` : null };
+  }
+  async resetUserPassword(id: string): Promise<ResetPasswordResult> {
+    await delay();
+    this.requireRole('admin');
+    const p = this.profiles.find((x) => x.id === id && x.role !== 'customer');
+    if (!p) throw new ApiRequestError(404, { code: 'not_found', message: 'User not found' });
+    p.must_change_password = true;
+    p.password_changed_at = null;
+    this.log('user.reset_password', 'profile', id, null, { refresh_tokens_revoked: true });
+    return { profile: DemoApi.toProfile(p), temporary_password: DemoApi.tempPassword() };
+  }
+  /** The demo session never carries the first-sign-in flag, so this is a no-op that returns the actor. */
+  async confirmPasswordChanged(): Promise<Profile> {
+    await delay();
+    const a = this.actor();
+    a.must_change_password = false;
+    a.password_changed_at = nowIso();
+    return DemoApi.toProfile(a);
   }
   async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }): Promise<StaffUser> {
     await delay();
@@ -746,7 +779,7 @@ export class DemoApi implements AdminApi {
     if (existing) {
       throw new ApiRequestError(409, { code: 'conflict', message: `${existing.full_name} is already registered with this ${DemoApi.digits(existing.phone) === DemoApi.digits(phone) ? 'phone number' : 'e-mail'}`, details: { existing_customer: this.walkInCustomer(existing) } });
     }
-    const p = { id: `walkin_${uuid()}`, role: 'customer' as UserRole, full_name: name, email, phone, avatar_url: null, is_active: true, marketing_opt_in: Boolean(input.marketing_opt_in), whatsapp_opt_in: input.whatsapp_opt_in ?? true, push_opt_in: false, last_seen_at: null, created_at: nowIso(), outlet_ids: [] as string[], skills: [] as string[], availability: undefined };
+    const p = { id: `walkin_${uuid()}`, role: 'customer' as UserRole, full_name: name, email, phone, avatar_url: null, is_active: true, marketing_opt_in: Boolean(input.marketing_opt_in), whatsapp_opt_in: input.whatsapp_opt_in ?? true, push_opt_in: false, last_seen_at: null, created_at: nowIso(), must_change_password: false, password_changed_at: null, outlet_ids: [] as string[], skills: [] as string[], availability: undefined };
     this.profiles.push(p);
     this.loyaltyAccounts.push({ customer_id: p.id, tier: 'silver', balance_points: 0, lifetime_points: 0, tier_since: nowIso() });
     this.ops.set(`customer:${input.client_op_id}`, p.id);

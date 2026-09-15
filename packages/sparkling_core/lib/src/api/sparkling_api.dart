@@ -249,6 +249,18 @@ class SparklingApi {
   Future<MeResponse> me() =>
       get('/me', map: (d) => MeResponse.fromJson(_obj(d)));
 
+  /// `POST /auth/password-changed` — clears `must_change_password` after
+  /// the client set a new password (ADM-010). The ID token must be fresh
+  /// (`auth_time` < 15 min): sign in again with the new password first.
+  /// 409 `validation_error { reason: 'stale_session' }` otherwise.
+  Future<Profile> passwordChanged() => post(
+    '/auth/password-changed',
+    map: (d) {
+      final m = _obj(d);
+      return Profile.fromJson(m['profile'] is Map ? _obj(m['profile']) : m);
+    },
+  );
+
   /// `PATCH /me`
   Future<Profile> updateMe(ProfileUpdate update) => patch(
     '/me',

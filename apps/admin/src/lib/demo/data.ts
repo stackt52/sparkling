@@ -199,7 +199,7 @@ function priceAt(outletId: string, serviceId: string, size: VehicleSize): { pric
 /* ---------- people ---------- */
 type DemoProfile = Profile & { outlet_ids: string[]; skills: string[]; availability?: 'available' | 'busy' | 'break' | 'off' };
 const person = (id: string, role: UserRole, full_name: string, email: string, phone: string, outlet_ids: string[] = [], skills: string[] = [], availability?: DemoProfile['availability'], marketing = false): DemoProfile => ({
-  id, role, full_name, email, phone, avatar_url: null, is_active: true, marketing_opt_in: marketing, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: rel(-15), created_at: daysAgo(200), outlet_ids, skills, availability,
+  id, role, full_name, email, phone, avatar_url: null, is_active: true, marketing_opt_in: marketing, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: rel(-15), created_at: daysAgo(200), must_change_password: false, password_changed_at: daysAgo(199), outlet_ids, skills, availability,
 });
 
 export const DEMO_PROFILES: DemoProfile[] = [

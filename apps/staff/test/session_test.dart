@@ -69,6 +69,24 @@ class _FakeAuth implements AuthGateway {
   @override
   Future<void> sendPasswordReset(String email) async {}
 
+  /// Thrown by the next [updatePassword] call (then cleared).
+  AuthException? updatePasswordError;
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    calls.add('updatePassword');
+    final err = updatePasswordError;
+    if (err != null) {
+      updatePasswordError = null;
+      throw err;
+    }
+  }
+
+  @override
+  Future<void> reauthenticateWithPassword(String password) async {
+    calls.add('reauthenticate');
+  }
+
   @override
   Future<void> signOut() async {
     calls.add('signOut');
@@ -309,5 +327,193 @@ void main() {
     expect(ok, isTrue, reason: session.error);
     expect(session.locked, isFalse);
     expect(auth.calls, ['signInWithEmail']);
+  });
+
+  group('temporary password gate (ADM-010)', () {
+    Map<String, Object> gated() => {
+      ..._profile('technician'),
+      'must_change_password': true,
+    };
+    Map<String, Object> cleared() => {
+      ..._profile('technician'),
+      'must_change_password': false,
+      'password_changed_at': '2026-09-15T08:30:00Z',
+    };
+
+    test('sign-in with must_change_password gates and remembers the '
+        'temporary password', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': gated(), 'claims_updated': true});
+      final repos = live();
+      final session = SessionController(repos);
+      addTearDown(session.dispose);
+
+      final ok = await session.signIn('new.tech@sparkling.co.za', 'Temp-1');
+
+      expect(ok, isTrue, reason: session.error);
+      expect(session.isSignedIn, isTrue);
+      expect(session.mustChangePassword, isTrue);
+      expect(session.temporaryPassword, 'Temp-1');
+      expect(repos.drafts.load(SessionController.gateStorageKey), {
+        'uid': 'u-new',
+        'must_change_password': true,
+      });
+    });
+
+    test('completePasswordChange: update → sign in with the new password → '
+        'POST /auth/password-changed → gate cleared', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': gated(), 'claims_updated': true});
+      final repos = live();
+      final session = SessionController(repos);
+      addTearDown(session.dispose);
+      await session.signIn('new.tech@sparkling.co.za', 'Temp-1');
+      auth.calls.clear();
+      adapter.requests.clear();
+      adapter.handler = (o) async => _json({'profile': cleared()});
+
+      final ok = await session.completePasswordChange('Temp-1', 'Sparkle-2026');
+
+      expect(ok, isTrue, reason: session.error);
+      expect(session.mustChangePassword, isFalse);
+      expect(session.temporaryPassword, isNull);
+      expect(session.isSignedIn, isTrue);
+      expect(auth.calls, ['updatePassword', 'signInWithEmail']);
+      expect(adapter.requests.single.uri.path, '/v1/auth/password-changed');
+      expect(repos.drafts.load(SessionController.gateStorageKey), isNull);
+    });
+
+    test(
+      're-authenticates with the temporary password when Firebase asks',
+      () async {
+        adapter.handler = (o) async =>
+            _json({'profile': gated(), 'claims_updated': true});
+        final session = SessionController(live());
+        addTearDown(session.dispose);
+        await session.signIn('new.tech@sparkling.co.za', 'Temp-1');
+        auth.calls.clear();
+        auth.updatePasswordError = const AuthException(
+          'requires-recent-login',
+          'Please sign in again to continue.',
+        );
+        adapter.handler = (o) async => _json({'profile': cleared()});
+
+        final ok = await session.completePasswordChange(
+          'Temp-1',
+          'Sparkle-2026',
+        );
+
+        expect(ok, isTrue, reason: session.error);
+        expect(auth.calls, [
+          'updatePassword',
+          'reauthenticate',
+          'updatePassword',
+          'signInWithEmail',
+        ]);
+        expect(session.mustChangePassword, isFalse);
+      },
+    );
+
+    test('a weak password keeps the gate and surfaces the message', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': gated(), 'claims_updated': true});
+      final session = SessionController(live());
+      addTearDown(session.dispose);
+      await session.signIn('new.tech@sparkling.co.za', 'Temp-1');
+      auth.updatePasswordError = const AuthException(
+        'weak-password',
+        'Choose a stronger password.',
+      );
+
+      final ok = await session.completePasswordChange('Temp-1', 'short');
+
+      expect(ok, isFalse);
+      expect(session.error, 'Choose a stronger password.');
+      expect(session.mustChangePassword, isTrue);
+      expect(session.isSignedIn, isTrue);
+    });
+
+    test('409 stale_session is explained and keeps the gate', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': gated(), 'claims_updated': true});
+      final session = SessionController(live());
+      addTearDown(session.dispose);
+      await session.signIn('new.tech@sparkling.co.za', 'Temp-1');
+      adapter.handler = (o) async => _json({
+        'error': {
+          'code': 'validation_error',
+          'message': 'stale',
+          'details': {'reason': 'stale_session'},
+        },
+      }, status: 409);
+
+      final ok = await session.completePasswordChange('Temp-1', 'Sparkle-2026');
+
+      expect(ok, isFalse);
+      expect(session.error, contains('sign in again'));
+      expect(session.mustChangePassword, isTrue);
+    });
+
+    test('an offline restart is still gated from the persisted flag', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': gated(), 'claims_updated': true});
+      final repos = live();
+      final first = SessionController(repos);
+      await first.signIn('new.tech@sparkling.co.za', 'Temp-1');
+      first.dispose();
+
+      // New controller over the same (still signed-in) auth; no API call.
+      adapter.handler = (o) => throw DioException.connectionError(
+        requestOptions: o,
+        reason: 'offline',
+      );
+      final restarted = SessionController(repos);
+      addTearDown(restarted.dispose);
+      expect(restarted.isSignedIn, isTrue);
+      expect(restarted.mustChangePassword, isTrue);
+      // The temporary password is memory-only: not available after restart.
+      expect(restarted.temporaryPassword, isNull);
+
+      // Signing out clears it for the next account.
+      await restarted.signOut();
+      expect(restarted.mustChangePassword, isFalse);
+      expect(repos.drafts.load(SessionController.gateStorageKey), isNull);
+    });
+
+    test(
+      'offline sign-in keeps the persisted gate for the same account',
+      () async {
+        adapter.handler = (o) async =>
+            _json({'profile': gated(), 'claims_updated': true});
+        final repos = live();
+        final first = SessionController(repos);
+        await first.signIn('new.tech@sparkling.co.za', 'Temp-1');
+        first.dispose();
+        await auth.signOut();
+
+        auth = _FakeAuth(signInClaims: const {'role': 'technician'});
+        adapter.handler = (o) => throw DioException.connectionError(
+          requestOptions: o,
+          reason: 'offline',
+        );
+        final again = SessionController(live());
+        addTearDown(again.dispose);
+        final ok = await again.signIn('new.tech@sparkling.co.za', 'Temp-1');
+        expect(ok, isTrue, reason: again.error);
+        expect(again.mustChangePassword, isTrue);
+      },
+    );
+
+    test('established staff are never gated', () async {
+      adapter.handler = (o) async =>
+          _json({'profile': _profile('technician'), 'claims_updated': true});
+      final repos = live();
+      final session = SessionController(repos);
+      addTearDown(session.dispose);
+      await session.signIn('new.tech@sparkling.co.za', 'pw');
+      expect(session.mustChangePassword, isFalse);
+      expect(session.temporaryPassword, isNull);
+      expect(repos.drafts.load(SessionController.gateStorageKey), isNull);
+    });
   });
 }

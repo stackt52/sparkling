@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 
 /// Signed-in staff session: auth state, role/outlet helpers, idle timeout
-/// with re-authentication (STF-001, STF-004) and FCM registration.
+/// with re-authentication (STF-001, STF-004), the forced password change
+/// for accounts created with a temporary password (ADM-010) and FCM
+/// registration.
 class SessionController extends ChangeNotifier {
   SessionController(
     this.repositories, {
@@ -14,9 +16,14 @@ class SessionController extends ChangeNotifier {
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now {
     _user = repositories.auth.currentUser;
+    _mustChangePassword = _loadGate(_user?.uid);
     _sub = repositories.auth.authStateChanges.listen(_onAuth);
     _touch();
   }
+
+  /// [DraftStore] key remembering that the signed-in account still has to
+  /// replace its temporary password, so an offline restart is gated too.
+  static const String gateStorageKey = 'staff_password_gate';
 
   final Repositories repositories;
 
@@ -25,6 +32,8 @@ class SessionController extends ChangeNotifier {
   final DateTime Function() _clock;
 
   AuthUser? _user;
+  bool _mustChangePassword = false;
+  String? _temporaryPassword;
   bool _locked = false;
   bool _busy = false;
   bool _authenticating = false;
@@ -46,6 +55,16 @@ class SessionController extends ChangeNotifier {
   /// router does not flash the task list before the staff check completes.
   bool get isSignedIn => _user != null && !_authenticating;
   bool get locked => _locked;
+
+  /// The account was created from the admin dashboard with a temporary
+  /// password: every route redirects to the change-password screen until
+  /// [completePasswordChange] succeeds (ADM-010).
+  bool get mustChangePassword => _user != null && _mustChangePassword;
+
+  /// The temporary password typed on the sign-in form (in memory only,
+  /// while [mustChangePassword]) so the change screen can prefill it.
+  String? get temporaryPassword =>
+      mustChangePassword ? _temporaryPassword : null;
   bool get busy => _busy;
   String? get error => _error;
   bool get demo => repositories.demo;
@@ -73,8 +92,67 @@ class SessionController extends ChangeNotifier {
         u?.role != _user?.role ||
         !listEquals(u?.outletIds, _user?.outletIds);
     _user = u;
-    if (u == null) _locked = false;
+    if (u == null) {
+      _locked = false;
+      _mustChangePassword = false;
+      _temporaryPassword = null;
+    }
     if (changed) notifyListeners();
+  }
+
+  // ---- Temporary-password gate (ADM-010) --------------------------------------
+
+  bool _loadGate(String? uid) {
+    if (uid == null) return false;
+    final d = repositories.drafts.load(gateStorageKey);
+    return d != null && d['uid'] == uid && d['must_change_password'] == true;
+  }
+
+  /// Persists the gate. Hive applies the change in memory synchronously;
+  /// the disk write is best-effort and never blocks the auth flow.
+  void _saveGate() {
+    final uid = _user?.uid;
+    final write = (_mustChangePassword && uid != null)
+        ? repositories.drafts.save(gateStorageKey, {
+            'uid': uid,
+            'must_change_password': true,
+          })
+        : repositories.drafts.delete(gateStorageKey);
+    unawaited(write.catchError((Object _) {}));
+  }
+
+  /// Replaces the temporary password: re-authenticates if needed, updates
+  /// the Firebase password, signs in again with the new one and tells the
+  /// API (`POST /auth/password-changed`). On success the gate is cleared
+  /// (memory + disk) and the router lets the user through.
+  Future<bool> completePasswordChange(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    final email = _user?.email;
+    if (email == null) {
+      await signOut();
+      return false;
+    }
+    return _run(
+      () async {
+        final profile = await repositories.completePasswordChange(
+          email: email,
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        );
+        _user = repositories.auth.currentUser ?? _user;
+        _mustChangePassword = profile.mustChangePassword;
+        _temporaryPassword = null;
+        _saveGate();
+        _touch();
+      },
+      fallback: "Couldn't set your password. Please try again.",
+      onApiError: (e) => e.isStaleSession
+          ? 'Your sign-in is too old to change the password. Sign out, sign '
+                'in again with the password you just chose and retry.'
+          : null,
+    );
   }
 
   // ---- Activity / lock -------------------------------------------------------
@@ -143,8 +221,10 @@ class SessionController extends ChangeNotifier {
 
   // ---- Sign in / out ---------------------------------------------------------
 
-  Future<bool> signIn(String email, String password) =>
-      _authenticate(() => repositories.auth.signInWithEmail(email, password));
+  Future<bool> signIn(String email, String password) => _authenticate(
+    () => repositories.auth.signInWithEmail(email, password),
+    password: password,
+  );
 
   /// Google sign-in (same staff verification as e-mail).
   Future<bool> signInWithGoogle() =>
@@ -156,26 +236,35 @@ class SessionController extends ChangeNotifier {
   /// claims *during* the session call, so a first-time staff sign-in has no
   /// claims yet. Anything that fails after Firebase sign-in signs out again so
   /// a non-staff (or unverifiable) account never reaches the task list.
-  Future<bool> _authenticate(Future<AuthUser> Function() method) =>
-      _run(() async {
-        _authenticating = true;
-        try {
-          final signedIn = await method();
-          try {
-            _user = await _verifyStaff(signedIn);
-          } catch (_) {
-            await repositories.auth.signOut();
-            _user = null;
-            rethrow;
-          }
-          _touch();
-          unawaited(_registerPush());
-        } finally {
-          _authenticating = false;
-        }
-      });
+  Future<bool> _authenticate(
+    Future<AuthUser> Function() method, {
+    String? password,
+  }) => _run(() async {
+    _authenticating = true;
+    try {
+      final signedIn = await method();
+      try {
+        final (user, gate) = await _verifyStaff(signedIn);
+        _user = user;
+        _mustChangePassword = gate;
+      } catch (_) {
+        await repositories.auth.signOut();
+        _user = null;
+        _mustChangePassword = false;
+        rethrow;
+      }
+      _temporaryPassword = _mustChangePassword ? password : null;
+      _saveGate();
+      _touch();
+      unawaited(_registerPush());
+    } finally {
+      _authenticating = false;
+    }
+  });
 
-  Future<AuthUser> _verifyStaff(AuthUser signedIn) async {
+  /// Returns the verified staff user and whether the temporary-password gate
+  /// applies (from the server profile; the persisted flag when offline).
+  Future<(AuthUser, bool)> _verifyStaff(AuthUser signedIn) async {
     Profile? profile;
     var unreachable = false;
     try {
@@ -194,9 +283,9 @@ class SessionController extends ChangeNotifier {
         unreachable ? notStaffOfflineMessage : notStaffMessage,
       );
     }
-    if (profile == null) return current;
+    if (profile == null) return (current, _loadGate(current.uid));
     // The server profile is authoritative even if the token refresh lagged.
-    return current.copyWith(
+    final user = current.copyWith(
       claims: {
         ...current.claims,
         'role': profile.role.db,
@@ -205,6 +294,7 @@ class SessionController extends ChangeNotifier {
             : current.outletIds,
       },
     );
+    return (user, profile.mustChangePassword);
   }
 
   /// Demo mode only: sign in as one of the seeded personas.
@@ -213,6 +303,11 @@ class SessionController extends ChangeNotifier {
 
   Future<void> signOut() async {
     _idleTimer?.cancel();
+    // Drop the temporary-password gate first so nothing lingers for the
+    // next account even if clearing local state is interrupted.
+    _mustChangePassword = false;
+    _temporaryPassword = null;
+    _saveGate();
     await repositories.auth.signOut();
     await repositories.clearLocalState();
     _locked = false;
@@ -220,7 +315,11 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> _run(Future<void> Function() body) async {
+  Future<bool> _run(
+    Future<void> Function() body, {
+    String fallback = 'Sign-in failed. Please try again.',
+    String? Function(ApiException e)? onApiError,
+  }) async {
     _busy = true;
     _error = null;
     notifyListeners();
@@ -231,10 +330,10 @@ class SessionController extends ChangeNotifier {
       _error = e.message;
       return false;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = onApiError?.call(e) ?? e.message;
       return false;
     } catch (e) {
-      _error = 'Sign-in failed. Please try again.';
+      _error = fallback;
       return false;
     } finally {
       _busy = false;

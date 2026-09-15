@@ -463,4 +463,48 @@ void main() {
       );
     });
   });
+
+  group('Profile (ADM-010 temporary password)', () {
+    test('fromJson / toJson / copyWith carry must_change_password', () {
+      final p = Profile.fromJson(const {
+        'id': 'u1',
+        'role': 'technician',
+        'full_name': 'Nomsa Dube',
+        'email': 'nomsa@sparkling.co.za',
+        'must_change_password': true,
+        'password_changed_at': null,
+      });
+      expect(p.mustChangePassword, isTrue);
+      expect(p.passwordChangedAt, isNull);
+      expect(p.toJson()['must_change_password'], isTrue);
+      expect(p.toJson().containsKey('password_changed_at'), isFalse);
+
+      final changed = p.copyWith(
+        mustChangePassword: false,
+        passwordChangedAt: DateTime.utc(2026, 9, 15, 8, 30),
+      );
+      expect(changed.mustChangePassword, isFalse);
+      expect(changed.toJson()['must_change_password'], isFalse);
+      expect(
+        changed.toJson()['password_changed_at'],
+        '2026-09-15T08:30:00.000Z',
+      );
+      expect(changed, isNot(equals(p)));
+      expect(
+        Profile.fromJson(changed.toJson()).passwordChangedAt,
+        DateTime.utc(2026, 9, 15, 8, 30),
+      );
+    });
+
+    test('defaults to false when the API omits the field', () {
+      final p = Profile.fromJson(const {
+        'id': 'u1',
+        'role': 'customer',
+        'full_name': 'Thabo Nkosi',
+      });
+      expect(p.mustChangePassword, isFalse);
+      expect(p.passwordChangedAt, isNull);
+      expect(p.copyWith(fullName: 'T').mustChangePassword, isFalse);
+    });
+  });
 }

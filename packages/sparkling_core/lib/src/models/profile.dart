@@ -20,6 +20,8 @@ class Profile extends Equatable {
     this.reducedMotion = false,
     this.haptics = true,
     this.outletIds = const [],
+    this.mustChangePassword = false,
+    this.passwordChangedAt,
     this.lastSeenAt,
     this.createdAt,
     this.updatedAt,
@@ -41,6 +43,12 @@ class Profile extends Equatable {
 
   /// Outlets the (staff) profile may access — from claims / `staff_outlets`.
   final List<String> outletIds;
+
+  /// Staff accounts created from the admin dashboard start with a temporary
+  /// password (ADM-010): the apps must force a password change before
+  /// anything else. Cleared by `POST /auth/password-changed`.
+  final bool mustChangePassword;
+  final DateTime? passwordChangedAt;
   final DateTime? lastSeenAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -78,6 +86,8 @@ class Profile extends Equatable {
     reducedMotion: boolOf(json['reduced_motion']),
     haptics: boolOf(json['haptics'], true),
     outletIds: asStringList(json['outlet_ids']),
+    mustChangePassword: boolOf(json['must_change_password']),
+    passwordChangedAt: dtOrNull(json['password_changed_at']),
     lastSeenAt: dtOrNull(json['last_seen_at']),
     createdAt: dtOrNull(json['created_at']),
     updatedAt: dtOrNull(json['updated_at']),
@@ -98,6 +108,8 @@ class Profile extends Equatable {
     'reduced_motion': reducedMotion,
     'haptics': haptics,
     'outlet_ids': outletIds,
+    'must_change_password': mustChangePassword,
+    'password_changed_at': iso(passwordChangedAt),
     'last_seen_at': iso(lastSeenAt),
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
@@ -118,6 +130,8 @@ class Profile extends Equatable {
     bool? reducedMotion,
     bool? haptics,
     List<String>? outletIds,
+    bool? mustChangePassword,
+    DateTime? passwordChangedAt,
     DateTime? lastSeenAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -136,6 +150,8 @@ class Profile extends Equatable {
     reducedMotion: reducedMotion ?? this.reducedMotion,
     haptics: haptics ?? this.haptics,
     outletIds: outletIds ?? this.outletIds,
+    mustChangePassword: mustChangePassword ?? this.mustChangePassword,
+    passwordChangedAt: passwordChangedAt ?? this.passwordChangedAt,
     lastSeenAt: lastSeenAt ?? this.lastSeenAt,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -157,6 +173,8 @@ class Profile extends Equatable {
     reducedMotion,
     haptics,
     outletIds,
+    mustChangePassword,
+    passwordChangedAt,
     updatedAt,
   ];
 }

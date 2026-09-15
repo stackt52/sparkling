@@ -114,6 +114,30 @@ authRouter.post(
   }),
 );
 
+/**
+ * The client has just set a new password through Firebase Auth (`updatePassword`); clear the
+ * first-sign-in flag. Requires a token minted after the change (`auth_time` within 15 minutes)
+ * so a stale session cannot silently dismiss the requirement.
+ */
+authRouter.post(
+  '/auth/password-changed',
+  requireProfile,
+  asyncHandler(async (req, res) => {
+    const auth = req.auth!;
+    const db = getSupabase();
+    const authTime = Number(auth.tokenClaims.auth_time ?? 0) * 1000;
+    if (!authTime || Date.now() - authTime > 15 * 60_000) {
+      throw ApiError.validationConflict('Sign in again with the new password before confirming the change', { reason: 'stale_session' });
+    }
+    const profile = unwrap<Profile>(
+      await db.from('profiles').update({ must_change_password: false, password_changed_at: new Date().toISOString() }).eq('id', auth.uid).select('*').single(),
+      'password changed',
+    );
+    await audit(req.ctx, { action: 'auth.password_changed', entity_type: 'profile', entity_id: auth.uid });
+    res.json({ profile });
+  }),
+);
+
 authRouter.get(
   '/me',
   requireProfile,

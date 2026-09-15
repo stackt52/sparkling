@@ -9,7 +9,19 @@ import { DemoApi } from '../demo/DemoApi';
 import { DEMO_PROFILES } from '../demo/data';
 import { useHydrated, useStorageValue, writeStorage } from '../hooks';
 
-export type AuthStatus = 'loading' | 'signed_out' | 'unauthorised' | 'ready';
+/** `password_change`: signed in with a temporary password (`profile.must_change_password`) — the user must set a new one before anything else (ADM-010). */
+export type AuthStatus = 'loading' | 'signed_out' | 'password_change' | 'unauthorised' | 'ready';
+
+/**
+ * Thrown by `changePassword` when Firebase needs a recent sign-in (`auth/requires-recent-login`):
+ * ask for the current (temporary) password and call `changePassword(newPassword, currentPassword)`.
+ */
+export class ReauthRequiredError extends Error {
+  constructor() {
+    super('Please confirm your current password to continue.');
+    this.name = 'ReauthRequiredError';
+  }
+}
 
 export interface AuthState {
   status: AuthStatus;
@@ -25,6 +37,12 @@ export interface AuthState {
   signInGoogle(): Promise<void>;
   continueAsDemo(role?: UserRole): void;
   switchDemoRole(role: UserRole): void;
+  /**
+   * First-sign-in password change: Firebase `updatePassword` (re-authenticating with `currentPassword`
+   * when given), sign in again with the new password so `auth_time` is fresh, then `POST /auth/password-changed`.
+   * Throws `ReauthRequiredError` when Firebase wants the current password first.
+   */
+  changePassword(newPassword: string, currentPassword?: string): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -47,6 +65,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = React.useState<AuthState['profile']>(null);
   const [status, setStatus] = React.useState<AuthStatus>('loading');
   const [error, setError] = React.useState<string | null>(null);
+  /** While `changePassword` re-signs in, `onAuthStateChanged` must not re-run the session handshake. */
+  const changingPassword = React.useRef(false);
 
   const getToken = React.useCallback(async () => {
     if (demo) return null;
@@ -78,7 +98,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await http.session({ app: 'admin', full_name: u.displayName ?? undefined });
         if (res.claims_updated) await u.getIdToken(true);
         setProfile({ ...res.profile, outlet_ids: res.profile.outlet_ids ?? res.outlet_ids ?? [] });
-        setStatus(ADMIN_ROLES.includes(res.profile.role) ? 'ready' : 'unauthorised');
+        // The password gate comes before the role check: a technician who opens the dashboard still
+        // sets a password first, then sees the not-authorised page.
+        setStatus(res.profile.must_change_password ? 'password_change' : ADMIN_ROLES.includes(res.profile.role) ? 'ready' : 'unauthorised');
       } catch (e) {
         setError((e as Error).message);
         setProfile(null);
@@ -96,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { onAuthStateChanged } = await import('firebase/auth');
       unsub = onAuthStateChanged(getFirebaseAuth(), (u) => {
         setUser(u);
+        if (changingPassword.current) return;
         if (u) void establishSession(u);
         else {
           setProfile(null);
@@ -134,6 +157,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       switchDemoRole(role) {
         applyDemoRole(role);
+      },
+      async changePassword(newPassword, currentPassword) {
+        setError(null);
+        if (demo) return; // the demo session never carries the flag; nothing to persist
+        const { getFirebaseAuth, signInWithEmail } = await import('../firebase');
+        const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = await import('firebase/auth');
+        const current = getFirebaseAuth().currentUser;
+        if (!current?.email) throw new Error('No signed-in e-mail account.');
+        const email = current.email;
+        if (currentPassword) await reauthenticateWithCredential(current, EmailAuthProvider.credential(email, currentPassword));
+        try {
+          await updatePassword(current, newPassword);
+        } catch (e) {
+          if ((e as { code?: string }).code === 'auth/requires-recent-login' && !currentPassword) throw new ReauthRequiredError();
+          throw e;
+        }
+        changingPassword.current = true;
+        try {
+          // Fresh sign-in → fresh `auth_time`; the API rejects the confirmation from a stale session (409 stale_session).
+          const fresh = await signInWithEmail(email, newPassword);
+          const http = new HttpApi(() => fresh.getIdToken());
+          const updated = await http.confirmPasswordChanged();
+          setUser(fresh);
+          setProfile((prev) => ({ ...(prev ?? updated), ...updated, outlet_ids: prev?.outlet_ids ?? [] }));
+          setStatus(ADMIN_ROLES.includes(updated.role) ? 'ready' : 'unauthorised');
+        } finally {
+          changingPassword.current = false;
+        }
       },
       async signOut() {
         if (demo) {

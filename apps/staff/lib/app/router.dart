@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../features/auth/change_password_screen.dart';
 import '../features/auth/lock_screen.dart';
 import '../features/auth/sign_in_screen.dart';
 import '../features/checklist/checklist_screen.dart';
@@ -26,6 +28,7 @@ import 'session.dart';
 abstract final class Routes {
   static const signIn = '/sign-in';
   static const locked = '/locked';
+  static const changePassword = '/change-password';
   static const tasks = '/tasks';
   static const ops = '/ops';
   static const scan = '/scan';
@@ -58,7 +61,16 @@ GoRouter buildRouter(SessionController session) {
       if (session.locked) {
         return path == Routes.locked ? null : Routes.locked;
       }
-      if (path == Routes.signIn || path == Routes.locked) return Routes.tasks;
+      // Temporary password (ADM-010): nothing else until it is replaced —
+      // the idle lock above still re-authenticates first, never bypasses.
+      if (session.mustChangePassword) {
+        return path == Routes.changePassword ? null : Routes.changePassword;
+      }
+      if (path == Routes.signIn ||
+          path == Routes.locked ||
+          path == Routes.changePassword) {
+        return Routes.tasks;
+      }
       if (path == Routes.ops && !session.canSupervise) return Routes.scan;
       return null;
     },
@@ -72,6 +84,11 @@ GoRouter buildRouter(SessionController session) {
         path: Routes.locked,
         pageBuilder: (context, state) =>
             fadeThroughPage(state: state, child: const LockScreen()),
+      ),
+      GoRoute(
+        path: Routes.changePassword,
+        pageBuilder: (context, state) =>
+            fadeThroughPage(state: state, child: const ChangePasswordScreen()),
       ),
       GoRoute(
         path: Routes.sync,
@@ -167,10 +184,8 @@ GoRouter buildRouter(SessionController session) {
           ),
           GoRoute(
             path: Routes.leaderboard,
-            pageBuilder: (context, state) => fadeThroughPage(
-              state: state,
-              child: const LeaderboardScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                fadeThroughPage(state: state, child: const LeaderboardScreen()),
           ),
           GoRoute(
             path: Routes.inventory,
@@ -185,8 +200,7 @@ GoRouter buildRouter(SessionController session) {
         ],
       ),
     ],
-    errorBuilder: (context, state) => Scaffold(
-      body: Center(child: Text('Page not found: ${state.uri}')),
-    ),
+    errorBuilder: (context, state) =>
+        Scaffold(body: Center(child: Text('Page not found: ${state.uri}'))),
   );
 }

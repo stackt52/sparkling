@@ -13,6 +13,8 @@ import type {
   BookingDetail,
   BookingStatus,
   ChecklistTemplate,
+  CreateStaffInput,
+  CreateStaffResult,
   CustomerDetail,
   CustomerSummary,
   EnrolMembershipInput,
@@ -52,6 +54,7 @@ import type {
   RenewalRunResult,
   ReportKind,
   ReportSummary,
+  ResetPasswordResult,
   Service,
   ServiceInput,
   SessionResponse,
@@ -192,8 +195,13 @@ export interface AdminApi {
   team(params: OutletScoped): Promise<TeamMember[]>;
   /* users */
   listUsers(): Promise<StaffUser[]>;
-  inviteUser(body: { email: string; full_name: string; role: UserRole; outlet_ids: string[] }): Promise<StaffUser>;
+  /** `POST /admin/users` — creates the Firebase user with a temporary password (ADM-010). */
+  inviteUser(body: CreateStaffInput): Promise<CreateStaffResult>;
   updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }): Promise<StaffUser>;
+  /** `POST /admin/users/:id/reset-password` — new temporary password, refresh tokens revoked, `must_change_password` re-flagged. */
+  resetUserPassword(id: string): Promise<ResetPasswordResult>;
+  /** `POST /auth/password-changed` — clears `must_change_password` after the client set a new password (fresh `auth_time` required). */
+  confirmPasswordChanged(): Promise<Profile>;
   staffPerformance(params: OutletScoped & { period: Period }): Promise<StaffPerformanceRow[]>;
   /* customers */
   searchCustomers(search: string): Promise<CustomerSummary[]>;
@@ -526,10 +534,15 @@ export class HttpApi implements AdminApi {
   listUsers() {
     return this.list<StaffUser>('/admin/users?limit=500');
   }
-  /** `POST /admin/users` → `{ profile, uid, invite_link, … }`; outlets/skills are echoed from the request. */
-  async inviteUser(body: { email: string; full_name: string; role: UserRole; outlet_ids: string[] }) {
-    const res = await this.request<{ profile: Profile }>('POST', '/admin/users', body);
-    return { ...res.profile, outlet_ids: body.outlet_ids, outlet_names: [], skills: [] } as StaffUser;
+  inviteUser(body: CreateStaffInput) {
+    return this.request<CreateStaffResult>('POST', '/admin/users', body);
+  }
+  resetUserPassword(id: string) {
+    return this.request<ResetPasswordResult>('POST', `/admin/users/${id}/reset-password`);
+  }
+  async confirmPasswordChanged() {
+    const res = await this.request<{ profile: Profile }>('POST', '/auth/password-changed');
+    return res.profile;
   }
   async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }) {
     const res = await this.request<{ profile: Profile; outlet_ids: string[] }>('PATCH', `/admin/users/${id}`, patch);

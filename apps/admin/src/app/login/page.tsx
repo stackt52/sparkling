@@ -26,6 +26,7 @@ export default function LoginPage() {
 
   React.useEffect(() => {
     if (status === 'ready' || status === 'unauthorised') router.replace('/');
+    else if (status === 'password_change') router.replace('/change-password');
   }, [status, router]);
 
   const submit = async (e: React.FormEvent) => {

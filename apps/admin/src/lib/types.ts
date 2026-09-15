@@ -80,6 +80,9 @@ export interface Profile {
   push_opt_in: boolean;
   last_seen_at: string | null;
   created_at: string;
+  /** Set when the account was created (or reset) with a temporary password; the app forces a password change (ADM-010). */
+  must_change_password: boolean;
+  password_changed_at: string | null;
 }
 
 export interface SessionResponse {
@@ -94,6 +97,31 @@ export interface StaffUser extends Profile {
   outlet_names: string[];
   skills: string[];
   availability?: 'available' | 'busy' | 'break' | 'off';
+}
+
+/** `POST /admin/users` body (ADM-010). `invite:'link'` additionally returns a Firebase password-reset link. */
+export interface CreateStaffInput {
+  email: string;
+  full_name: string;
+  role: UserRole;
+  phone?: string | null;
+  outlet_ids: string[];
+  skills?: string[];
+  invite?: 'password' | 'link';
+}
+
+/** `201` from `POST /admin/users`: the temporary password is shown once to the admin. */
+export interface CreateStaffResult {
+  profile: Profile;
+  uid: string;
+  temporary_password: string;
+  invite_link: string | null;
+}
+
+/** `POST /admin/users/:id/reset-password`. */
+export interface ResetPasswordResult {
+  profile: Profile;
+  temporary_password: string;
 }
 
 /* ---------- catalogue ---------- */

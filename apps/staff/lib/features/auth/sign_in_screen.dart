@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
+import '../../app/router.dart';
 import '../../app/scope.dart';
 import '../../widgets/avatar_tile.dart';
 
 /// Staff sign-in (STF-001): e-mail + password or Google. In demo mode a
-/// persona picker (Pieter technician / Johan supervisor / Ayesha manager)
-/// sits above the form.
+/// persona picker (Pieter technician / Nomsa new technician / Johan
+/// supervisor / Ayesha manager) sits above the form. Accounts still on
+/// their temporary password land on the change-password screen (ADM-010).
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -30,7 +33,10 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    await context.session.signIn(_email.text, _password.text);
+    final session = context.session;
+    final ok = await session.signIn(_email.text, _password.text);
+    if (!mounted) return;
+    if (ok && session.mustChangePassword) context.go(Routes.changePassword);
   }
 
   @override
@@ -191,6 +197,7 @@ class _PersonaPicker extends StatelessWidget {
 
   static const _personas = [
     (DemoPersonas.technician, 'Technician · Sandton bay team'),
+    (DemoPersonas.newTechnician, 'New technician · temporary password'),
     (DemoPersonas.supervisor, 'Supervisor · Sandton'),
     (DemoPersonas.manager, 'Manager · Sandton + Rosebank'),
   ];
@@ -222,7 +229,7 @@ class _PersonaPicker extends StatelessWidget {
         const SizedBox(height: 12),
         for (final (user, subtitle) in _personas) ...[
           ListTileCard(
-            onTap: busy ? null : () => context.session.signInAs(user),
+            onTap: busy ? null : () => _pick(context, user),
             leading: AvatarTile(
               initials: _initials(user.displayName ?? '?'),
               size: 48,
@@ -239,6 +246,13 @@ class _PersonaPicker extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  Future<void> _pick(BuildContext context, AuthUser user) async {
+    final session = context.session;
+    final ok = await session.signInAs(user);
+    if (!context.mounted) return;
+    if (ok && session.mustChangePassword) context.go(Routes.changePassword);
   }
 
   static String _initials(String name) {

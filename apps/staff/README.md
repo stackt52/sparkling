@@ -42,9 +42,31 @@ what you see on the Auth emulator without the Functions emulator running.
 Idle lock re-authenticates with the password, or re-runs the Google flow for
 Google-only accounts.
 
-Demo personas: **Pieter** (technician), **Johan** (supervisor), **Ayesha**
-(manager). Any password works in demo mode; the seeded e-mails
-(`pieter@sparkling.co.za`, …) also work in the sign-in form.
+Demo personas: **Pieter** (technician), **Nomsa** (new technician on a
+temporary password), **Johan** (supervisor), **Ayesha** (manager). Any
+password works in demo mode; the seeded e-mails (`pieter@sparkling.co.za`,
+…) also work in the sign-in form.
+
+### Temporary password on first sign-in (ADM-010)
+
+Staff accounts are created from the admin dashboard with a temporary
+password (`profile.must_change_password = true` on `POST /auth/session` /
+`GET /me`). The staff app forces a change before anything else: the
+`SessionController` keeps `mustChangePassword` in memory **and** in Hive
+(`DraftStore` key `staff_password_gate`, scoped to the uid) so an offline
+restart is gated too, and the router redirects every route — including after
+the idle-lock unlock — to `/change-password`
+(`lib/features/auth/change_password_screen.dart`, `screenshots/change-password.png`).
+The screen prefills the temporary password typed on the sign-in form, asks
+for a new password + confirmation (visibility toggles; ≥ 10 characters with a
+letter and a digit, inline errors) and offers **Sign out**. **Set password**
+runs `Repositories.completePasswordChange`: Firebase `updatePassword`
+(re-authenticating with the temporary password on `requires-recent-login`),
+sign in again with the new password (fresh `auth_time`), then
+`POST /auth/password-changed` → profile with the flag cleared → task list.
+A 409 `stale_session` keeps the gate and tells the user to sign in again.
+Demo: pick **Nomsa Dube** on the sign-in screen; `test/change_password_test.dart`
+covers the gate, the rules, the persisted restart and the lock screen.
 
 ## Verify
 
@@ -62,7 +84,8 @@ Widget tests run on the demo repositories (`SparklingTypography.useGoogleFonts =
 lib/main.dart              Firebase init (live only) → SparklingCore.bootstrap → StaffApp
 lib/app/                   StaffApp (theme, motion scope), router (go_router), session
                            (auth, idle lock, FCM), sync status, device settings
-lib/features/auth          sign-in + demo persona picker, session-timeout lock (STF-004)
+lib/features/auth          sign-in + demo persona picker, session-timeout lock (STF-004),
+                           forced change of a temporary password (ADM-010)
 lib/features/tasks         2a/2g task list, task card, tablet master-detail
 lib/features/checklist     2b checklist execution, step inputs, blocked-reason sheet, hand-over (OTP) sheet
 lib/features/scanner       PDF417 scan (mobile_scanner, 1080p + viewfinder scanWindow,

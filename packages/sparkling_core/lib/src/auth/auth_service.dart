@@ -89,7 +89,22 @@ class AuthException implements Exception {
   String toString() => 'AuthException($code): $message';
 
   factory AuthException.fromFirebase(fb.FirebaseAuthException e) =>
-      AuthException(e.code, _friendly(e.code) ?? e.message ?? 'Sign-in failed');
+      AuthException(
+        normaliseCode(e.code),
+        _friendly(e.code) ?? e.message ?? 'Sign-in failed',
+      );
+
+  /// Stable codes callers may switch on: Firebase's
+  /// `network-request-failed` becomes `network`; `weak-password` and
+  /// `requires-recent-login` are kept as-is.
+  static String normaliseCode(String code) => switch (code) {
+    'network-request-failed' => 'network',
+    _ => code,
+  };
+
+  bool get isNetwork => code == 'network';
+  bool get isWeakPassword => code == 'weak-password';
+  bool get requiresRecentLogin => code == 'requires-recent-login';
 
   /// The native provider flow (Google) is not available here — typically on
   /// the iOS simulator / Android emulator without Google Play services, or
@@ -115,7 +130,8 @@ class AuthException implements Exception {
     'wrong-password' ||
     'invalid-credential' => 'E-mail or password is incorrect.',
     'email-already-in-use' => 'An account with this e-mail already exists.',
-    'weak-password' => 'Choose a stronger password (at least 8 characters).',
+    'weak-password' =>
+      'Choose a stronger password (at least 10 characters with a letter and a digit).',
     'too-many-requests' =>
       'Too many attempts. Please wait a moment and try again.',
     'network-request-failed' =>
@@ -185,6 +201,15 @@ abstract interface class AuthGateway {
   Future<AuthUser> signInWithGoogle();
   Future<void> sendPasswordReset(String email);
   Future<void> signOut();
+
+  /// Sets a new password for the signed-in user. Throws [AuthException]
+  /// `weak-password`, `requires-recent-login` (call
+  /// [reauthenticateWithPassword] first) or `network`.
+  Future<void> updatePassword(String newPassword);
+
+  /// Re-authenticates the signed-in e-mail/password user (needed before
+  /// sensitive operations when the sign-in is not recent).
+  Future<void> reauthenticateWithPassword(String password);
 
   /// Firebase ID token for `Authorization: Bearer` (null when signed out).
   Future<String?> idToken({bool forceRefresh = false});
@@ -350,6 +375,34 @@ class AuthService implements AuthGateway {
       _guard(() => _auth.sendPasswordResetEmail(email: email.trim()));
 
   @override
+  Future<void> updatePassword(String newPassword) => _guard(() async {
+    final u = _auth.currentUser;
+    if (u == null) throw _signedOut();
+    await u.updatePassword(newPassword);
+  });
+
+  @override
+  Future<void> reauthenticateWithPassword(String password) => _guard(() async {
+    final u = _auth.currentUser;
+    if (u == null) throw _signedOut();
+    final email = u.email;
+    if (email == null || email.isEmpty) {
+      throw const AuthException(
+        'no-password-provider',
+        'This account has no e-mail password to re-authenticate with.',
+      );
+    }
+    await u.reauthenticateWithCredential(
+      fb.EmailAuthProvider.credential(email: email, password: password),
+    );
+  });
+
+  static AuthException _signedOut() => const AuthException(
+    'user-not-signed-in',
+    'You are signed out. Please sign in again.',
+  );
+
+  @override
   Future<void> signOut() async {
     _claims = const {};
     _claimsUid = null;
@@ -426,6 +479,20 @@ class DemoAuthService implements AuthGateway {
     },
   );
 
+  /// A technician whose account was just created from the admin dashboard
+  /// with a temporary password: `bootstrapSession` returns
+  /// `mustChangePassword: true` until `passwordChanged()` runs (ADM-010).
+  static const AuthUser demoNewTechnician = AuthUser(
+    uid: 'seed_nomsa',
+    email: 'nomsa@sparkling.co.za',
+    displayName: 'Nomsa Dube',
+    emailVerified: true,
+    claims: {
+      'role': 'technician',
+      'outlet_ids': ['a0000000-0000-4000-8000-000000000001'],
+    },
+  );
+
   static const AuthUser demoSupervisor = AuthUser(
     uid: 'seed_johan',
     email: 'johan@sparkling.co.za',
@@ -455,6 +522,7 @@ class DemoAuthService implements AuthGateway {
   static const Map<String, AuthUser> demoUsers = {
     'thabo@example.com': demoCustomer,
     'pieter@sparkling.co.za': demoTechnician,
+    'nomsa@sparkling.co.za': demoNewTechnician,
     'johan@sparkling.co.za': demoSupervisor,
     'ayesha@sparkling.co.za': demoManager,
   };
@@ -511,6 +579,39 @@ class DemoAuthService implements AuthGateway {
 
   @override
   Future<void> sendPasswordReset(String email) async {}
+
+  /// Passwords set through the demo gateway, by uid (so a demo sign-in
+  /// after a change still "works" with any password, but tests can assert
+  /// what was set).
+  final Map<String, String> passwords = {};
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    final u = _user;
+    if (u == null) {
+      throw const AuthException(
+        'user-not-signed-in',
+        'You are signed out. Please sign in again.',
+      );
+    }
+    if (newPassword.length < 6) {
+      throw const AuthException(
+        'weak-password',
+        'Choose a stronger password (at least 10 characters with a letter and a digit).',
+      );
+    }
+    passwords[u.uid] = newPassword;
+  }
+
+  @override
+  Future<void> reauthenticateWithPassword(String password) async {
+    if (_user == null) {
+      throw const AuthException(
+        'user-not-signed-in',
+        'You are signed out. Please sign in again.',
+      );
+    }
+  }
 
   @override
   Future<void> signOut() async => _set(null);

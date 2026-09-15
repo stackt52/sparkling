@@ -52,6 +52,9 @@ export interface Profile {
   haptics: boolean;
   last_seen_at: string | null;
   deactivated_at: string | null;
+  /** Staff created from the admin app sign in with a temporary password and must set their own first (migration 0012). */
+  must_change_password: boolean;
+  password_changed_at: string | null;
   created_at: string;
   updated_at: string;
 }

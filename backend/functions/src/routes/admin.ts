@@ -399,8 +399,8 @@ const createUserSchema = z.object({
   phone: z.string().trim().max(32).nullable().optional(),
   outlet_ids: z.array(uuid).max(20).default([]),
   skills: z.array(z.string().trim().min(1).max(32)).max(20).default([]),
-  /** 'password' returns a temporary password; 'link' returns a password-reset link */
-  invite: z.enum(['password', 'link']).default('link'),
+  /** 'password' (default) returns a temporary password the admin hands over; 'link' also returns a password-reset link. */
+  invite: z.enum(['password', 'link']).default('password'),
 });
 
 function tempPassword(): string {
@@ -420,9 +420,13 @@ adminRouter.post('/admin/users', requireAdmin, asyncHandler(async (req, res) => 
   } catch {
     user = null;
   }
-  const password = body.invite === 'password' ? tempPassword() : undefined;
+  // Always issue a temporary password (shown once to the admin); the account is flagged so the
+  // staff or admin app forces a password change on the first sign-in (`must_change_password`).
+  const password = tempPassword();
   if (!user) {
-    user = await auth.createUser({ email: body.email, displayName: body.full_name, password: password ?? tempPassword(), emailVerified: false });
+    user = await auth.createUser({ email: body.email, displayName: body.full_name, password, emailVerified: false });
+  } else {
+    await auth.updateUser(user.uid, { password, displayName: body.full_name, disabled: false });
   }
   let inviteLink: string | null = null;
   if (body.invite === 'link') {
@@ -434,10 +438,10 @@ adminRouter.post('/admin/users', requireAdmin, asyncHandler(async (req, res) => 
   }
   let profile: Profile;
   if (existingProfile) {
-    profile = unwrap<Profile>(await db.from('profiles').update({ id: user.uid, role: body.role, full_name: body.full_name, phone: body.phone ?? null, is_active: true }).eq('id', existingProfile.id).select('*').single(), 'claim profile');
+    profile = unwrap<Profile>(await db.from('profiles').update({ id: user.uid, role: body.role, full_name: body.full_name, phone: body.phone ?? null, is_active: true, must_change_password: true, deactivated_at: null }).eq('id', existingProfile.id).select('*').single(), 'claim profile');
   } else {
     profile = unwrap<Profile>(
-      await db.from('profiles').upsert({ id: user.uid, role: body.role, full_name: body.full_name, email: body.email, phone: body.phone ?? null, is_active: true }, { onConflict: 'id' }).select('*').single(),
+      await db.from('profiles').upsert({ id: user.uid, role: body.role, full_name: body.full_name, email: body.email, phone: body.phone ?? null, is_active: true, must_change_password: true }, { onConflict: 'id' }).select('*').single(),
       'create profile',
     );
   }
@@ -450,7 +454,35 @@ adminRouter.post('/admin/users', requireAdmin, asyncHandler(async (req, res) => 
   if (body.skills.length) await db.from('staff_skills').insert(body.skills.map((skill) => ({ profile_id: user.uid, skill })));
   await auth.setCustomUserClaims(user.uid, { role: body.role, outlet_ids: STAFF_ROLES.includes(body.role) ? body.outlet_ids : [] });
   await audit(req.ctx, { action: 'user.create', entity_type: 'profile', entity_id: user.uid, after: { role: body.role, outlet_ids: body.outlet_ids, invite: body.invite } });
-  res.status(201).json({ profile, uid: user.uid, temporary_password: password ?? null, invite_link: inviteLink });
+  res.status(201).json({ profile, uid: user.uid, temporary_password: password, invite_link: inviteLink });
+}));
+
+/**
+ * Issues a fresh temporary password for a staff member (forgotten password, locked out). The
+ * account must change it on the next sign-in; existing sessions are revoked.
+ */
+adminRouter.post('/admin/users/:id/reset-password', requireAdmin, asyncHandler(async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  const db = getSupabase();
+  const profile = unwrap<Profile | null>(await db.from('profiles').select('*').eq('id', id).maybeSingle(), 'profile');
+  if (!profile) throw ApiError.notFound('User');
+  if (profile.role === 'customer') throw ApiError.validation('Customers reset their own password from the app');
+  if (!profile.email) throw ApiError.validation('User has no e-mail address');
+  const fb = firebaseAuth();
+  const password = tempPassword();
+  try {
+    await fb.updateUser(id, { password, disabled: false });
+    await fb.revokeRefreshTokens(id);
+  } catch (err) {
+    req.log.error({ err, uid: id }, 'firebase password reset failed');
+    throw ApiError.internal('Could not reset the password in Firebase Auth');
+  }
+  const updated = unwrap<Profile>(
+    await db.from('profiles').update({ must_change_password: true, password_changed_at: null }).eq('id', id).select('*').single(),
+    'flag password change',
+  );
+  await audit(req.ctx, { action: 'user.reset_password', entity_type: 'profile', entity_id: id, after: { email: profile.email } });
+  res.json({ profile: updated, temporary_password: password });
 }));
 
 const patchUserSchema = z.object({

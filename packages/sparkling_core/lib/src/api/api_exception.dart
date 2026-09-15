@@ -38,6 +38,14 @@ class ApiException implements Exception {
   bool get isRetryable =>
       isNetwork || isRateLimited || (statusCode != null && statusCode! >= 500);
 
+  /// 409 `validation_error` `{ reason: 'stale_session' }` from
+  /// `POST /auth/password-changed`: the ID token's `auth_time` is older than
+  /// 15 minutes — sign in again with the new password and retry.
+  bool get isStaleSession {
+    final reason = data?['reason'] ?? _detail('reason');
+    return reason == 'stale_session';
+  }
+
   /// 409 `validation_error` `{ reason: 'by_quote' }` from `POST /bookings`:
   /// the service is quote-only — route to a quotation request instead.
   bool get isByQuote {

@@ -191,6 +191,8 @@ Config: `PUBLIC_WEB_BASE_URL` param (admin app origin, e.g. `https://sparkling-a
 | POST | `/admin/notifications/:id/resend` | manager/admin | re-sends a `failed`/`suppressed` push or WhatsApp row from its stored template + `payload.vars`; bumps `attempts`; audited (`notification.resend`) → `{ notification, outcome:{channel,status} }`; 409 otherwise |
 | GET | `/admin/flags`, `PATCH /admin/flags/:key` | `GET` manager/admin, `PATCH` admin | `{ data, effective }` / `{ flag }` |
 
+**Staff accounts (ADM-010).** `POST /admin/users` `{ email, full_name, role, phone?, outlet_ids[], skills[], invite?: 'password'|'link' }` creates (or reuses) the Firebase Auth user with a **temporary password**, the profile (`must_change_password = true`, migration 0012), outlet scope, skills and custom claims → `201 { profile, uid, temporary_password, invite_link|null }`. The admin hands the temporary password over; the staff app (any staff role) and the admin dashboard (manager/admin/finance/supervisor) both force a password change on the first sign-in: the client calls Firebase `updatePassword`, signs in again with the new password (fresh `auth_time`) and then `POST /auth/password-changed` → `{ profile }` (409 `{reason:'stale_session'}` when the token's `auth_time` is older than 15 min). `POST /admin/users/:id/reset-password` → `{ profile, temporary_password }` issues a new temporary password, revokes refresh tokens and re-flags the profile. `profile.must_change_password` is returned by `POST /auth/session` and `GET /me`.
+
 ### Notifications
 | GET | `/notifications?limit&cursor` | any | own |
 | POST | `/notifications/:id/read` | any | |

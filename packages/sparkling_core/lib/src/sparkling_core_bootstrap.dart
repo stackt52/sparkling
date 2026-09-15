@@ -80,6 +80,7 @@ abstract final class SparklingCore {
         cache: cache,
         drafts: drafts,
         connectivity: conn,
+        demoStore: store,
       );
     }
 
@@ -186,6 +187,10 @@ typedef DemoPersona = AuthUser;
 abstract final class DemoPersonas {
   static const AuthUser customer = DemoAuthService.demoCustomer;
   static const AuthUser technician = DemoAuthService.demoTechnician;
+
+  /// Account created from the admin dashboard with a temporary password —
+  /// signing in forces a password change first (ADM-010).
+  static const AuthUser newTechnician = DemoAuthService.demoNewTechnician;
   static const AuthUser supervisor = DemoAuthService.demoSupervisor;
   static const AuthUser manager = DemoAuthService.demoManager;
 

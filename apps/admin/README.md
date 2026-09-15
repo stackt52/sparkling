@@ -55,6 +55,34 @@ included washes come from the plan.
 * Tokens: `tk.platinumGradient`, `tk.blackGradient` (navy → black) + `tk.onBlack` (gold text); `TierChip`
   paints Silver / Gold / Platinum / Black.
 
+## Staff accounts (`/staff`, ADM-010)
+
+Admins (`user:manage`) create staff accounts from the dashboard; the account gets a **temporary password** that
+works in the Sparkling Staff app (any staff role) and in this dashboard (manager / admin / finance / supervisor),
+and the first sign-in forces a password change.
+
+* **Add staff member** (header pill) — full name, e-mail, phone, role, outlets and an optional "Also generate a
+  reset link" → `POST /admin/users` `{ email, full_name, role, phone?, outlet_ids[], invite: 'password'|'link' }`.
+  On `201` the form is replaced by a **Credentials** panel: e-mail and temporary password in monospace with copy
+  buttons, a copy-all **Send these details** text, the Firebase reset link when requested, and the note that
+  they'll be asked to choose a new password on their first sign-in. The password is shown once — it is not
+  retrievable later.
+* **Reset password** — row action (lock-reset icon) or the button in the edit dialog → confirm →
+  `POST /admin/users/:id/reset-password` → the same credentials panel (the old password stops working and refresh
+  tokens are revoked server-side). Rows whose profile carries `must_change_password` show a
+  **Must change password** chip next to the status.
+* **First-sign-in gate** — `AuthProvider` reports status `password_change` when `POST /auth/session` returns
+  `profile.must_change_password` (checked *before* the role check, so a technician who opens the dashboard sets a
+  password first and then sees the not-authorised page). `(dashboard)/layout.tsx` and `/login` redirect to
+  **`/change-password`**: new password + confirm (≥ 10 characters with a letter and a digit, strength hint), a
+  "Sign out" link. `changePassword()` runs Firebase `updatePassword`; on `auth/requires-recent-login` the page asks
+  for the current (temporary) password and re-authenticates with `reauthenticateWithCredential`; it then signs in
+  again with the new password (fresh `auth_time`) and calls `POST /auth/password-changed` (409 `stale_session` →
+  "sign in again" message). Password rules live in `src/lib/password.ts`.
+* **Demo mode** — "Continue with demo admin" never hits the gate. `DemoApi.inviteUser` / `resetUserPassword`
+  return fake `Spk-…` passwords and flag the row; `/change-password` renders as a preview and "Set password" just
+  returns to the dashboard.
+
 ## Messages (notifications) and WhatsApp
 
 * **/notifications** ("Messages" in the rail, under Loyalty) — DataGrid of
@@ -159,6 +187,9 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `memberships-members.png` | Members tab after "Run renewals" — Zanele's renewal invoice open, row actions |
 | `memberships-customer.png` | Customer drawer → Membership tab (Black plan: allowances, invoices, enrol / cancel) |
 | `memberships-walkin.png` | Walk-in service step for a Gold member — "Included in Gold · 2 of 4 left" at R 0, plan discount on other services |
+| `staff-add.png` | Add staff member dialog — name, e-mail, phone, role, outlets, "Also generate a reset link" |
+| `staff-credentials.png` | Credentials panel after creation — e-mail, temporary password, reset link, "Send these details"; the new row carries the "Must change password" chip |
+| `change-password.png` | First-sign-in gate (`/change-password`) — rules checklist and strength hint |
 | `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |
 
 ## Branding

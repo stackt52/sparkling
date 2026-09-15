@@ -9,6 +9,7 @@ import '../offline/draft_store.dart';
 import '../offline/local_cache.dart';
 import '../offline/offline_queue.dart';
 import '../realtime/realtime_service.dart';
+import 'demo_store.dart';
 import 'repositories.dart';
 
 /// Everything an app needs, built by `SparklingCore.bootstrap`.
@@ -29,6 +30,7 @@ class Repositories {
     required this.connectivity,
     this.api,
     this.realtime,
+    this.demoStore,
   });
 
   /// `true` when running on in-memory demo data.
@@ -52,11 +54,16 @@ class Repositories {
   /// Null in demo mode or when Supabase is not configured.
   final RealtimeService? realtime;
 
+  /// The in-memory data source in demo mode (null in live mode).
+  final DemoStore? demoStore;
+
   /// Runs `POST /auth/session` after sign-in and returns the server-side
   /// [Profile] (claims are refreshed when the API minted new ones).
   ///
-  /// Returns `null` in demo mode (there is no API). When `API_BASE_URL` is
-  /// empty or the request fails with a network error / timeout, throws
+  /// In demo mode there is no API: the persona's [DemoStore] profile is
+  /// returned (`mustChangePassword` is set for the "new technician"
+  /// persona), or `null` without a store. When `API_BASE_URL` is empty or
+  /// the request fails with a network error / timeout, throws
   /// [ApiException] with `code == 'network'` so the app can show
   /// "Couldn't reach Sparkling servers" and retry without signing out.
   Future<Profile?> bootstrapSession({
@@ -65,7 +72,10 @@ class Repositories {
     String? phone,
   }) async {
     final a = api;
-    if (a == null) return null;
+    if (a == null) {
+      final store = _syncedDemoStore();
+      return store?.bootstrapSession();
+    }
     if (!a.isConfigured) throw ApiException.unreachable();
     try {
       return await SessionBootstrap(
@@ -76,6 +86,64 @@ class Repositories {
       if (e.isNetwork) throw ApiException.unreachable();
       rethrow;
     }
+  }
+
+  /// Completes the forced password change for a staff account created with
+  /// a temporary password (ADM-010, `profile.mustChangePassword`):
+  ///
+  /// 1. `updatePassword(newPassword)` — re-authenticating with
+  ///    [currentPassword] first when Firebase answers
+  ///    `requires-recent-login`;
+  /// 2. signs in again with the new password so the ID token carries a
+  ///    fresh `auth_time` (the API rejects stale sessions with 409
+  ///    `stale_session`);
+  /// 3. `POST /auth/password-changed` → the updated [Profile]
+  ///    (`mustChangePassword == false`).
+  ///
+  /// Throws [AuthException] (`weak-password`, `wrong-password` /
+  /// `invalid-credential`, `network`, …) or [ApiException].
+  Future<Profile> completePasswordChange({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await auth.updatePassword(newPassword);
+    } on AuthException catch (e) {
+      if (!e.requiresRecentLogin) rethrow;
+      await auth.reauthenticateWithPassword(currentPassword);
+      await auth.updatePassword(newPassword);
+    }
+    await auth.signInWithEmail(email, newPassword);
+    final a = api;
+    if (a == null) {
+      final store = _syncedDemoStore();
+      if (store == null) {
+        throw const ApiException(
+          code: 'internal',
+          message: 'Password change is not available in this build.',
+        );
+      }
+      return store.passwordChanged();
+    }
+    if (!a.isConfigured) throw ApiException.unreachable();
+    try {
+      return await a.passwordChanged();
+    } on ApiException catch (e) {
+      if (e.isNetwork) throw ApiException.unreachable();
+      rethrow;
+    }
+  }
+
+  /// Demo: the store follows the auth persona through a stream listener,
+  /// which may not have fired yet right after a sign-in — sync it here.
+  DemoStore? _syncedDemoStore() {
+    final store = demoStore;
+    final u = auth.currentUser;
+    if (store != null && u != null && store.currentUser.uid != u.uid) {
+      store.signInAs(u);
+    }
+    return store;
   }
 
   /// Clears user-scoped local state (call on sign-out).

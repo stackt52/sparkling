@@ -17,6 +17,7 @@ const BOOKING_2 = '10000000-0000-4000-8000-000000000002';
 let server: Server;
 let base: string;
 let db: FakeSupabase;
+const fbCalls: unknown[][] = [];
 
 beforeAll(async () => {
   server = createServer(createApp());
@@ -24,23 +25,33 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   setFirebaseAuthForTests({
     verifyIdToken: async (token: string) => {
-      const users: Record<string, string> = { admin: 'uid_admin', manager: 'uid_manager', finance: 'uid_finance', customer: 'uid_customer' };
-      if (users[token]) return { uid: users[token], email: `${token}@example.com` };
+      const users: Record<string, string> = { admin: 'uid_admin', manager: 'uid_manager', finance: 'uid_finance', customer: 'uid_customer', fresh: 'uid_fresh', stale: 'uid_fresh' };
+      if (users[token]) return { uid: users[token], email: `${token}@example.com`, auth_time: Math.floor(Date.now() / 1000) - (token === 'stale' ? 3600 : 30) };
       throw new Error('bad token');
     },
     setCustomUserClaims: async () => undefined,
+    getUserByEmail: async (email: string) => {
+      if (email === 'existing@example.com') return { uid: 'uid_existing', email };
+      throw new Error('auth/user-not-found');
+    },
+    createUser: async (u: { email: string }) => { fbCalls.push(['createUser', u]); return { uid: `uid_new_${u.email.split('@')[0]}`, email: u.email }; },
+    updateUser: async (uid: string, patch: unknown) => { fbCalls.push(['updateUser', uid, patch]); return { uid }; },
+    revokeRefreshTokens: async (uid: string) => { fbCalls.push(['revoke', uid]); },
+    generatePasswordResetLink: async () => 'https://example.test/reset',
   } as any);
   setPaymentProviderForTests(new SandboxProvider('s3cret'));
 });
 afterAll(() => server.close());
 
 beforeEach(() => {
+  fbCalls.length = 0;
   db = fakeSupabase();
   db.seed('profiles', [
     { id: 'uid_admin', role: 'admin', full_name: 'Ada Admin', email: 'admin@example.com', is_active: true },
     { id: 'uid_manager', role: 'manager', full_name: 'Musa Manager', email: 'manager@example.com', is_active: true },
     { id: 'uid_finance', role: 'finance', full_name: 'Fikile Finance', email: 'finance@example.com', is_active: true },
     { id: 'uid_customer', role: 'customer', full_name: 'Thabo', email: 'customer@example.com', is_active: true },
+    { id: 'uid_fresh', role: 'technician', full_name: 'Fresh Tech', email: 'fresh@example.com', is_active: true, must_change_password: true },
   ]);
   db.seed('staff_outlets', [{ profile_id: 'uid_manager', outlet_id: OUTLET_A, is_primary: true }]);
   db.seed('feature_flags', [{ key: 'whatsapp_enabled', enabled: false }, { key: 'payments_sandbox', enabled: true }]);
@@ -88,6 +99,14 @@ beforeEach(() => {
   setSupabaseClient(db as any);
   resetRateLimits();
 });
+
+async function post(path: string, token: string, body?: unknown) {
+  const res = await fetch(`${base}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await res.text();
+  let parsed: any = text;
+  try { parsed = JSON.parse(text); } catch { /* text */ }
+  return { status: res.status, body: parsed };
+}
 
 async function get(path: string, token: string) {
   const res = await fetch(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -206,5 +225,53 @@ describe('GET /admin/integrations', () => {
   it('is limited to manager/admin', async () => {
     expect((await get('/v1/admin/integrations', 'finance')).status).toBe(403);
     expect((await get('/v1/admin/integrations', 'customer')).status).toBe(403);
+  });
+});
+
+describe('staff accounts (ADM-010): create → temporary password → forced change', () => {
+  it('creates the Firebase account with a temporary password and flags the profile', async () => {
+    const r = await post('/v1/admin/users', 'admin', { email: 'nomsa@example.com', full_name: 'Nomsa Dlamini', role: 'technician', outlet_ids: [OUTLET_A] });
+    expect(r.status).toBe(201);
+    expect(r.body.temporary_password).toMatch(/^Spk-/);
+    expect(r.body.invite_link).toBeNull();
+    expect(r.body.profile).toMatchObject({ id: 'uid_new_nomsa', role: 'technician', email: 'nomsa@example.com', must_change_password: true, is_active: true });
+    expect(fbCalls[0]).toEqual(['createUser', expect.objectContaining({ email: 'nomsa@example.com', password: r.body.temporary_password })]);
+    expect(db.rows('staff_outlets').filter((o) => o.profile_id === 'uid_new_nomsa')).toHaveLength(1);
+  });
+
+  it('reuses an existing Firebase user (resets its password) and can add a reset link', async () => {
+    const r = await post('/v1/admin/users', 'admin', { email: 'existing@example.com', full_name: 'Ex Isting', role: 'supervisor', outlet_ids: [OUTLET_B], invite: 'link' });
+    expect(r.status).toBe(201);
+    expect(r.body.profile).toMatchObject({ id: 'uid_existing', must_change_password: true });
+    expect(r.body.temporary_password).toMatch(/^Spk-/);
+    expect(r.body.invite_link).toBe('https://example.test/reset');
+    expect(fbCalls.find((c) => c[0] === 'updateUser')).toEqual(['updateUser', 'uid_existing', expect.objectContaining({ password: r.body.temporary_password })]);
+  });
+
+  it('rejects duplicates and non-admins', async () => {
+    expect((await post('/v1/admin/users', 'admin', { email: 'manager@example.com', full_name: 'Dup', role: 'technician' })).status).toBe(409);
+    expect((await post('/v1/admin/users', 'manager', { email: 'x@example.com', full_name: 'Some One', role: 'technician' })).status).toBe(403);
+  });
+
+  it('reset-password issues a new temporary password, revokes sessions and re-flags the profile', async () => {
+    db.rows('profiles').find((p) => p.id === 'uid_manager')!.must_change_password = false;
+    const r = await post('/v1/admin/users/uid_manager/reset-password', 'admin');
+    expect(r.status).toBe(200);
+    expect(r.body.temporary_password).toMatch(/^Spk-/);
+    expect(r.body.profile).toMatchObject({ id: 'uid_manager', must_change_password: true, password_changed_at: null });
+    expect(fbCalls).toEqual([['updateUser', 'uid_manager', { password: r.body.temporary_password, disabled: false }], ['revoke', 'uid_manager']]);
+    expect((await post('/v1/admin/users/uid_customer/reset-password', 'admin')).status).toBe(400);
+    expect((await post('/v1/admin/users/uid_manager/reset-password', 'manager')).status).toBe(403);
+  });
+
+  it('password-changed clears the flag for a fresh session and refuses a stale one', async () => {
+    const stale = await post('/v1/auth/password-changed', 'stale');
+    expect(stale.status).toBe(409);
+    expect(stale.body.error?.details ?? stale.body.details ?? stale.body).toMatchObject({ reason: 'stale_session' });
+    const ok = await post('/v1/auth/password-changed', 'fresh');
+    expect(ok.status).toBe(200);
+    expect(ok.body.profile).toMatchObject({ id: 'uid_fresh', must_change_password: false });
+    expect(ok.body.profile.password_changed_at).toBeTruthy();
+    expect(db.rows('audit_events').some((a) => a.action === 'auth.password_changed')).toBe(true);
   });
 });

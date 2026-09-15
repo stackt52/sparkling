@@ -476,6 +476,8 @@ class DemoStore {
       String email,
       String phone, {
       bool marketing = false,
+      bool mustChangePassword = false,
+      DateTime? createdAt,
     }) {
       profiles[id] = Profile(
         id: id,
@@ -484,7 +486,8 @@ class DemoStore {
         email: email,
         phone: phone,
         marketingOptIn: marketing,
-        createdAt: n.subtract(const Duration(days: 200)),
+        mustChangePassword: mustChangePassword,
+        createdAt: createdAt ?? n.subtract(const Duration(days: 200)),
       );
     }
 
@@ -544,6 +547,17 @@ class DemoStore {
       'thandi@sparkling.co.za',
       '+27 82 000 0015',
     );
+    // Created from the admin dashboard yesterday with a temporary password
+    // (ADM-010) — her first sign-in must set a new one.
+    person(
+      'seed_nomsa',
+      UserRole.technician,
+      'Nomsa Dube',
+      'nomsa@sparkling.co.za',
+      '+27 82 000 0016',
+      mustChangePassword: true,
+      createdAt: n.subtract(const Duration(days: 1)),
+    );
     person(
       'seed_thabo',
       UserRole.customer,
@@ -590,6 +604,7 @@ class DemoStore {
       'seed_lerato': [outletMenlyn],
       'seed_sipho_staff': [outletMenlyn],
       'seed_thandi': [outletGlenVillage],
+      'seed_nomsa': [outletMenlyn],
       'seed_admin': allOutlets,
       'seed_finance': allOutlets,
     });
@@ -598,6 +613,7 @@ class DemoStore {
       'seed_lerato': ['wash', 'interior'],
       'seed_sipho_staff': ['wash', 'paint', 'panel'],
       'seed_thandi': ['wash'],
+      'seed_nomsa': ['wash'],
       'seed_johan': ['wash', 'detail', 'paint'],
     });
     staffAvailability.addAll({
@@ -605,6 +621,7 @@ class DemoStore {
       'seed_lerato': (status: AvailabilityStatus.busy, capacity: 3),
       'seed_sipho_staff': (status: AvailabilityStatus.busy, capacity: 2),
       'seed_thandi': (status: AvailabilityStatus.available, capacity: 3),
+      'seed_nomsa': (status: AvailabilityStatus.off, capacity: 3),
       'seed_johan': (status: AvailabilityStatus.available, capacity: 5),
     });
 
@@ -2468,6 +2485,22 @@ class DemoStore {
   Profile me() {
     final p = requireProfile(uid);
     return p.copyWith(outletIds: staffOutlets[uid] ?? const []);
+  }
+
+  /// `POST /auth/session` — the demo has no claims to mint; returns the
+  /// persona's profile (with `mustChangePassword` for new staff accounts).
+  Profile bootstrapSession() => me();
+
+  /// `POST /auth/password-changed` — clears the temporary-password flag.
+  Profile passwordChanged() {
+    final p = requireProfile(uid);
+    profiles[uid] = p.copyWith(
+      mustChangePassword: false,
+      passwordChangedAt: now,
+      updatedAt: now,
+    );
+    _notify('profiles', uid);
+    return me();
   }
 
   Profile updateMe(ProfileUpdate u) {

@@ -12,16 +12,17 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { roleLabel } from '@/lib/rbac';
 import { tk } from '@/theme/tokens';
 
-/** Authenticated group: redirects to /login when signed out; shows a friendly state for non-admin roles. */
+/** Authenticated group: redirects to /login when signed out, to /change-password on a temporary password; shows a friendly state for non-admin roles. */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { status, profile, signOut, error } = useAuth();
   const router = useRouter();
 
   React.useEffect(() => {
     if (status === 'signed_out') router.replace('/login');
+    else if (status === 'password_change') router.replace('/change-password');
   }, [status, router]);
 
-  if (status === 'loading' || status === 'signed_out') {
+  if (status === 'loading' || status === 'signed_out' || status === 'password_change') {
     return (
       <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: tk.surface }} aria-busy="true">
         <CircularProgress aria-label="Loading session" />
