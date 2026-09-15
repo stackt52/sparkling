@@ -8,21 +8,56 @@ import { getSupabase, unwrap } from '../lib/supabase.js';
 import type { AuthContext } from '../types.js';
 import { listMembers } from './memberships.js';
 
+export type KpiPeriod = 'today' | 'week' | 'month';
+
 export interface KpiRange {
   from: string;
   to: string;
   outletIds: string[] | null; // null = all
+  /** Dashboard preset the range was derived from (echoed back; `custom` for explicit from/to). */
+  period?: KpiPeriod | 'custom';
 }
 
 function hourOf(iso: string, timezone: string): number {
   const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', hour12: false });
-  return Number(fmt.format(new Date(iso)));
+  return Number(fmt.format(new Date(iso))) % 24;
 }
 
 export function todayRangeUtc(now = new Date()): { from: string; to: string } {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const end = new Date(start.getTime() + 86400_000);
   return { from: start.toISOString(), to: end.toISOString() };
+}
+
+/** Calendar range for the dashboard presets (UTC): today, this week (Mon→now), this month (1st→now). */
+export function periodRange(period: KpiPeriod, now = new Date()): { from: string; to: string } {
+  const to = now.toISOString();
+  if (period === 'today') return { from: todayRangeUtc(now).from, to };
+  if (period === 'week') {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return { from: d.toISOString(), to };
+  }
+  return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), to };
+}
+
+export function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+}
+
+/** Average of task cycle times in minutes (elapsed_seconds, else completed − started); null without data. */
+export function avgCycleMinutes(tasks: Array<{ elapsed_seconds?: number | null; started_at?: string | null; completed_at?: string | null }>): number | null {
+  const cycles: number[] = [];
+  for (const t of tasks) {
+    if (t.elapsed_seconds) cycles.push(Number(t.elapsed_seconds) / 60);
+    else if (t.started_at && t.completed_at) cycles.push((new Date(t.completed_at).getTime() - new Date(t.started_at).getTime()) / 60000);
+  }
+  return cycles.length ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 10) / 10 : null;
 }
 
 export function previousRange(from: string, to: string): { from: string; to: string } {
@@ -45,7 +80,8 @@ export async function computeKpis(range: KpiRange) {
   const scope = <T>(q: T): T => (range.outletIds ? (q as any).in('outlet_id', range.outletIds) : q);
 
   const paymentsSel = 'id, amount_cents, status, verified_at, booking:bookings!inner(outlet_id, service_id)';
-  const [curPay, prevPay, bookingsToday, activeWos, completedToday, alerts, failedPays, staffPts, outlets, services, members, plans] = await Promise.all([
+  const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
+  const [curPay, prevPay, bookingsToday, activeWos, completedToday, alerts, failedPays, staffPts, outlets, services, members, plans, bookingsRange, tasksRange, tasksWeek, wosRange, quotesRange] = await Promise.all([
     db.from('payments').select(paymentsSel).eq('status', 'successful').gte('verified_at', range.from).lt('verified_at', range.to),
     db.from('payments').select(paymentsSel).eq('status', 'successful').gte('verified_at', prev.from).lt('verified_at', prev.to),
     scope(db.from('bookings').select('id, slot_start, status, outlet_id, service_id, total_cents').gte('slot_start', today.from).lt('slot_start', today.to)),
@@ -54,10 +90,15 @@ export async function computeKpis(range: KpiRange) {
     scope(db.from('inventory_alerts').select('id').neq('status', 'resolved')),
     db.from('payments').select('id, booking:bookings!inner(outlet_id)').eq('status', 'failed').gte('updated_at', range.from).lt('updated_at', range.to),
     scope(db.from('staff_points_ledger').select('staff_id, delta, outlet_id').gte('created_at', range.from).lt('created_at', range.to)),
-    db.from('outlets').select('id, name, timezone'),
-    db.from('services').select('id, category'),
+    db.from('outlets').select('id, name, timezone, is_active'),
+    db.from('services').select('id, category, is_active'),
     db.from('memberships').select('id, plan_id, status').eq('status', 'active'),
     db.from('membership_plans').select('id, monthly_fee_cents'),
+    scope(db.from('bookings').select('id, status, outlet_id').gte('slot_start', range.from).lt('slot_start', range.to)),
+    scope(db.from('tasks').select('id, started_at, completed_at, elapsed_seconds, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', range.from).lt('completed_at', range.to)),
+    scope(db.from('tasks').select('id, started_at, completed_at, elapsed_seconds, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', weekAgo)),
+    scope(db.from('work_orders').select('id, due_at, completed_at, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', range.from).lt('completed_at', range.to)),
+    scope(db.from('quotations').select('id, status, outlet_id').gte('created_at', range.from).lt('created_at', range.to)),
   ]);
 
   const inScope = (outletId: string | null | undefined) => !range.outletIds || (outletId ? range.outletIds.includes(outletId) : false);
@@ -70,10 +111,14 @@ export async function computeKpis(range: KpiRange) {
   const revenue = sumRevenue(unwrap<any[]>(curPay, 'payments'));
   const prevRevenue = sumRevenue(unwrap<any[]>(prevPay, 'payments'));
 
-  const outletRows = unwrap<Array<{ id: string; name: string; timezone: string }>>(outlets, 'outlets');
+  const outletRows = unwrap<Array<{ id: string; name: string; timezone: string; is_active?: boolean }>>(outlets, 'outlets');
   const tz = new Map(outletRows.map((o) => [o.id, o.timezone]));
-  const categoryOf = new Map(unwrap<Array<{ id: string; category: string }>>(services, 'services').map((s) => [s.id, s.category]));
+  const serviceRows = unwrap<Array<{ id: string; category: string; is_active?: boolean }>>(services, 'services');
+  const categoryOf = new Map(serviceRows.map((s) => [s.id, s.category]));
 
+  // Hours are bucketed in each outlet's timezone; "future" marks hours still to come (today, first in-scope outlet's clock).
+  const clockTz = outletRows.find((o) => inScope(o.id))?.timezone ?? 'Africa/Johannesburg';
+  const currentHour = hourOf(new Date().toISOString(), clockTz);
   const byHour = new Map<number, { car_wash: number; auto_body: number }>();
   for (const b of unwrap<any[]>(bookingsToday, 'bookings')) {
     if (b.status === 'cancelled') continue;
@@ -83,7 +128,7 @@ export async function computeKpis(range: KpiRange) {
     cur[cat] += 1;
     byHour.set(h, cur);
   }
-  const bookings_by_hour = [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v }));
+  const bookings_by_hour = [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v, future: hour > currentHour }));
 
   const revenueByOutlet = new Map<string, number>();
   for (const p of unwrap<any[]>(curPay, 'payments')) {
@@ -101,41 +146,97 @@ export async function computeKpis(range: KpiRange) {
   const topIds = [...pts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const names = topIds.length ? unwrap<Array<{ id: string; full_name: string }>>(await db.from('profiles').select('id, full_name').in('id', topIds.map((t) => t[0])), 'profiles') : [];
   const nameMap = new Map(names.map((n) => [n.id, n.full_name]));
-  const top_staff = topIds.map(([staff_id, points], i) => ({ staff_id, name: nameMap.get(staff_id) ?? staff_id, points, rank: i + 1 }));
+  const podium = ['gold', 'silver', 'bronze'] as const;
+  const top_staff = topIds.map(([staff_id, points], i) => {
+    const name = nameMap.get(staff_id) ?? staff_id;
+    return { staff_id, name, initials: initialsOf(name), points, rank: i + 1, tier: podium[Math.min(i, 2)] };
+  });
 
   const wos = unwrap<any[]>(activeWos, 'work orders');
   const now = Date.now();
   const overdue = wos.filter((w) => w.due_at && new Date(w.due_at).getTime() < now).length;
   const blocked = wos.filter((w) => w.status === 'blocked').length;
   const failed = unwrap<any[]>(failedPays, 'failed payments').filter((p) => inScope(p.booking?.outlet_id)).length;
-  const exceptions_count = blocked + overdue + unwrap<any[]>(alerts, 'alerts').length + failed;
+  const stockAlerts = unwrap<any[]>(alerts, 'alerts').length;
+  const exceptions_count = blocked + overdue + stockAlerts + failed;
+
+  // Range-scoped operational figures (bookings by slot, tasks/work orders by completion, quotes by creation).
+  const rangeBookings = unwrap<any[]>(bookingsRange, 'bookings');
+  const bookings_count = rangeBookings.filter((b) => b.status !== 'cancelled').length;
+  const bookings_completed = rangeBookings.filter((b) => b.status === 'completed').length;
+  const bookings_in_service = rangeBookings.filter((b) => b.status === 'in_service').length;
+  const avg_cycle_minutes = avgCycleMinutes(unwrap<any[]>(tasksRange, 'tasks')) ?? 0;
+  const weekAvg = avgCycleMinutes(unwrap<any[]>(tasksWeek, 'tasks'));
+  const cycle_delta_minutes = weekAvg === null || avg_cycle_minutes === 0 ? 0 : Math.round((avg_cycle_minutes - weekAvg) * 10) / 10;
+  const doneWos = unwrap<any[]>(wosRange, 'work orders').filter((w) => w.due_at && w.completed_at);
+  const onTime = doneWos.filter((w) => new Date(w.completed_at).getTime() <= new Date(w.due_at).getTime()).length;
+  const on_time_pct = doneWos.length ? Math.round((onTime / doneWos.length) * 1000) / 10 : 0;
+  const quoteRows = unwrap<any[]>(quotesRange, 'quotations');
+  const quotes_total = quoteRows.length;
+  const quotes_accepted = quoteRows.filter((q) => q.status === 'accepted' || q.status === 'converted').length;
+  const period = range.period ?? 'custom';
+  const periodWord = period === 'today' ? 'yesterday' : period === 'week' ? 'the previous week' : period === 'month' ? 'the previous month' : 'the previous period';
 
   return {
     range: { from: range.from, to: range.to },
+    period,
     revenue_cents: revenue,
     revenue_previous_cents: prevRevenue,
     revenue_trend_pct: trendPct(revenue, prevRevenue),
+    revenue_compare_label: `vs ${formatRandShort(prevRevenue)} ${periodWord}`,
     bookings_today: unwrap<any[]>(bookingsToday, 'bookings').filter((b) => b.status !== 'cancelled').length,
+    bookings_count,
+    bookings_completed,
+    bookings_in_service,
+    on_time_pct,
     active_work_orders: wos.length,
     completed_today: unwrap<any[]>(completedToday, 'completed').length,
+    avg_cycle_minutes,
+    cycle_delta_minutes,
+    quotes_accepted,
+    quotes_total,
     exceptions_count,
-    exceptions_breakdown: { blocked, overdue, stock_alerts: unwrap<any[]>(alerts, 'alerts').length, failed_payments: failed },
+    exceptions_breakdown: { blocked, overdue, low_stock: stockAlerts, stock_alerts: stockAlerts, failed_payments: failed },
     bookings_by_hour,
     revenue_by_outlet,
     top_staff,
+    services_count: serviceRows.filter((s) => s.is_active !== false).length,
+    outlets_count: outletRows.filter((o) => inScope(o.id) && o.is_active !== false).length,
     active_members,
     membership_mrr_cents,
   };
 }
 
+/** "R 12 300" — whole rand with thin-space thousands, for labels. */
+export function formatRandShort(cents: number): string {
+  return `R ${String(Math.round(cents / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}`;
+}
+
+export type ExceptionKind = 'blocked' | 'overdue' | 'low_stock' | 'out_of_stock' | 'failed_payment';
+
+/**
+ * One row of the dashboard's Exceptions card. `kind`/`type`, `subtitle`/`detail`
+ * and `created_at`/`at` are aliases so older readers keep working; `severity`
+ * is the card tone (`error` = needs action now, `warning` = watch).
+ */
 export interface ExceptionItem {
-  type: 'blocked' | 'overdue' | 'low_stock' | 'out_of_stock' | 'failed_payment';
-  severity: 'high' | 'medium' | 'low';
+  id: string;
+  kind: ExceptionKind;
+  type: ExceptionKind;
+  severity: 'error' | 'warning';
+  priority: 'high' | 'medium' | 'low';
   title: string;
+  subtitle: string;
   detail: string | null;
+  icon: string;
   outlet_id: string | null;
   at: string | null;
-  link: { type: string; id: string };
+  created_at: string | null;
+  link: { type: 'work_order' | 'inventory_item' | 'payment' | 'booking'; id: string };
+}
+
+function exception(kind: ExceptionKind, priority: ExceptionItem['priority'], title: string, detail: string | null, outletId: string | null, at: string | null, link: ExceptionItem['link'], icon: string): ExceptionItem {
+  return { id: `${kind}:${link.id}`, kind, type: kind, severity: priority === 'high' ? 'error' : 'warning', priority, title, subtitle: detail ?? '', detail, icon, outlet_id: outletId, at, created_at: at, link };
 }
 
 export async function computeExceptions(outletIds: string[] | null): Promise<ExceptionItem[]> {
@@ -149,36 +250,60 @@ export async function computeExceptions(outletIds: string[] | null): Promise<Exc
   const out: ExceptionItem[] = [];
   const now = Date.now();
   for (const w of unwrap<any[]>(wos, 'work orders')) {
-    if (w.status === 'blocked') out.push({ type: 'blocked', severity: 'high', title: `${w.ref} blocked`, detail: w.blocked_reason, outlet_id: w.outlet_id, at: w.updated_at, link: { type: 'work_order', id: w.id } });
-    else if (w.due_at && new Date(w.due_at).getTime() < now) out.push({ type: 'overdue', severity: 'medium', title: `${w.ref} overdue SLA`, detail: w.vehicle?.registration_no ?? null, outlet_id: w.outlet_id, at: w.due_at, link: { type: 'work_order', id: w.id } });
+    if (w.status === 'blocked') out.push(exception('blocked', 'high', `${w.ref} blocked`, w.blocked_reason ?? null, w.outlet_id, w.updated_at, { type: 'work_order', id: w.id }, 'block'));
+    else if (w.due_at && new Date(w.due_at).getTime() < now) {
+      const mins = Math.round((now - new Date(w.due_at).getTime()) / 60000);
+      out.push(exception('overdue', 'medium', `${w.ref} over SLA +${mins} min`, w.vehicle?.registration_no ?? null, w.outlet_id, w.due_at, { type: 'work_order', id: w.id }, 'schedule'));
+    }
   }
   for (const a of unwrap<any[]>(alerts, 'alerts')) {
-    out.push({
-      type: a.level === 'out' ? 'out_of_stock' : 'low_stock',
-      severity: a.level === 'out' ? 'high' : 'low',
-      title: `${a.item?.name ?? 'Item'} ${a.level === 'out' ? 'out of stock' : 'low'}`,
-      detail: a.item ? `${Number(a.item.on_hand)}/${Number(a.item.reorder_threshold)}` : null,
-      outlet_id: a.outlet_id,
-      at: a.created_at,
-      link: { type: 'inventory_item', id: a.item?.id ?? a.id },
-    });
+    const outOfStock = a.level === 'out';
+    out.push(
+      exception(
+        outOfStock ? 'out_of_stock' : 'low_stock',
+        outOfStock ? 'high' : 'low',
+        `${a.item?.name ?? 'Item'} ${outOfStock ? 'out of stock' : 'low'}`,
+        a.item ? `${Number(a.item.on_hand)} on hand · threshold ${Number(a.item.reorder_threshold)}` : null,
+        a.outlet_id,
+        a.created_at,
+        { type: 'inventory_item', id: a.item?.id ?? a.item_id ?? a.id },
+        'inventory_2',
+      ),
+    );
   }
   for (const p of unwrap<any[]>(pays, 'payments')) {
     if (outletIds && !outletIds.includes(p.booking?.outlet_id)) continue;
-    out.push({ type: 'failed_payment', severity: 'medium', title: `Payment failed · ${p.booking?.ref ?? ''}`, detail: p.failure_reason, outlet_id: p.booking?.outlet_id ?? null, at: p.updated_at, link: { type: 'payment', id: p.id } });
+    out.push(exception('failed_payment', 'medium', `Payment failed · ${p.booking?.ref ?? ''}`.trim(), [formatRandShort(Number(p.amount_cents)), p.failure_reason].filter(Boolean).join(' · ') || null, p.booking?.outlet_id ?? null, p.updated_at, { type: 'payment', id: p.id }, 'credit_card_off'));
   }
-  const sev = { high: 0, medium: 1, low: 2 };
-  return out.sort((a, b) => sev[a.severity] - sev[b.severity] || (b.at ?? '').localeCompare(a.at ?? ''));
+  const rank = { high: 0, medium: 1, low: 2 };
+  return out.sort((a, b) => rank[a.priority] - rank[b.priority] || (b.at ?? '').localeCompare(a.at ?? ''));
 }
 
+export type ActivityKind = 'completed' | 'payment' | 'quote' | 'stock' | 'loyalty' | 'assigned' | 'blocked';
+export type ActivityTone = 'success' | 'primary' | 'warning' | 'error' | 'neutral';
+
+/** Live-feed row: `type`/`detail`/`link` are the source-oriented fields, `kind`/`subtitle`/`icon`/`tone` the presentation ones. */
 export interface ActivityItem {
   id: string;
   type: 'task_event' | 'payment_event' | 'loyalty' | 'inventory_alert';
+  kind: ActivityKind;
   at: string;
   title: string;
+  subtitle: string;
   detail: string | null;
+  icon: string;
+  tone: ActivityTone;
   outlet_id: string | null;
   link: { type: string; id: string } | null;
+}
+
+function taskEventPresentation(e: { event: string; to_status?: string | null }): { kind: ActivityKind; icon: string; tone: ActivityTone } {
+  if (e.event === 'assigned') return { kind: 'assigned', icon: 'assignment_ind', tone: 'neutral' };
+  if (e.event === 'step_blocked' || (e.event === 'transition' && e.to_status === 'blocked')) return { kind: 'blocked', icon: 'block', tone: 'error' };
+  if (e.event === 'transition' && (e.to_status === 'verified' || e.to_status === 'completed')) return { kind: 'completed', icon: 'check_circle', tone: 'success' };
+  if (e.event === 'step_done') return { kind: 'completed', icon: 'task_alt', tone: 'primary' };
+  if (e.event === 'override') return { kind: 'completed', icon: 'published_with_changes', tone: 'warning' };
+  return { kind: 'assigned', icon: 'sync', tone: 'neutral' };
 }
 
 export async function computeActivity(outletIds: string[] | null, limit: number): Promise<ActivityItem[]> {
@@ -187,27 +312,31 @@ export async function computeActivity(outletIds: string[] | null, limit: number)
     db.from('task_events').select('id, event, from_status, to_status, reason, created_at, actor:profiles!task_events_actor_id_fkey(full_name), work_order:work_orders!inner(id, ref, outlet_id)').order('created_at', { ascending: false }).limit(limit * 2),
     db.from('payment_events').select('id, event_type, received_at, payment:payments!inner(id, amount_cents, booking:bookings(ref, outlet_id))').order('received_at', { ascending: false }).limit(limit),
     db.from('loyalty_ledger').select('id, delta, type, reference, description, created_at, customer:profiles!loyalty_ledger_customer_id_fkey(full_name)').order('created_at', { ascending: false }).limit(limit),
-    db.from('inventory_alerts').select('id, level, created_at, outlet_id, item:inventory_items(id, name)').order('created_at', { ascending: false }).limit(limit),
+    db.from('inventory_alerts').select('id, level, created_at, outlet_id, item_id, item:inventory_items(id, name)').order('created_at', { ascending: false }).limit(limit),
   ]);
   const items: ActivityItem[] = [];
   const inScope = (oid: string | null | undefined) => !outletIds || (oid ? outletIds.includes(oid) : false);
+  const push = (row: Omit<ActivityItem, 'subtitle'>) => items.push({ ...row, subtitle: row.detail ?? '' });
   for (const e of ((events.data ?? []) as any[])) {
     if (!inScope(e.work_order?.outlet_id)) continue;
-    const title = e.event === 'assigned' ? `${e.work_order?.ref} assigned` : e.event === 'override' ? `${e.work_order?.ref} override recorded` : e.event.startsWith('step') ? `${e.work_order?.ref} ${e.event.replace('_', ' ')}` : `${e.work_order?.ref} ${e.from_status ?? ''} → ${e.to_status ?? ''}`;
-    items.push({ id: e.id, type: 'task_event', at: e.created_at, title, detail: [e.actor?.full_name, e.reason].filter(Boolean).join(' · ') || null, outlet_id: e.work_order?.outlet_id ?? null, link: { type: 'work_order', id: e.work_order?.id } });
+    const ref = e.work_order?.ref ?? 'Work order';
+    const title = e.event === 'assigned' ? `${ref} assigned` : e.event === 'override' ? `${ref} override recorded` : e.event.startsWith('step') ? `${ref} ${e.event.replace('_', ' ')}` : `${ref} ${e.from_status ?? ''} → ${e.to_status ?? ''}`;
+    push({ id: e.id, type: 'task_event', ...taskEventPresentation(e), at: e.created_at, title, detail: [e.actor?.full_name, e.reason].filter(Boolean).join(' · ') || null, outlet_id: e.work_order?.outlet_id ?? null, link: e.work_order?.id ? { type: 'work_order', id: e.work_order.id } : null });
   }
   for (const p of ((payEvents.data ?? []) as any[])) {
     if (!inScope(p.payment?.booking?.outlet_id)) continue;
-    items.push({ id: p.id, type: 'payment_event', at: p.received_at, title: `${p.event_type} · ${p.payment?.booking?.ref ?? ''}`, detail: p.payment ? `R ${(Number(p.payment.amount_cents) / 100).toFixed(2)}` : null, outlet_id: p.payment?.booking?.outlet_id ?? null, link: p.payment ? { type: 'payment', id: p.payment.id } : null });
+    const failed = /fail|declin|cancel/i.test(String(p.event_type));
+    push({ id: p.id, type: 'payment_event', kind: 'payment', icon: failed ? 'credit_card_off' : 'payments', tone: failed ? 'error' : 'success', at: p.received_at, title: `${p.event_type} · ${p.payment?.booking?.ref ?? ''}`.trim(), detail: p.payment ? `R ${(Number(p.payment.amount_cents) / 100).toFixed(2)}` : null, outlet_id: p.payment?.booking?.outlet_id ?? null, link: p.payment ? { type: 'payment', id: p.payment.id } : null });
   }
   if (!outletIds) {
     for (const l of ((ledger.data ?? []) as any[])) {
-      items.push({ id: l.id, type: 'loyalty', at: l.created_at, title: `${l.delta > 0 ? '+' : ''}${l.delta} pts ${l.type} · ${l.customer?.full_name ?? ''}`, detail: [l.reference, l.description].filter(Boolean).join(' · ') || null, outlet_id: null, link: null });
+      push({ id: l.id, type: 'loyalty', kind: 'loyalty', icon: 'loyalty', tone: 'primary', at: l.created_at, title: `${l.delta > 0 ? '+' : ''}${l.delta} pts ${l.type} · ${l.customer?.full_name ?? ''}`.trim(), detail: [l.reference, l.description].filter(Boolean).join(' · ') || null, outlet_id: null, link: null });
     }
   }
   for (const a of ((alerts.data ?? []) as any[])) {
     if (!inScope(a.outlet_id)) continue;
-    items.push({ id: a.id, type: 'inventory_alert', at: a.created_at, title: `${a.item?.name ?? 'Item'} ${a.level === 'out' ? 'out of stock' : 'low stock'}`, detail: null, outlet_id: a.outlet_id, link: a.item ? { type: 'inventory_item', id: a.item.id } : null });
+    const itemId = a.item?.id ?? a.item_id ?? null;
+    push({ id: a.id, type: 'inventory_alert', kind: 'stock', icon: 'inventory_2', tone: a.level === 'out' ? 'error' : 'warning', at: a.created_at, title: `${a.item?.name ?? 'Item'} ${a.level === 'out' ? 'out of stock' : 'low stock'}`, detail: null, outlet_id: a.outlet_id, link: itemId ? { type: 'inventory_item', id: itemId } : null });
   }
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
 }
@@ -560,33 +689,79 @@ export async function computeSummary(range: ReportRange) {
   };
 }
 
+export interface StaffBadge {
+  code: string;
+  name: string;
+  icon: string;
+  colour: string;
+  earned_at: string;
+}
+
 export interface StaffPerformanceRow {
   staff_id: string;
   name: string;
   role: string;
+  /** Primary outlet (first `staff_outlets` row, `is_primary` preferred). */
+  outlet_name: string | null;
   tasks_completed: number;
   tasks_verified: number;
   avg_cycle_minutes: number | null;
   checklist_compliance_pct: number | null;
+  /** Lifetime gamification points. */
   points: number;
+  /** Points earned inside the requested range. */
+  points_period: number;
+  /** 1-based leaderboard position by `points_period` (ties: tasks completed). */
+  rank: number;
+  /** Rank change against the previous period of the same length (+ = moved up, 0 = new/unchanged). */
+  delta: number;
+  badges: StaffBadge[];
+}
+
+function sumByStaff(rows: Array<{ staff_id: string; delta: number | string }>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.staff_id, (out.get(r.staff_id) ?? 0) + Number(r.delta));
+  return out;
 }
 
 export async function staffPerformance(outletIds: string[] | null, from: string, to: string): Promise<StaffPerformanceRow[]> {
   const db = getSupabase();
   const scope = <T>(q: T): T => (outletIds ? (q as any).in('outlet_id', outletIds) : q);
-  const [tasks, pts, staff] = await Promise.all([
+  const prev = previousRange(from, to);
+  const [tasks, pts, prevPts, staff, outlets] = await Promise.all([
     scope(db.from('tasks').select('id, assignee_id, status, started_at, completed_at, elapsed_seconds, work_order_id, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', from).lte('completed_at', to)),
     scope(db.from('staff_points_ledger').select('staff_id, delta').gte('created_at', from).lte('created_at', to)),
+    scope(db.from('staff_points_ledger').select('staff_id, delta').gte('created_at', prev.from).lt('created_at', prev.to)),
     outletIds ? db.from('staff_outlets').select('profile_id, profiles!inner(id, full_name, role)').in('outlet_id', outletIds) : db.from('profiles').select('id, full_name, role').neq('role', 'customer'),
+    db.from('outlets').select('id, name'),
   ]);
   const taskRows = unwrap<any[]>(tasks, 'tasks');
   const woIds = taskRows.map((t) => t.work_order_id);
-  const results = woIds.length ? unwrap<any[]>(await db.from('checklist_step_results').select('work_order_id, status').in('work_order_id', woIds), 'results') : [];
-  const blockedWo = new Set(results.filter((r) => r.status === 'blocked' || r.status === 'skipped').map((r) => r.work_order_id));
   const people = new Map<string, { name: string; role: string }>();
   for (const s of unwrap<any[]>(staff, 'staff')) {
     const p = s.profiles ?? s;
     if (p && p.role !== 'customer') people.set(p.id, { name: p.full_name, role: p.role });
+  }
+  const ids = [...people.keys()];
+  const [results, lifetime, memberships, earned, badgeRows] = await Promise.all([
+    woIds.length ? db.from('checklist_step_results').select('work_order_id, status').in('work_order_id', woIds) : Promise.resolve({ data: [] as any[], error: null }),
+    ids.length ? db.from('staff_points_ledger').select('staff_id, delta').in('staff_id', ids) : Promise.resolve({ data: [] as any[], error: null }),
+    ids.length ? db.from('staff_outlets').select('profile_id, outlet_id, is_primary').in('profile_id', ids) : Promise.resolve({ data: [] as any[], error: null }),
+    ids.length ? db.from('staff_badges').select('staff_id, badge_id, awarded_at').in('staff_id', ids) : Promise.resolve({ data: [] as any[], error: null }),
+    db.from('badges').select('id, code, name, icon, colour'),
+  ]);
+  const blockedWo = new Set(((results.data ?? []) as any[]).filter((r) => r.status === 'blocked' || r.status === 'skipped').map((r) => r.work_order_id));
+  const outletName = new Map(unwrap<Array<{ id: string; name: string }>>(outlets, 'outlets').map((o) => [o.id, o.name]));
+  const primaryOutlet = new Map<string, string>();
+  for (const m of ((memberships.data ?? []) as Array<{ profile_id: string; outlet_id: string; is_primary?: boolean }>)) {
+    if (!primaryOutlet.has(m.profile_id) || m.is_primary) primaryOutlet.set(m.profile_id, m.outlet_id);
+  }
+  const badgeById = new Map(((badgeRows.data ?? []) as any[]).map((b) => [b.id, b]));
+  const badges = new Map<string, StaffBadge[]>();
+  for (const e of ((earned.data ?? []) as Array<{ staff_id: string; badge_id: string; awarded_at: string }>)) {
+    const b = badgeById.get(e.badge_id);
+    if (!b) continue;
+    badges.set(e.staff_id, [...(badges.get(e.staff_id) ?? []), { code: b.code, name: b.name, icon: b.icon ?? 'military_tech', colour: b.colour ?? '#00A0E0', earned_at: e.awarded_at }]);
   }
   const acc = new Map<string, { completed: number; verified: number; cycle: number[]; compliant: number }>();
   for (const t of taskRows) {
@@ -599,21 +774,37 @@ export async function staffPerformance(outletIds: string[] | null, from: string,
     if (!blockedWo.has(t.work_order_id)) a.compliant++;
     acc.set(t.assignee_id, a);
   }
-  const points = new Map<string, number>();
-  for (const p of unwrap<any[]>(pts, 'points')) points.set(p.staff_id, (points.get(p.staff_id) ?? 0) + Number(p.delta));
-  return [...people.entries()]
-    .map(([id, p]) => {
-      const a = acc.get(id);
-      return {
-        staff_id: id,
-        name: p.name,
-        role: p.role,
-        tasks_completed: a?.completed ?? 0,
-        tasks_verified: a?.verified ?? 0,
-        avg_cycle_minutes: a && a.cycle.length ? Math.round((a.cycle.reduce((x, y) => x + y, 0) / a.cycle.length) * 10) / 10 : null,
-        checklist_compliance_pct: a && a.completed ? Math.round((a.compliant / a.completed) * 100) : null,
-        points: points.get(id) ?? 0,
-      };
-    })
-    .sort((a, b) => b.points - a.points || b.tasks_completed - a.tasks_completed);
+  const periodPoints = sumByStaff(unwrap<any[]>(pts, 'points'));
+  const prevPoints = sumByStaff(unwrap<any[]>(prevPts, 'previous points'));
+  const lifetimePoints = sumByStaff((lifetime.data ?? []) as any[]);
+  const byPoints = (a: { points_period: number; tasks_completed: number }, b: { points_period: number; tasks_completed: number }) => b.points_period - a.points_period || b.tasks_completed - a.tasks_completed;
+  const rows = [...people.entries()].map(([id, p]) => {
+    const a = acc.get(id);
+    return {
+      staff_id: id,
+      name: p.name,
+      role: p.role,
+      outlet_name: outletName.get(primaryOutlet.get(id) ?? '') ?? null,
+      tasks_completed: a?.completed ?? 0,
+      tasks_verified: a?.verified ?? 0,
+      avg_cycle_minutes: a && a.cycle.length ? Math.round((a.cycle.reduce((x, y) => x + y, 0) / a.cycle.length) * 10) / 10 : null,
+      checklist_compliance_pct: a && a.completed ? Math.round((a.compliant / a.completed) * 100) : null,
+      points: lifetimePoints.get(id) ?? 0,
+      points_period: periodPoints.get(id) ?? 0,
+      badges: badges.get(id) ?? [],
+    };
+  });
+  // Previous-period ranking (same people) for the Δ column.
+  const prevRank = new Map(
+    rows
+      .map((r) => ({ staff_id: r.staff_id, points_period: prevPoints.get(r.staff_id) ?? 0, tasks_completed: 0 }))
+      .sort(byPoints)
+      .map((r, i) => [r.staff_id, i + 1] as const),
+  );
+  return rows.sort(byPoints).map((r, i) => {
+    const rank = i + 1;
+    const before = prevRank.get(r.staff_id);
+    const rankedBefore = (prevPoints.get(r.staff_id) ?? 0) > 0;
+    return { ...r, rank, delta: rankedBefore && before ? before - rank : 0 };
+  });
 }

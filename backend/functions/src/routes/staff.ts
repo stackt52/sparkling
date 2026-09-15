@@ -110,6 +110,8 @@ staffRouter.get(
         .map((s) => ({
           id: s.profile_id,
           full_name: s.profiles!.full_name,
+          /** Alias of `full_name` (admin dashboard `TeamMember`). */
+          name: s.profiles!.full_name,
           role: s.profiles!.role,
           avatar_url: s.profiles!.avatar_url,
           is_primary: s.is_primary,
@@ -117,6 +119,8 @@ staffRouter.get(
           availability: availMap.get(s.profile_id)?.status ?? 'off',
           capacity: availMap.get(s.profile_id)?.capacity ?? 0,
           active_task_count: counts.get(s.profile_id) ?? 0,
+          /** Alias of `active_task_count`. */
+          active_tasks: counts.get(s.profile_id) ?? 0,
         })),
     });
   }),

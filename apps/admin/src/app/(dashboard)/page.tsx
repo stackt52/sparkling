@@ -29,7 +29,9 @@ export default function OverviewPage() {
   const kpis = useQuery({ queryKey: ['kpis', outletId, period], queryFn: () => api.kpis({ outlet_id: outletId, period }) });
   const exceptions = useQuery({ queryKey: ['exceptions', outletId], queryFn: () => api.exceptions({ outlet_id: outletId }) });
   const activity = useQuery({ queryKey: ['activity', outletId], queryFn: () => api.activity({ outlet_id: outletId, limit: 6 }) });
-  const bookings = useQuery({ queryKey: ['bookings', outletId, 'today'], queryFn: () => api.listBookings({ outlet_id: outletId, limit: 100 }) });
+  // Live bookings = today's slots (the API lists every booking when no date is given).
+  const today = new Date().toISOString().slice(0, 10);
+  const bookings = useQuery({ queryKey: ['bookings', outletId, 'today', today], queryFn: () => api.listBookings({ outlet_id: outletId, date: today, limit: 100 }) });
 
   return (
     <>

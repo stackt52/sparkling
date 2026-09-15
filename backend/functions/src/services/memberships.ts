@@ -1292,7 +1292,12 @@ export interface MemberRow {
   customer: { id: string; full_name: string; phone: string | null; email: string | null } | null;
   plan: { id: string; code: string; name: string; tier: LoyaltyTier; monthly_fee_cents: number };
   next_plan: { id: string; code: string; name: string } | null;
+  /** Chosen option per `choose_one` group: `{ [group_code]: entitlement_code }`. */
+  selections: Record<string, string>;
   allowances: Allowance[];
+  /** Monthly washes used / remaining (sum over month-period entitlements). */
+  used: number;
+  remaining: number;
   open_invoice: MembershipInvoice | null;
 }
 
@@ -1333,12 +1338,18 @@ export async function listMembers(filter: MembersFilter, now = new Date()): Prom
     const plan = planById.get(m.plan_id)!;
     const next = m.next_plan_id ? planById.get(m.next_plan_id) : undefined;
     const p = byId.get(m.customer_id);
+    const ctx = ctxs.get(m.id);
+    const allowances = ctx?.allowances ?? [];
+    const monthly = allowances.filter((a) => a.period === 'month');
     return {
       membership: m,
       customer: p ? { id: p.id, full_name: p.full_name, phone: p.phone ?? null, email: p.email ?? null } : null,
       plan: { id: plan.id, code: plan.code, name: plan.name, tier: plan.tier, monthly_fee_cents: plan.monthly_fee_cents },
       next_plan: next ? { id: next.id, code: next.code, name: next.name } : null,
-      allowances: ctxs.get(m.id)?.allowances ?? [],
+      selections: ctx?.selections ?? {},
+      allowances,
+      used: monthly.reduce((s, a) => s + a.used, 0),
+      remaining: monthly.reduce((s, a) => s + a.remaining, 0),
       open_invoice: invoices.filter((i) => i.membership_id === m.id).sort((a, b) => String(a.due_at).localeCompare(String(b.due_at)))[0] ?? null,
     };
   });

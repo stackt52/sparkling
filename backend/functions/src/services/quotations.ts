@@ -274,12 +274,16 @@ export function attachmentView(att: Attachment, baseUrl: string) {
   };
 }
 
-/** Signed-in view: `public_token` is never exposed; `public_url` only to staff. */
+/** Signed-in view: `public_token` is never exposed; `public_url` only to staff. Embedded `customer` / `assessor` rows are flattened into `*_name`. */
 export function presentQuotation(q: Quotation, attachments: Attachment[], auth: AuthContext): Record<string, unknown> {
   const { public_token: _token, ...rest } = q as Quotation & Record<string, unknown>;
   const base = `/v1/quotations/${q.id}`;
+  const customer = (rest as { customer?: { full_name?: string } | null }).customer;
+  const assessor = (rest as { assessor?: { full_name?: string } | null }).assessor;
   return {
     ...rest,
+    customer_name: customer?.full_name ?? null,
+    assessor_name: assessor?.full_name ?? null,
     amount_cents: q.amount_cents ?? null,
     valid_until: q.valid_until ?? null,
     quoted_at: q.quoted_at ?? null,
@@ -342,7 +346,7 @@ export const OUTLET_LEGAL_COLUMNS = 'name, code, phone, email, address_line, cit
 // Supervisor quote of a customer request
 // ---------------------------------------------------------------------------
 
-export async function quote(ctx: RequestContext, id: string, input: { amount_cents: number; line_items: QuotationLineItem[]; valid_until: string }): Promise<Quotation> {
+export async function quote(ctx: RequestContext, id: string, input: { amount_cents: number; line_items: QuotationLineItem[]; valid_until: string; items_note?: string | null }): Promise<Quotation> {
   const db = getSupabase();
   const q = await getQuotationOrThrow(id);
   assertOutlet(ctx.auth, q.outlet_id);
@@ -358,6 +362,7 @@ export async function quote(ctx: RequestContext, id: string, input: { amount_cen
         amount_cents: input.amount_cents,
         line_items: input.line_items.map(normaliseItem),
         valid_until: input.valid_until,
+        ...(input.items_note !== undefined ? { items_note: input.items_note } : {}),
         assessor_id: ctx.auth.uid,
         quoted_at: now.toISOString(),
         ...newPublicToken(now),

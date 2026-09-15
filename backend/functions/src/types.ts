@@ -155,10 +155,16 @@ export interface ServiceComponentInput {
 
 /** `GET /outlets/:id/services` item — a service as offered (and worded) by one outlet. */
 export interface OutletServiceOffer {
+  /** Alias of `service_id` so an offer can stand in where a `Service`-like `id` is expected. */
+  id: string;
   service_id: string;
   code: string;
   /** Outlet display_name ?? canonical service name. */
   name: string;
+  /** Canonical service name (for "also known as"). */
+  service_name: string;
+  /** Outlet wording override (null = canonical name). */
+  display_name: string | null;
   description: string | null;
   group_name: string;
   category: ServiceCategory;
@@ -166,6 +172,11 @@ export interface OutletServiceOffer {
   icon: string | null;
   pricing_mode: PricingMode;
   vat_mode: VatMode;
+  /** Raw outlet overrides (null = inherit the service default). */
+  pricing_mode_override: PricingMode | null;
+  vat_mode_override: VatMode | null;
+  /** Legacy alias of `pricing_mode === 'by_quote'`. */
+  is_quote_based: boolean;
   price_small_cents: number | null;
   price_large_cents: number | null;
   price_general_cents: number | null;

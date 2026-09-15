@@ -22,7 +22,7 @@ export const isoDateTime = z.string().datetime({ offset: true });
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 export const clientOpId = z.string().min(6).max(128);
 export const pagination = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(25),
+  limit: z.coerce.number().int().min(1).max(500).default(25),
   cursor: z.string().optional(),
   sort: z.string().optional(),
 });

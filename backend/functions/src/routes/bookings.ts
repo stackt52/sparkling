@@ -15,9 +15,11 @@ import type { Booking, Payment, Task, WorkOrder } from '../types.js';
 export const bookingsRouter = Router();
 bookingsRouter.use('/bookings', requireProfile);
 
-const EXPAND = '*, outlet:outlets(id, name, rating, city, timezone), service:services(id, name, duration_minutes, category, icon), vehicle:vehicles(id, registration_no, make, model, colour)';
+export const BOOKING_EXPAND = '*, outlet:outlets(id, name, rating, city, timezone), service:services(id, name, duration_minutes, category, icon), vehicle:vehicles(id, registration_no, make, model, colour), customer:profiles!bookings_customer_id_fkey(id, full_name, email, phone)';
+const EXPAND = BOOKING_EXPAND;
 
-async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>): Promise<Array<Booking & Record<string, unknown>>> {
+/** Adds the `work_order` summary (progress, assignee, bay) and pricing decorations to booking rows. */
+export async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>): Promise<Array<Booking & Record<string, unknown>>> {
   if (rows.length === 0) return rows;
   const db = getSupabase();
   const ids = rows.map((r) => r.id);
@@ -46,6 +48,7 @@ async function attachWorkOrders(rows: Array<Booking & Record<string, unknown>>):
         stage_count: count,
         progress_pct: count ? Math.round((done / count) * 100) : 0,
         eta_at: w.eta_at,
+        assignee_id: w.assignee_id ?? null,
         assignee_name: w.assignee?.full_name ?? null,
         bay: w.bay,
         blocked_reason: w.blocked_reason,
@@ -98,7 +101,7 @@ bookingsRouter.get(
     assertOwnerOrOutletStaff(req.auth!, booking);
     const [withWo] = await attachWorkOrders([booking]);
     const payment = unwrap<Payment | null>(
-      await db.from('payments').select('id, status, receipt_no, amount_cents, provider, created_at, verified_at').eq('booking_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      await db.from('payments').select('id, status, receipt_no, amount_cents, provider, method, created_at, verified_at').eq('booking_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       'payment',
     );
     let timeline: unknown[] = [];
@@ -113,7 +116,12 @@ bookingsRouter.get(
     } else {
       timeline = [{ key: 'booked', title: 'Booked', state: 'done', at: booking.created_at }, { key: 'checked_in', title: 'Checked in', state: booking.status === 'cancelled' ? 'skipped' : 'pending' }];
     }
-    res.json({ ...withWo, payment: payment ?? null, timeline });
+    // Staff see who took a walk-in at the counter.
+    let created_by_name: string | null = null;
+    if (isStaff(req.auth!.role) && booking.created_by && booking.created_by !== booking.customer_id) {
+      created_by_name = unwrap<{ full_name: string } | null>(await db.from('profiles').select('full_name').eq('id', booking.created_by).maybeSingle(), 'creator')?.full_name ?? null;
+    }
+    res.json({ ...withWo, payment: payment ?? null, timeline, created_by_name });
   }),
 );
 

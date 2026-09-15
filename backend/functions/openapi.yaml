@@ -1657,6 +1657,9 @@ paths:
                 valid_until:
                   type: string
                   format: date
+                items_note:
+                  type: string
+                  nullable: true
               required:
                 - amount_cents
                 - valid_until
@@ -3483,6 +3486,9 @@ paths:
                           type: string
                         full_name:
                           type: string
+                        name:
+                          type: string
+                          description: Alias of full_name
                         role:
                           type: string
                         avatar_url:
@@ -3500,6 +3506,9 @@ paths:
                           type: integer
                         active_task_count:
                           type: integer
+                        active_tasks:
+                          type: integer
+                          description: Alias of active_task_count
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3914,7 +3923,7 @@ paths:
       tags:
         - Admin
       operationId: getKpis
-      summary: Dashboard KPIs (incl. active_members and membership_mrr_cents)
+      summary: 'Dashboard KPIs: period=today|week|month (calendar presets) or explicit from/to (default last 7 days)'
       parameters:
         - name: outlet_id
           in: query
@@ -3922,6 +3931,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - today
+              - week
+              - month
         - name: from
           in: query
           required: false
@@ -4034,8 +4052,43 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
-                      additionalProperties: true
+                      allOf:
+                        - $ref: '#/components/schemas/Booking'
+                        - type: object
+                          properties:
+                            payment:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                status:
+                                  type: string
+                                  enum:
+                                    - initiated
+                                    - pending
+                                    - successful
+                                    - failed
+                                    - cancelled
+                                    - refunded
+                                receipt_no:
+                                  type: string
+                                  nullable: true
+                                amount_cents:
+                                  type: integer
+                                method:
+                                  type: string
+                                  nullable: true
+                                provider:
+                                  type: string
+                                verified_at:
+                                  type: string
+                                  format: date-time
+                                  nullable: true
+                              nullable: true
+                            created_by_name:
+                              type: string
+                              nullable: true
                   next_cursor:
                     type: string
                     nullable: true
@@ -4061,7 +4114,7 @@ paths:
       tags:
         - Admin
       operationId: adminListBookings
-      summary: Live bookings table
+      summary: 'Live bookings table: Booking rows + work_order summary, latest payment, created_by_name; search matches ref, customer name or plate'
       parameters:
         - name: limit
           in: query
@@ -4099,11 +4152,112 @@ paths:
           required: false
           schema:
             type: string
+            description: Comma-separated statuses
         - name: search
           in: query
           required: false
           schema:
             type: string
+  /admin/work-orders:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminWorkOrder'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminListWorkOrders
+      summary: 'Work-order board: active work orders plus those finished since done_since (default start of today UTC), or exactly the given statuses'
+      parameters:
+        - name: outlet_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Comma-separated statuses
+        - name: done_since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+  /admin/work-orders/{id}:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/AdminWorkOrder'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: adminGetWorkOrder
+      summary: One work order in the board shape (with task_events audit trail)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
   /admin/outlets:
     get:
       responses:
@@ -4885,8 +5039,7 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
-                      additionalProperties: true
+                      $ref: '#/components/schemas/AdminCustomer'
                   next_cursor:
                     type: string
                     nullable: true
@@ -4912,7 +5065,7 @@ paths:
       tags:
         - Admin
       operationId: adminSearchCustomers
-      summary: Search customers (access logged)
+      summary: Search customers by name, e-mail, phone or plate (access logged); rows carry vehicle_count, booking_count and the loyalty + plan summary
       parameters:
         - name: limit
           in: query
@@ -4950,6 +5103,33 @@ paths:
                 properties:
                   customer:
                     $ref: '#/components/schemas/Profile'
+                  vehicle_count:
+                    type: integer
+                  booking_count:
+                    type: integer
+                  loyalty:
+                    type: object
+                    properties:
+                      tier:
+                        type: string
+                        enum:
+                          - silver
+                          - gold
+                          - platinum
+                          - black
+                      balance_points:
+                        type: integer
+                      lifetime_points:
+                        type: integer
+                      plan_code:
+                        type: string
+                        nullable: true
+                      plan_name:
+                        type: string
+                        nullable: true
+                      included_remaining:
+                        type: integer
+                    nullable: true
                   vehicles:
                     type: array
                     items:
@@ -5541,7 +5721,7 @@ paths:
       tags:
         - Admin
       operationId: adminListInventory
-      summary: Inventory across outlets
+      summary: Inventory across outlets (outlet_name, capacity, blocking_work_orders, open alert)
       parameters:
         - name: outlet_id
           in: query
@@ -5553,7 +5733,10 @@ paths:
           in: query
           required: false
           schema:
-            type: boolean
+            type: string
+            enum:
+              - 'true'
+              - 'false'
   /admin/staff/performance:
     get:
       responses:
@@ -5609,6 +5792,7 @@ paths:
           schema:
             type: string
             enum:
+              - today
               - week
               - month
               - quarter
@@ -5782,6 +5966,9 @@ paths:
                   enum:
                     - draft
                     - published
+                publish:
+                  type: boolean
+                  description: 'Shorthand for status: false → draft, true → published'
               required:
                 - steps
   /admin/audit:
@@ -5823,7 +6010,7 @@ paths:
       tags:
         - Admin
       operationId: listAudit
-      summary: Audit events
+      summary: 'Audit events (admin/finance: all; manager: own outlets) with actor_name'
       parameters:
         - name: limit
           in: query
@@ -6676,6 +6863,43 @@ components:
           nullable: true
         is_active:
           type: boolean
+        legal_name:
+          type: string
+          nullable: true
+        trading_as:
+          type: string
+          nullable: true
+        company_registration_no:
+          type: string
+          nullable: true
+        vat_number:
+          type: string
+          nullable: true
+        registered_office:
+          type: string
+          nullable: true
+        bank_details:
+          type: object
+          properties:
+            financial_institution:
+              type: string
+              nullable: true
+            account_name:
+              type: string
+              nullable: true
+            branch:
+              type: string
+              nullable: true
+            branch_code:
+              type: string
+              nullable: true
+            account_number:
+              type: string
+              nullable: true
+            account_type:
+              type: string
+              nullable: true
+          nullable: true
         distance_km:
           type: number
           description: Present when ?lat&lng supplied
@@ -6879,6 +7103,9 @@ components:
     OutletServiceOffer:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
         service_id:
           type: string
           format: uuid
@@ -6887,6 +7114,12 @@ components:
         name:
           type: string
           description: Outlet display_name ?? service name
+        service_name:
+          type: string
+          description: Canonical service name
+        display_name:
+          type: string
+          nullable: true
         description:
           type: string
           nullable: true
@@ -6917,6 +7150,21 @@ components:
           enum:
             - incl
             - excl
+        pricing_mode_override:
+          type: string
+          enum:
+            - from
+            - fixed
+            - by_quote
+          nullable: true
+        vat_mode_override:
+          type: string
+          enum:
+            - incl
+            - excl
+          nullable: true
+        is_quote_based:
+          type: boolean
         price_small_cents:
           type: integer
           nullable: true
@@ -8286,6 +8534,16 @@ components:
         assessor_id:
           type: string
           nullable: true
+        customer_name:
+          type: string
+          nullable: true
+        assessor_name:
+          type: string
+          nullable: true
+        work_order_ref:
+          type: string
+          description: Ref of the work order created by /convert (single-quotation responses)
+          nullable: true
         valid_until:
           type: string
           format: date
@@ -9013,6 +9271,8 @@ components:
         outlet_id:
           type: string
           format: uuid
+        outlet_name:
+          type: string
         sku:
           type: string
         name:
@@ -9026,6 +9286,12 @@ components:
         pack_size:
           type: number
           nullable: true
+        capacity:
+          type: number
+          description: Suggested full level for the stock bar (≥ on_hand)
+        blocking_work_orders:
+          type: integer
+          description: Blocked work orders that logged usage of this item
         is_active:
           type: boolean
         updated_at:
@@ -9379,6 +9645,9 @@ components:
         actor_id:
           type: string
           nullable: true
+        actor_name:
+          type: string
+          nullable: true
         actor_role:
           type: string
           nullable: true
@@ -9415,6 +9684,13 @@ components:
             to:
               type: string
               format: date-time
+        period:
+          type: string
+          enum:
+            - today
+            - week
+            - month
+            - custom
         revenue_cents:
           type: integer
         revenue_previous_cents:
@@ -9422,11 +9698,32 @@ components:
         revenue_trend_pct:
           type: number
           nullable: true
+        revenue_compare_label:
+          type: string
+          example: vs R 12 300 yesterday
         bookings_today:
           type: integer
+        bookings_count:
+          type: integer
+          description: Non-cancelled bookings whose slot starts in the range
+        bookings_completed:
+          type: integer
+        bookings_in_service:
+          type: integer
+        on_time_pct:
+          type: number
         active_work_orders:
           type: integer
         completed_today:
+          type: integer
+        avg_cycle_minutes:
+          type: number
+        cycle_delta_minutes:
+          type: number
+          description: avg_cycle_minutes minus the 7-day average
+        quotes_total:
+          type: integer
+        quotes_accepted:
           type: integer
         exceptions_count:
           type: integer
@@ -9437,8 +9734,11 @@ components:
               type: integer
             overdue:
               type: integer
+            low_stock:
+              type: integer
             stock_alerts:
               type: integer
+              description: Alias of low_stock
             failed_payments:
               type: integer
         bookings_by_hour:
@@ -9452,6 +9752,8 @@ components:
                 type: integer
               auto_body:
                 type: integer
+              future:
+                type: boolean
         revenue_by_outlet:
           type: array
           items:
@@ -9473,10 +9775,22 @@ components:
                 type: string
               name:
                 type: string
+              initials:
+                type: string
               points:
                 type: integer
               rank:
                 type: integer
+              tier:
+                type: string
+                enum:
+                  - gold
+                  - silver
+                  - bronze
+        services_count:
+          type: integer
+        outlets_count:
+          type: integer
         active_members:
           type: integer
           description: Memberships with status active (platform-wide)
@@ -9486,6 +9800,16 @@ components:
     ExceptionItem:
       type: object
       properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - blocked
+            - overdue
+            - low_stock
+            - out_of_stock
+            - failed_payment
         type:
           type: string
           enum:
@@ -9494,7 +9818,13 @@ components:
             - low_stock
             - out_of_stock
             - failed_payment
+          description: Alias of kind
         severity:
+          type: string
+          enum:
+            - error
+            - warning
+        priority:
           type: string
           enum:
             - high
@@ -9502,9 +9832,13 @@ components:
             - low
         title:
           type: string
+        subtitle:
+          type: string
         detail:
           type: string
           nullable: true
+        icon:
+          type: string
         outlet_id:
           type: string
           format: uuid
@@ -9513,11 +9847,20 @@ components:
           type: string
           format: date-time
           nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
         link:
           type: object
           properties:
             type:
               type: string
+              enum:
+                - work_order
+                - inventory_item
+                - payment
+                - booking
             id:
               type: string
     ActivityItem:
@@ -9533,14 +9876,36 @@ components:
             - payment_event
             - loyalty
             - inventory_alert
+        kind:
+          type: string
+          enum:
+            - completed
+            - payment
+            - quote
+            - stock
+            - loyalty
+            - assigned
+            - blocked
         at:
           type: string
           format: date-time
         title:
           type: string
+        subtitle:
+          type: string
         detail:
           type: string
           nullable: true
+        icon:
+          type: string
+        tone:
+          type: string
+          enum:
+            - success
+            - primary
+            - warning
+            - error
+            - neutral
         outlet_id:
           type: string
           format: uuid
@@ -9562,6 +9927,9 @@ components:
           type: string
         role:
           type: string
+        outlet_name:
+          type: string
+          nullable: true
         tasks_completed:
           type: integer
         tasks_verified:
@@ -9574,6 +9942,247 @@ components:
           nullable: true
         points:
           type: integer
+          description: Lifetime points
+        points_period:
+          type: integer
+          description: Points earned in the range
+        rank:
+          type: integer
+        delta:
+          type: integer
+          description: Rank change vs the previous period
+        badges:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              name:
+                type: string
+              icon:
+                type: string
+              colour:
+                type: string
+              earned_at:
+                type: string
+                format: date-time
+    AdminTaskEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          nullable: true
+        actor_id:
+          type: string
+          nullable: true
+        actor_name:
+          type: string
+          nullable: true
+        event:
+          type: string
+        from_status:
+          type: string
+          nullable: true
+        to_status:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    AdminWorkOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        ref:
+          type: string
+        outlet:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        booking_id:
+          type: string
+          format: uuid
+          nullable: true
+        booking_ref:
+          type: string
+          nullable: true
+        quotation_id:
+          type: string
+          format: uuid
+          nullable: true
+        quotation_ref:
+          type: string
+          nullable: true
+        customer_id:
+          type: string
+        customer_name:
+          type: string
+        vehicle:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            registration_no:
+              type: string
+            make:
+              type: string
+              nullable: true
+            model:
+              type: string
+              nullable: true
+        service:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            category:
+              type: string
+        status:
+          type: string
+          enum:
+            - queued
+            - assigned
+            - in_progress
+            - blocked
+            - completed
+            - verified
+            - cancelled
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 3
+        bay:
+          type: string
+          nullable: true
+        assignee_id:
+          type: string
+          nullable: true
+        assignee_name:
+          type: string
+          nullable: true
+        eta_at:
+          type: string
+          format: date-time
+          nullable: true
+        due_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        blocked_reason:
+          type: string
+          nullable: true
+        steps_done:
+          type: integer
+        step_count:
+          type: integer
+        progress_pct:
+          type: integer
+        task_id:
+          type: string
+          format: uuid
+          nullable: true
+        task_status:
+          type: string
+          enum:
+            - queued
+            - assigned
+            - in_progress
+            - blocked
+            - completed
+            - verified
+            - cancelled
+          nullable: true
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminTaskEvent'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AdminCustomer:
+      allOf:
+        - $ref: '#/components/schemas/Profile'
+        - type: object
+          properties:
+            vehicle_count:
+              type: integer
+            booking_count:
+              type: integer
+            loyalty:
+              type: object
+              properties:
+                customer_id:
+                  type: string
+                tier:
+                  type: string
+                  enum:
+                    - silver
+                    - gold
+                    - platinum
+                    - black
+                balance_points:
+                  type: integer
+                lifetime_points:
+                  type: integer
+                tier_since:
+                  type: string
+                  format: date-time
+                  nullable: true
+                plan_code:
+                  type: string
+                  nullable: true
+                plan_name:
+                  type: string
+                  nullable: true
+                membership_status:
+                  type: string
+                  enum:
+                    - pending
+                    - active
+                    - past_due
+                    - cancelled
+                    - expired
+                  nullable: true
+                included_remaining:
+                  type: integer
+              nullable: true
     ChecklistTemplate:
       type: object
       properties:
@@ -10676,10 +11285,21 @@ components:
             name:
               type: string
           nullable: true
+        selections:
+          type: object
+          additionalProperties:
+            type: string
+          description: '{ [group_code]: entitlement_code }'
         allowances:
           type: array
           items:
             $ref: '#/components/schemas/Allowance'
+        used:
+          type: integer
+          description: Monthly washes used this period
+        remaining:
+          type: integer
+          description: Monthly washes left this period
         open_invoice:
           type: object
           allOf:
@@ -10689,7 +11309,10 @@ components:
         - membership
         - customer
         - plan
+        - selections
         - allowances
+        - used
+        - remaining
         - open_invoice
     RenewalRun:
       type: object

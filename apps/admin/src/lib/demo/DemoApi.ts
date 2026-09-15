@@ -10,7 +10,7 @@ import {
   type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingDetail, type ChecklistTemplate, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
   type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type Outlet, type OutletServiceInput,
-  type OutletServiceOffer, type Page, type Payment, type Period, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
+  type OutletServiceOffer, type Page, type Payment, type Period, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
   type ReportSummary, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
   type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WorkOrder, type WorkStatus,
 } from '../types';
@@ -989,7 +989,7 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: 'assigned', title: `${ref} walk-in · ${s.name}`, subtitle: `${outletShort(o.id)} · ${v.registration_no} · by ${this.actor().full_name}${work_order?.bay ? ` · ${work_order.bay}` : ''}`, icon: 'directions_walk', tone: 'primary' });
     this.emit('bookings');
     const booking = this.expandBooking(b);
-    return { booking, duplicate: false, ...(input.checkin ? { work_order: booking.work_order, task: work_order ? { id: work_order.task_id, status: work_order.status } : null } : {}) };
+    return { booking, duplicate: false, ...(input.checkin ? { work_order: booking.work_order, task: work_order?.task_id ? { id: work_order.task_id, status: work_order.status } : null } : {}) };
   }
 
   async recordPayment(input: RecordPaymentInput): Promise<PosPayment> {
@@ -1565,7 +1565,7 @@ export class DemoApi implements AdminApi {
     this.emit('memberships');
     return this.summaryFor(m.customer_id);
   }
-  async recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }): Promise<{ invoice: MembershipInvoice; membership: MembershipSummary }> {
+  async recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }): Promise<RecordMembershipPaymentResult> {
     await delay(260);
     this.requireRole('admin', 'manager');
     const m = this.memberships.find((x) => x.id === id);
@@ -1573,14 +1573,14 @@ export class DemoApi implements AdminApi {
     const inv = this.mInvoices.find((i) => i.id === invoiceId && i.membership_id === m.id);
     if (!inv) throw new ApiRequestError(404, { code: 'not_found', message: 'Invoice not found' });
     const prior = this.ops.get(`membership_payment:${body.client_op_id}`);
-    if (prior) return { invoice: clone(inv), membership: this.summaryFor(m.customer_id) };
+    if (prior) return { invoice: clone(inv), membership: clone(m), duplicate: true };
     if (inv.status !== 'pending') throw new ApiRequestError(409, { code: 'conflict', message: `Invoice ${inv.ref} is ${inv.status}` });
     if (!COUNTER_METHODS.includes(body.method)) throw new ApiRequestError(400, { code: 'validation_error', message: 'method must be cash, card_terminal or eft', details: [{ path: 'method', message: 'Invalid' }] });
     const pay = this.settleInvoice(inv, m, 'pos', body.method, this.actorId);
     this.ops.set(`membership_payment:${body.client_op_id}`, pay.id);
     this.pushActivity({ kind: 'payment', title: `${this.fmtR(inv.amount_cents)} ${body.method.replace('_', ' ')} · ${inv.ref}`, subtitle: `${this.planOf(m.plan_id).name} renewal for ${this.profile(m.customer_id)?.full_name ?? 'member'} · ${pay.receipt_no}`, icon: 'point_of_sale', tone: 'primary' });
     this.emit('memberships');
-    return { invoice: clone(inv), membership: this.summaryFor(m.customer_id) };
+    return { invoice: clone(inv), membership: clone(m), duplicate: false };
   }
   /** The daily `membershipRenewals` job (02:00 Africa/Johannesburg), on demand. */
   async runMembershipRenewals(): Promise<RenewalRunResult> {

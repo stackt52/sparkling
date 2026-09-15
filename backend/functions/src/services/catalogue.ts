@@ -229,9 +229,12 @@ export function buildOffers(outletId: string, rows: { services: Service[]; bindi
     const forSize = opts.vehicleSize ? price_for[opts.vehicleSize] : from;
     const ppr = Number(opts.pointsPerRand ?? s.points_per_rand ?? 0.1);
     offers.push({
+      id: s.id,
       service_id: s.id,
       code: s.code,
       name: card.name,
+      service_name: s.name,
+      display_name: b.display_name ?? null,
       description: s.description ?? null,
       group_name: s.group_name ?? 'Car Wash Options',
       category: s.category,
@@ -239,6 +242,9 @@ export function buildOffers(outletId: string, rows: { services: Service[]; bindi
       icon: s.icon ?? null,
       pricing_mode: card.pricing_mode,
       vat_mode: card.vat_mode,
+      pricing_mode_override: b.pricing_mode ?? null,
+      vat_mode_override: b.vat_mode ?? null,
+      is_quote_based: card.pricing_mode === 'by_quote',
       price_small_cents: card.price_small_cents,
       price_large_cents: card.price_large_cents,
       price_general_cents: card.price_general_cents,

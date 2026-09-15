@@ -25,7 +25,7 @@ import type {
   LoyaltyConfigResponse,
   LoyaltyRules,
   LoyaltyTierConfig,
-  MembershipInvoice,
+  Membership,
   MembershipPlan,
   MembershipPlanInput,
   MembershipRow,
@@ -41,11 +41,13 @@ import type {
   Payment,
   Period,
   PosPayment,
+  Profile,
   QuoteLineItem,
   Quotation,
   QuotationAttachment,
   QuotationStatus,
   RaiseQuotationInput,
+  RecordMembershipPaymentResult,
   RecordPaymentInput,
   RenewalRunResult,
   ReportKind,
@@ -56,6 +58,7 @@ import type {
   ShareQuotationResult,
   StaffPerformanceRow,
   StaffUser,
+  Task,
   UserRole,
   Vehicle,
   VehicleInput,
@@ -103,6 +106,8 @@ export interface BookingFilters extends OutletScoped {
 }
 export interface QuotationFilters extends OutletScoped {
   status?: QuotationStatus | 'all';
+  /** Page size (`GET /quotations` defaults to 25; the grid asks for 200). */
+  limit?: number;
 }
 export interface WorkOrderFilters extends OutletScoped {
   status?: WorkStatus | 'all';
@@ -110,6 +115,7 @@ export interface WorkOrderFilters extends OutletScoped {
 export interface AuditFilters {
   entity_type?: string;
   action?: string;
+  /** Actor profile id (`actor_id` on the wire). */
   actor?: string;
   limit?: number;
   cursor?: string | null;
@@ -238,7 +244,7 @@ export interface AdminApi {
   /** `POST /admin/memberships/:id/cancel` — `at_period_end` (default) or immediate. */
   cancelMembership(id: string, body: { at_period_end: boolean; reason?: string }): Promise<MembershipSummary>;
   /** `POST /admin/memberships/:id/invoices/:invoiceId/record-payment` — pays a pending renewal (rolls the period). */
-  recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }): Promise<{ invoice: MembershipInvoice; membership: MembershipSummary }>;
+  recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }): Promise<RecordMembershipPaymentResult>;
   /** `POST /admin/memberships/run-renewals` — the daily job, on demand. */
   runMembershipRenewals(): Promise<RenewalRunResult>;
   /* inventory */
@@ -334,6 +340,40 @@ export async function publicFetch<T>(method: 'GET' | 'POST', path: string, body?
   return (await res.json()) as T;
 }
 
+/** `GET /admin/customers/:id` envelope → the flat `CustomerDetail` the drawer renders. */
+interface CustomerEnvelope {
+  customer: Profile;
+  vehicle_count: number;
+  booking_count: number;
+  loyalty: CustomerSummary['loyalty'] | null;
+  vehicles: Vehicle[];
+  bookings: Booking[];
+  ledger: CustomerDetail['ledger'];
+  membership: MembershipSummary | null;
+}
+
+/** `GET /admin/memberships` row (`{ membership, customer, plan, … }`) → the flat grid row. */
+interface MemberRowEnvelope extends Omit<MembershipRow, keyof Membership | 'customer'> {
+  membership: Membership;
+  customer: MembershipRow['customer'] | null;
+}
+function flattenMemberRow(r: MemberRowEnvelope): MembershipRow {
+  const { membership, customer, ...rest } = r;
+  return { ...membership, ...rest, customer: customer ?? { id: membership.customer_id, full_name: 'Unknown customer', email: null, phone: null } };
+}
+
+/** `POST /admin/memberships/run-renewals` → the four counters the toast shows. */
+interface RenewalRunEnvelope { expired: number; invoices_created: number; past_due: number; rolled: number }
+
+/** Form values arrive as '' for "not set"; the API wants null. Read-only columns are dropped. */
+function outletBody(o: Partial<Outlet>): Record<string, unknown> {
+  const readOnly = new Set(['id', 'created_at', 'updated_at']);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) if (!readOnly.has(k)) out[k] = typeof v === 'string' && v.trim() === '' ? null : v;
+  if (o.bank_details) out.bank_details = Object.fromEntries(Object.entries(o.bank_details).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? null : v]));
+  return out;
+}
+
 export class HttpApi implements AdminApi {
   readonly mode = 'http' as const;
   constructor(private readonly getToken: TokenGetter, private readonly baseUrl = env.apiBaseUrl) {}
@@ -406,8 +446,10 @@ export class HttpApi implements AdminApi {
   session(body: { app: 'admin'; full_name?: string }) {
     return this.request<SessionResponse>('POST', '/auth/session', body);
   }
-  kpis(p: OutletScoped & { period: Period }) {
-    return this.request<Kpis>('GET', `/admin/kpis${qs(p)}`);
+  /** `GET /admin/kpis?period=` — the API derives the calendar range; a null trend (no previous revenue) reads as 0 %. */
+  async kpis(p: OutletScoped & { period: Period }) {
+    const k = await this.request<Kpis & { revenue_trend_pct: number | null }>('GET', `/admin/kpis${qs(p)}`);
+    return { ...k, revenue_trend_pct: k.revenue_trend_pct ?? 0 };
   }
   exceptions(p: OutletScoped) {
     return this.list<ExceptionItem>(`/admin/exceptions${qs(p)}`);
@@ -421,20 +463,22 @@ export class HttpApi implements AdminApi {
   getBooking(id: string) {
     return this.request<BookingDetail>('GET', `/bookings/${id}`);
   }
-  cancelBooking(id: string, reason: string) {
-    return this.request<Booking>('POST', `/bookings/${id}/cancel`, { reason });
+  async cancelBooking(id: string, reason: string) {
+    return (await this.request<{ booking: Booking }>('POST', `/bookings/${id}/cancel`, { reason })).booking;
   }
   listQuotations(f: QuotationFilters) {
-    return this.list<Quotation>(`/quotations${qs(f)}`);
+    return this.list<Quotation>(`/quotations${qs({ limit: 200, ...f })}`);
   }
   getQuotation(id: string) {
     return this.request<Quotation>('GET', `/quotations/${id}`);
   }
-  submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }) {
-    return this.request<Quotation>('POST', `/quotations/${id}/quote`, body);
+  async submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }) {
+    return (await this.request<{ quotation: Quotation }>('POST', `/quotations/${id}/quote`, body)).quotation;
   }
-  convertQuotation(id: string) {
-    return this.request<Quotation>('POST', `/quotations/${id}/convert`, {});
+  /** `POST /quotations/:id/convert` → `{ quotation, work_order, task }`; the quotation carries `work_order_ref`. */
+  async convertQuotation(id: string) {
+    const res = await this.request<{ quotation: Quotation; work_order: { ref: string } }>('POST', `/quotations/${id}/convert`, {});
+    return { ...res.quotation, work_order_ref: res.quotation.work_order_ref ?? res.work_order?.ref ?? null };
   }
   async raiseQuotation(input: RaiseQuotationInput) {
     const res = await this.request<{ quotation: Quotation } | Quotation>('POST', '/quotations', input);
@@ -443,11 +487,11 @@ export class HttpApi implements AdminApi {
   shareQuotation(id: string) {
     return this.request<ShareQuotationResult>('POST', `/quotations/${id}/share`, {});
   }
-  uploadQuotationPhoto(id: string, file: File, caption?: string) {
+  async uploadQuotationPhoto(id: string, file: File, caption?: string) {
     const form = new FormData();
     form.append('photo', file, file.name);
     if (caption) form.append('caption', caption);
-    return this.upload<QuotationAttachment>(`/quotations/${id}/photos`, form);
+    return (await this.upload<{ attachment: QuotationAttachment }>(`/quotations/${id}/photos`, form)).attachment;
   }
   deleteQuotationPhoto(id: string, attachmentId: string) {
     return this.request<void>('DELETE', `/quotations/${id}/photos/${attachmentId}`);
@@ -458,38 +502,51 @@ export class HttpApi implements AdminApi {
   fetchQuotationPdf(id: string) {
     return this.blob(`/quotations/${id}/pdf`, 'application/pdf');
   }
+  /** `GET /admin/work-orders` — the board shape (active + finished today; `status` narrows to one column). */
   listWorkOrders(f: WorkOrderFilters) {
-    return this.list<WorkOrder>(`/tasks${qs({ scope: 'queue', ...f })}`);
+    return this.list<WorkOrder>(`/admin/work-orders${qs(f)}`);
   }
-  getWorkOrder(id: string) {
-    return this.request<WorkOrder>('GET', `/work-orders/${id}`);
+  async getWorkOrder(id: string) {
+    return (await this.request<{ work_order: WorkOrder }>('GET', `/admin/work-orders/${id}`)).work_order;
   }
-  assignTask(taskId: string, body: { assignee_id: string; reason?: string }) {
-    return this.request<WorkOrder>('POST', `/tasks/${taskId}/assign`, body);
+  /** `POST /tasks/:id/assign` answers with the task; the board card is re-read from `/admin/work-orders/:id`. */
+  async assignTask(taskId: string, body: { assignee_id: string; reason?: string }) {
+    const { task } = await this.request<{ task: Task }>('POST', `/tasks/${taskId}/assign`, body);
+    return this.getWorkOrder(task.work_order_id);
   }
-  transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }) {
-    return this.request<WorkOrder>('POST', `/tasks/${taskId}/transition`, { ...body, client_op_id: uuid() });
+  /** Verifying with incomplete required steps needs a supervisor `override.reason` — the drawer's reason doubles as that. */
+  async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }) {
+    const override = body.to === 'verified' && body.reason ? { override: { reason: body.reason } } : {};
+    const { work_order } = await this.request<{ task: Task; work_order: { id: string } }>('POST', `/tasks/${taskId}/transition`, { ...body, ...override, client_op_id: uuid() });
+    return this.getWorkOrder(work_order.id);
   }
   team(p: OutletScoped) {
     return this.list<TeamMember>(`/staff/team${qs(p)}`);
   }
   listUsers() {
-    return this.list<StaffUser>('/admin/users');
+    return this.list<StaffUser>('/admin/users?limit=500');
   }
-  inviteUser(body: { email: string; full_name: string; role: UserRole; outlet_ids: string[] }) {
-    return this.request<StaffUser>('POST', '/admin/users', body);
+  /** `POST /admin/users` → `{ profile, uid, invite_link, … }`; outlets/skills are echoed from the request. */
+  async inviteUser(body: { email: string; full_name: string; role: UserRole; outlet_ids: string[] }) {
+    const res = await this.request<{ profile: Profile }>('POST', '/admin/users', body);
+    return { ...res.profile, outlet_ids: body.outlet_ids, outlet_names: [], skills: [] } as StaffUser;
   }
-  updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }) {
-    return this.request<StaffUser>('PATCH', `/admin/users/${id}`, patch);
+  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }) {
+    const res = await this.request<{ profile: Profile; outlet_ids: string[] }>('PATCH', `/admin/users/${id}`, patch);
+    return { ...res.profile, outlet_ids: res.outlet_ids ?? [], outlet_names: [], skills: [] } as StaffUser;
   }
-  staffPerformance(p: OutletScoped & { period: Period }) {
-    return this.list<StaffPerformanceRow>(`/admin/staff/performance${qs(p)}`);
+  /** Rows without completed tasks have null cycle / compliance figures; the grid shows them as 0. */
+  async staffPerformance(p: OutletScoped & { period: Period }) {
+    const rows = await this.list<StaffPerformanceRow & { avg_cycle_minutes: number | null; checklist_compliance_pct: number | null }>(`/admin/staff/performance${qs(p)}`);
+    return rows.map((r) => ({ ...r, avg_cycle_minutes: r.avg_cycle_minutes ?? 0, checklist_compliance_pct: r.checklist_compliance_pct ?? 0 }));
   }
-  searchCustomers(search: string) {
-    return this.list<CustomerSummary>(`/admin/customers${qs({ search })}`);
+  async searchCustomers(search: string) {
+    const rows = await this.list<CustomerSummary & { loyalty: CustomerSummary['loyalty'] | null }>(`/admin/customers${qs({ search, limit: 200 })}`);
+    return rows.map((r) => ({ ...r, loyalty: r.loyalty ?? undefined }));
   }
-  getCustomer(id: string) {
-    return this.request<CustomerDetail>('GET', `/admin/customers/${id}`);
+  async getCustomer(id: string) {
+    const r = await this.request<CustomerEnvelope>('GET', `/admin/customers/${id}`);
+    return { ...r.customer, vehicle_count: r.vehicle_count, booking_count: r.booking_count, loyalty: r.loyalty ?? undefined, vehicles: r.vehicles, bookings: r.bookings, ledger: r.ledger, membership: r.membership } as CustomerDetail;
   }
   searchWalkInCustomers(search: string) {
     return this.list<WalkInCustomer>(`/staff/customers${qs({ search, limit: 20 })}`);
@@ -517,26 +574,27 @@ export class HttpApi implements AdminApi {
   listOutlets() {
     return this.list<Outlet>('/admin/outlets');
   }
-  createOutlet(body: Partial<Outlet>) {
-    return this.request<Outlet>('POST', '/admin/outlets', body);
+  async createOutlet(body: Partial<Outlet>) {
+    return (await this.request<{ outlet: Outlet }>('POST', '/admin/outlets', outletBody(body))).outlet;
   }
-  updateOutlet(id: string, patch: Partial<Outlet>) {
-    return this.request<Outlet>('PATCH', `/admin/outlets/${id}`, patch);
+  async updateOutlet(id: string, patch: Partial<Outlet>) {
+    return (await this.request<{ outlet: Outlet }>('PATCH', `/admin/outlets/${id}`, outletBody(patch))).outlet;
   }
   listServices() {
     return this.list<Service>('/admin/services');
   }
-  createService(body: ServiceInput) {
-    return this.request<Service>('POST', '/admin/services', body);
+  async createService(body: ServiceInput) {
+    return (await this.request<{ service: Service }>('POST', '/admin/services', body)).service;
   }
-  updateService(id: string, patch: ServiceInput) {
-    return this.request<Service>('PUT', `/admin/services/${id}`, patch);
+  async updateService(id: string, patch: ServiceInput) {
+    return (await this.request<{ service: Service }>('PUT', `/admin/services/${id}`, patch)).service;
   }
-  listOutletOffers(outletId: string, f: OutletOfferFilters = {}) {
-    return this.list<OutletServiceOffer>(`/admin/outlets/${outletId}/services${qs({ vehicle_size: f.vehicleSize, include_unavailable: f.includeUnavailable ? 'true' : undefined })}`);
+  /** The admin route always includes unavailable bindings and prices every size (`price_for`), so the filters need no query params. */
+  listOutletOffers(outletId: string) {
+    return this.list<OutletServiceOffer>(`/admin/outlets/${outletId}/services`);
   }
-  upsertOutletService(outletId: string, serviceId: string, body: OutletServiceInput) {
-    return this.request<OutletServiceOffer>('PUT', `/admin/outlets/${outletId}/services/${serviceId}`, body);
+  async upsertOutletService(outletId: string, serviceId: string, body: OutletServiceInput) {
+    return (await this.request<{ outlet_service: OutletServiceOffer }>('PUT', `/admin/outlets/${outletId}/services/${serviceId}`, body)).outlet_service;
   }
   removeOutletService(outletId: string, serviceId: string) {
     return this.request<void>('DELETE', `/admin/outlets/${outletId}/services/${serviceId}`);
@@ -544,74 +602,86 @@ export class HttpApi implements AdminApi {
   listTemplates() {
     return this.list<ChecklistTemplate>('/admin/templates');
   }
-  createTemplate(body: Pick<ChecklistTemplate, 'name' | 'category' | 'steps'>) {
-    return this.request<ChecklistTemplate>('POST', '/admin/templates', body);
+  async createTemplate(body: Pick<ChecklistTemplate, 'name' | 'category' | 'steps'>) {
+    return (await this.request<{ template: ChecklistTemplate }>('POST', '/admin/templates', body)).template;
   }
-  updateTemplate(id: string, body: Pick<ChecklistTemplate, 'name' | 'category' | 'steps'> & { publish: boolean }) {
-    return this.request<ChecklistTemplate>('PUT', `/admin/templates/${id}`, body);
+  /** `PUT` always creates a new version; `publish: false` keeps it a draft. */
+  async updateTemplate(id: string, body: Pick<ChecklistTemplate, 'name' | 'category' | 'steps'> & { publish: boolean }) {
+    return (await this.request<{ template: ChecklistTemplate }>('PUT', `/admin/templates/${id}`, body)).template;
   }
   loyaltyConfig() {
     return this.request<LoyaltyConfigResponse>('GET', '/admin/loyalty/config');
   }
-  saveLoyaltyDraft(body: { tiers: LoyaltyTierConfig[]; rules: LoyaltyRules; change_note: string }) {
-    return this.request<LoyaltyConfig>('PUT', '/admin/loyalty/config/draft', body);
+  async saveLoyaltyDraft(body: { tiers: LoyaltyTierConfig[]; rules: LoyaltyRules; change_note: string }) {
+    return (await this.request<{ draft: LoyaltyConfig }>('PUT', '/admin/loyalty/config/draft', body)).draft;
   }
-  publishLoyalty() {
-    return this.request<LoyaltyConfig>('POST', '/admin/loyalty/config/publish', {});
+  async publishLoyalty() {
+    return (await this.request<{ published: LoyaltyConfig }>('POST', '/admin/loyalty/config/publish', {})).published;
   }
-  discardLoyalty() {
-    return this.request<void>('POST', '/admin/loyalty/config/discard', {});
+  async discardLoyalty() {
+    await this.request<{ discarded: { id: string; version: number } }>('POST', '/admin/loyalty/config/discard', {});
   }
   membershipPlans() {
     return this.list<MembershipPlan>('/admin/memberships/plans');
   }
-  saveMembershipPlan(code: string, body: MembershipPlanInput) {
-    return this.request<MembershipPlan>('PUT', `/admin/memberships/plans/${code}`, body);
+  async saveMembershipPlan(code: string, body: MembershipPlanInput) {
+    return (await this.request<{ plan: MembershipPlan }>('PUT', `/admin/memberships/plans/${code}`, body)).plan;
   }
-  listMemberships(p: MembershipFilters) {
-    return this.request<Page<MembershipRow>>('GET', `/admin/memberships${qs(p)}`);
+  async listMemberships(p: MembershipFilters) {
+    const page = await this.request<Page<MemberRowEnvelope>>('GET', `/admin/memberships${qs(p)}`);
+    return { data: page.data.map(flattenMemberRow), next_cursor: page.next_cursor };
   }
   customerMembership(customerId: string) {
     return this.request<MembershipSummary>('GET', `/staff/customers/${customerId}/membership`);
   }
-  enrolMembership(customerId: string, body: EnrolMembershipInput) {
-    return this.request<MembershipSummary>('POST', `/admin/customers/${customerId}/membership`, body);
+  /** `POST /admin/customers/:id/membership` → `{ membership, invoice, payment, summary }`; the drawer wants the summary. */
+  async enrolMembership(customerId: string, body: EnrolMembershipInput) {
+    return (await this.request<{ summary: MembershipSummary }>('POST', `/admin/customers/${customerId}/membership`, body)).summary;
   }
-  cancelMembership(id: string, body: { at_period_end: boolean; reason?: string }) {
-    return this.request<MembershipSummary>('POST', `/admin/memberships/${id}/cancel`, body);
+  /** Cancels, then re-reads the customer's summary (the API answers with the bare membership row). */
+  async cancelMembership(id: string, body: { at_period_end: boolean; reason?: string }) {
+    const { membership } = await this.request<{ membership: Membership }>('POST', `/admin/memberships/${id}/cancel`, body);
+    return this.customerMembership(membership.customer_id);
   }
   recordMembershipPayment(id: string, invoiceId: string, body: { method: 'cash' | 'card_terminal' | 'eft'; client_op_id: string }) {
-    return this.request<{ invoice: MembershipInvoice; membership: MembershipSummary }>('POST', `/admin/memberships/${id}/invoices/${invoiceId}/record-payment`, body);
+    return this.request<RecordMembershipPaymentResult>('POST', `/admin/memberships/${id}/invoices/${invoiceId}/record-payment`, body);
   }
-  runMembershipRenewals() {
-    return this.request<RenewalRunResult>('POST', '/admin/memberships/run-renewals', {});
+  /** Maps the job's counters (`invoices_created`, `rolled`, …) onto the toast's four figures. */
+  async runMembershipRenewals(): Promise<RenewalRunResult> {
+    const r = await this.request<RenewalRunEnvelope>('POST', '/admin/memberships/run-renewals', {});
+    return { expired: r.expired, invoiced: r.invoices_created, past_due: r.past_due, renewed: r.rolled };
   }
   listInventory(p: OutletScoped & { alerts_first?: boolean }) {
-    return this.list<InventoryItem>(`/admin/inventory${qs(p)}`);
+    return this.list<InventoryItem>(`/admin/inventory${qs({ outlet_id: p.outlet_id, alerts_first: p.alerts_first === undefined ? undefined : String(p.alerts_first) })}`);
   }
-  updateInventoryItem(id: string, patch: { reorder_threshold?: number; name?: string; unit?: string }) {
-    return this.request<InventoryItem>('PATCH', `/inventory/${id}`, patch);
+  /** The staff route answers with the bare item; `outlet_name` / `capacity` come back on the next list. */
+  async updateInventoryItem(id: string, patch: { reorder_threshold?: number; name?: string; unit?: string }) {
+    return (await this.request<{ item: InventoryItem }>('PATCH', `/inventory/${id}`, patch)).item;
   }
-  addMovement(id: string, body: { delta: number; reason: 'usage' | 'receive' | 'adjust' | 'reorder_request' | 'count'; note?: string }) {
-    return this.request<InventoryItem>('POST', `/inventory/${id}/movements`, { ...body, client_op_id: uuid() });
+  async addMovement(id: string, body: { delta: number; reason: 'usage' | 'receive' | 'adjust' | 'reorder_request' | 'count'; note?: string }) {
+    return (await this.request<{ item: InventoryItem }>('POST', `/inventory/${id}/movements`, { ...body, client_op_id: uuid() })).item;
   }
   listPayments(p: OutletScoped) {
-    return this.list<Payment>(`/admin/payments${qs(p)}`);
+    return this.list<Payment>(`/admin/payments${qs({ ...p, limit: 200 })}`);
   }
   reportSummary(f: ReportFilters) {
     return this.request<ReportSummary>('GET', `/admin/reports/summary${qs(f)}`);
   }
+  /** Exports take `from`/`to` (whole days); a single `date` filter becomes that one day. Other UI-only filters are dropped server-side. */
   exportCsv(report: ReportKind, filters: Record<string, string | undefined>) {
-    return this.request<string>('GET', `/admin/exports/${report}.csv${qs(filters)}`, undefined, true);
+    const { date, ...rest } = filters;
+    const range = date ? { from: date, to: date } : {};
+    return this.request<string>('GET', `/admin/exports/${report}.csv${qs({ ...rest, ...range })}`, undefined, true);
   }
   listAudit(f: AuditFilters) {
-    return this.request<Page<AuditEvent>>('GET', `/admin/audit${qs(f)}`);
+    const { actor, ...rest } = f;
+    return this.request<Page<AuditEvent>>('GET', `/admin/audit${qs({ ...rest, actor_id: actor })}`);
   }
   listFlags() {
     return this.list<FeatureFlag>('/admin/flags');
   }
-  updateFlag(key: string, enabled: boolean) {
-    return this.request<FeatureFlag>('PATCH', `/admin/flags/${key}`, { enabled });
+  async updateFlag(key: string, enabled: boolean) {
+    return (await this.request<{ flag: FeatureFlag }>('PATCH', `/admin/flags/${key}`, { enabled })).flag;
   }
   integrations() {
     return this.list<IntegrationStatus>('/admin/integrations');
@@ -619,8 +689,10 @@ export class HttpApi implements AdminApi {
   listNotifications(f: NotificationFilters) {
     return this.request<Page<NotificationRow>>('GET', `/admin/notifications${qs(f)}`);
   }
-  resendNotification(id: string) {
-    return this.request<NotificationRow>('POST', `/admin/notifications/${id}/resend`, {});
+  /** `{ notification, outcome }` → the row (recipient name is not on the bare row; the page falls back to the id). */
+  async resendNotification(id: string) {
+    const { notification } = await this.request<{ notification: NotificationRow & { recipient_name?: string | null } }>('POST', `/admin/notifications/${id}/resend`, {});
+    return { ...notification, recipient_name: notification.recipient_name ?? null };
   }
   subscribe() {
     return () => {};

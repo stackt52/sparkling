@@ -88,7 +88,7 @@ function AssignForm({ w, onClose }: { w: WorkOrder; onClose: () => void }) {
   const [reason, setReason] = React.useState('');
   const team = useQuery({ queryKey: ['team', w.outlet.id], queryFn: () => api.team({ outlet_id: w.outlet.id }) });
   const m = useMutation({
-    mutationFn: () => api.assignTask(w.task_id, { assignee_id: assignee, reason: reason || undefined }),
+    mutationFn: () => api.assignTask(w.task_id!, { assignee_id: assignee, reason: reason || undefined }),
     onSuccess: (res) => { toast.success(`${res.ref} assigned to ${res.assignee_name}`); void qc.invalidateQueries({ queryKey: ['work-orders'] }); onClose(); },
     onError: (e) => toast.error(e),
   });
@@ -117,7 +117,7 @@ function AssignForm({ w, onClose }: { w: WorkOrder; onClose: () => void }) {
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="secondary" disabled={!assignee || m.isPending || assignee === w.assignee_id} onClick={() => m.mutate()}>Assign</Button>
+        <Button variant="contained" color="secondary" disabled={!assignee || !w.task_id || m.isPending || assignee === w.assignee_id} onClick={() => m.mutate()}>Assign</Button>
       </DialogActions>
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
@@ -139,12 +139,13 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
   const [reasonFor, setReasonFor] = React.useState<WorkStatus | null>(null);
   const [reason, setReason] = React.useState('');
   const m = useMutation({
-    mutationFn: (body: { to: WorkStatus; reason?: string }) => api.transitionTask(w!.task_id, body),
+    mutationFn: (body: { to: WorkStatus; reason?: string }) => api.transitionTask(w!.task_id!, body),
     onSuccess: (res) => { toast.success(`${res.ref} → ${statusLabel(res.status)}`); void qc.invalidateQueries({ queryKey: ['work-orders'] }); setReasonFor(null); setReason(''); },
     onError: (e) => toast.error(e),
   });
-  const canAct = can(role, 'task:transition');
-  const canAssign = can(role, 'task:assign');
+  // Actions act on the work order's task; legacy rows without one are read-only.
+  const canAct = can(role, 'task:transition') && Boolean(w?.task_id);
+  const canAssign = can(role, 'task:assign') && Boolean(w?.task_id);
   const transitions = w ? NEXT[w.status] ?? [] : [];
   const hasFooter = Boolean(w) && (canAssign || (canAct && transitions.length > 0) || Boolean(reasonFor));
   return (

@@ -69,7 +69,7 @@ export default function LoginPage() {
             ))}
           </Box>
         </Box>
-        <Typography variant="caption" sx={{ opacity: 0.7 }}>v1.0.0</Typography>
+        <Typography variant="caption" sx={{ opacity: 0.7 }}>v0.0.1 beta</Typography>
       </Box>
 
       <Box sx={{ display: 'grid', placeItems: 'center', p: { xs: 2, md: 4 } }}>

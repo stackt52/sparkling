@@ -83,7 +83,9 @@ export interface Profile {
 }
 
 export interface SessionResponse {
-  profile: Profile & { outlet_ids: string[] };
+  profile: Profile & { outlet_ids?: string[] };
+  /** Outlets the staff member belongs to (top-level in `POST /auth/session`). */
+  outlet_ids?: string[];
   claims_updated: boolean;
 }
 
@@ -460,6 +462,14 @@ export interface PublicDecisionInput {
   accepted_by_name?: string;
 }
 
+/** `tasks` row as answered by `POST /tasks/:id/assign|transition` (only the fields the dashboard reads). */
+export interface Task {
+  id: string;
+  work_order_id: string;
+  status: WorkStatus;
+  assignee_id: string | null;
+}
+
 export interface TaskEvent {
   id: string;
   actor_name: string | null;
@@ -470,6 +480,7 @@ export interface TaskEvent {
   created_at: string;
 }
 
+/** `GET /admin/work-orders[/:id]` row — the board card with names, refs, progress and the task audit trail. */
 export interface WorkOrder {
   id: string;
   ref: string;
@@ -490,7 +501,8 @@ export interface WorkOrder {
   blocked_reason: string | null;
   steps_done: number;
   step_count: number;
-  task_id: string;
+  /** First task of the work order — what `assignTask` / `transitionTask` act on (null only for legacy rows without a task). */
+  task_id: string | null;
   events: TaskEvent[];
   updated_at: string;
 }
@@ -1062,4 +1074,12 @@ export interface RenewalRunResult {
   invoiced: number;
   past_due: number;
   renewed: number;
+}
+
+/** `POST /admin/memberships/:id/invoices/:invoiceId/record-payment` → the paid invoice and the rolled membership. */
+export interface RecordMembershipPaymentResult {
+  invoice: MembershipInvoice;
+  membership: Membership;
+  payment?: PosPayment | null;
+  duplicate?: boolean;
 }

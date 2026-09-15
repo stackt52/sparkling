@@ -9,15 +9,17 @@ import { isoDate, isoDateTime, pagination, parseBody, parseQuery, pricingMode, u
 import { canSeeOutlet, requireAdmin, requireProfile, requireRole } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { audit } from '../services/audit.js';
-import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, listAdminPayments, REPORTS, staffPerformance, type ReportName } from '../services/admin.js';
+import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, listAdminPayments, periodRange, REPORTS, staffPerformance, todayRangeUtc, type ReportName } from '../services/admin.js';
+import { getAdminWorkOrder, listAdminWorkOrders } from '../services/adminWorkOrders.js';
 import { createService, deleteOutletService, listAdminOutletOffers, listServicesWithComponents, updateService, upsertOutletService } from '../services/catalogueAdmin.js';
 import { integrationStatus } from '../services/integrations.js';
 import { getFlags, invalidateFlags } from '../services/flags.js';
 import { resendNotification } from '../services/notifications.js';
+import { attachWorkOrders, BOOKING_EXPAND } from './bookings.js';
 import { listInventory } from './inventory.js';
 import { enrolSchema, recordPaymentSchema } from './staffMemberships.js';
-import { cancelMembership, enrolAtCounter, listMembers, loadPlans, membershipSummary, planStats, recordInvoicePayment, runRenewals, updatePlan } from '../services/memberships.js';
-import type { LoyaltyConfig, MembershipStatus, Profile, UserRole } from '../types.js';
+import { cancelMembership, enrolAtCounter, includedRemaining, listMembers, loadPlans, membershipBriefs, membershipSummary, planStats, recordInvoicePayment, runRenewals, updatePlan } from '../services/memberships.js';
+import type { LoyaltyConfig, MembershipStatus, Profile, UserRole, WorkStatus } from '../types.js';
 import { STAFF_ROLES } from '../types.js';
 
 export const adminRouter = Router();
@@ -52,21 +54,32 @@ export function reportBounds(from: string | undefined, to: string | undefined, d
 // Overview
 // ---------------------------------------------------------------------------
 
+const kpiPeriod = z.enum(['today', 'week', 'month']);
+
+/** `period=today|week|month` (calendar presets) or explicit `from`/`to`; default: last 7 days. */
 adminRouter.get(
   '/admin/kpis',
   managerFinance,
   asyncHandler(async (req, res) => {
-    const q = parseQuery(z.object({ outlet_id: uuid.optional(), from: isoDateTime.optional(), to: isoDateTime.optional() }), req.query);
-    const to = q.to ?? new Date().toISOString();
-    const from = q.from ?? new Date(new Date(to).getTime() - 7 * 86400_000).toISOString();
-    if (new Date(from) >= new Date(to)) throw ApiError.validation('from must be before to');
-    res.json(await computeKpis({ from, to, outletIds: scopeFor(req, q.outlet_id) }));
+    const q = parseQuery(z.object({ outlet_id: uuid.optional(), period: kpiPeriod.optional(), from: isoDateTime.optional(), to: isoDateTime.optional() }), req.query);
+    let from: string;
+    let to: string;
+    let period: 'today' | 'week' | 'month' | 'custom' = 'custom';
+    if (q.period && !q.from && !q.to) {
+      ({ from, to } = periodRange(q.period));
+      period = q.period;
+    } else {
+      to = q.to ?? new Date().toISOString();
+      from = q.from ?? new Date(new Date(to).getTime() - 7 * 86400_000).toISOString();
+    }
+    if (new Date(from) > new Date(to)) throw ApiError.validation('from must be before to');
+    res.json(await computeKpis({ from, to, outletIds: scopeFor(req, q.outlet_id), period }));
   }),
 );
 
 adminRouter.get(
   '/admin/exceptions',
-  managerPlus,
+  managerFinance,
   asyncHandler(async (req, res) => {
     const q = parseQuery(z.object({ outlet_id: uuid.optional() }), req.query);
     res.json({ data: await computeExceptions(scopeFor(req, q.outlet_id)) });
@@ -75,12 +88,54 @@ adminRouter.get(
 
 adminRouter.get(
   '/admin/activity',
-  managerPlus,
+  managerFinance,
   asyncHandler(async (req, res) => {
     const q = parseQuery(z.object({ outlet_id: uuid.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }), req.query);
     res.json({ data: await computeActivity(scopeFor(req, q.outlet_id), q.limit) });
   }),
 );
+
+/** PostgREST `or()` filter matching a free-text search against the ref, customer name or plate (ids resolved first). */
+async function bookingSearchFilter(search: string): Promise<string | null> {
+  const s = search.replace(/[%_,()"\\]/g, '').trim();
+  if (!s) return null;
+  const db = getSupabase();
+  const [customers, vehicles] = await Promise.all([
+    db.from('profiles').select('id').eq('role', 'customer').ilike('full_name', `%${s}%`).limit(100),
+    db.from('vehicles').select('id').ilike('registration_no', `%${s}%`).limit(100),
+  ]);
+  const parts = [`ref.ilike.%${s}%`];
+  const customerIds = unwrap<Array<{ id: string }>>(customers, 'customers').map((c) => c.id);
+  const vehicleIds = unwrap<Array<{ id: string }>>(vehicles, 'vehicles').map((v) => v.id);
+  if (customerIds.length) parts.push(`customer_id.in.(${customerIds.join(',')})`);
+  if (vehicleIds.length) parts.push(`vehicle_id.in.(${vehicleIds.join(',')})`);
+  return parts.join(',');
+}
+
+/** Latest payment per booking (a successful one wins) in the finance-safe shape the drawer shows. */
+async function attachPayments<T extends { id: string }>(rows: T[]): Promise<Array<T & { payment: Record<string, unknown> | null }>> {
+  if (rows.length === 0) return [];
+  const pays = unwrap<Array<Record<string, any>>>(
+    await getSupabase().from('payments').select('id, booking_id, status, receipt_no, amount_cents, method, provider, created_at, verified_at').in('booking_id', rows.map((r) => r.id)),
+    'payments',
+  );
+  const best = new Map<string, Record<string, any>>();
+  for (const p of pays.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) {
+    const cur = best.get(p.booking_id);
+    if (!cur || (cur.status !== 'successful' && p.status === 'successful')) best.set(p.booking_id, p);
+  }
+  return rows.map((r) => {
+    const p = best.get(r.id);
+    return { ...r, payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no ?? null, amount_cents: Number(p.amount_cents), method: p.method ?? null, provider: p.provider, verified_at: p.verified_at ?? null } : null };
+  });
+}
+
+/** Names of the staff members who created walk-ins (`created_by_name`). */
+async function attachCreators<T extends { created_by?: string | null; customer_id: string }>(rows: T[]): Promise<Array<T & { created_by_name: string | null }>> {
+  const ids = [...new Set(rows.map((r) => r.created_by).filter((id): id is string => Boolean(id)))];
+  const names = ids.length ? new Map(unwrap<Array<{ id: string; full_name: string }>>(await getSupabase().from('profiles').select('id, full_name').in('id', ids), 'creators').map((p) => [p.id, p.full_name])) : new Map<string, string>();
+  return rows.map((r) => ({ ...r, created_by_name: r.created_by && r.created_by !== r.customer_id ? (names.get(r.created_by) ?? null) : null }));
+}
 
 adminRouter.get(
   '/admin/bookings',
@@ -90,17 +145,47 @@ adminRouter.get(
     const db = getSupabase();
     const offset = decodeCursor(q.cursor);
     const scope = scopeFor(req, q.outlet_id);
-    let query = db
-      .from('bookings')
-      .select('*, outlet:outlets(id, name), service:services(id, name, category), vehicle:vehicles(id, registration_no, make, model), customer:profiles!bookings_customer_id_fkey(id, full_name, phone), work_order:work_orders(id, ref, status, bay, assignee:profiles!work_orders_assignee_id_fkey(full_name)), payments(id, status, receipt_no, amount_cents)')
-      .order('slot_start', { ascending: true })
-      .range(offset, offset + q.limit);
+    let query = db.from('bookings').select(BOOKING_EXPAND).order('slot_start', { ascending: true }).range(offset, offset + q.limit);
     if (scope) query = query.in('outlet_id', scope);
     if (q.date) query = query.gte('slot_start', `${q.date}T00:00:00Z`).lt('slot_start', `${q.date}T23:59:59.999Z`);
     if (q.status) query = query.in('status', q.status.split(','));
-    if (q.search) query = query.ilike('ref', `%${q.search.replace(/[%_]/g, '')}%`);
-    const rows = unwrap<any[]>(await query, 'bookings');
-    res.json(pageResult(rows, q.limit, offset));
+    if (q.search) {
+      const filter = await bookingSearchFilter(q.search);
+      if (filter) query = query.or(filter);
+    }
+    const page = pageResult(unwrap<any[]>(await query, 'bookings'), q.limit, offset);
+    const data = await attachCreators(await attachPayments(await attachWorkOrders(page.data)));
+    res.json({ data, next_cursor: page.next_cursor });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Work-order board (admin shape: names, refs, progress, task id, audit trail)
+// ---------------------------------------------------------------------------
+
+const workStatusEnum = z.enum(['queued', 'assigned', 'in_progress', 'blocked', 'completed', 'verified', 'cancelled']);
+
+/** Active work orders + those finished since `done_since` (default: start of today, UTC); `status` (comma list) lists exactly those statuses. */
+adminRouter.get(
+  '/admin/work-orders',
+  managerFinance,
+  asyncHandler(async (req, res) => {
+    const q = parseQuery(z.object({ outlet_id: uuid.optional(), status: z.string().optional(), done_since: isoDateTime.optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }), req.query);
+    const statuses = q.status ? q.status.split(',').map((s) => workStatusEnum.parse(s.trim()) as WorkStatus) : null;
+    const data = await listAdminWorkOrders({ outletIds: scopeFor(req, q.outlet_id), statuses, doneSince: q.done_since ?? todayRangeUtc().from, limit: q.limit });
+    res.json({ data });
+  }),
+);
+
+adminRouter.get(
+  '/admin/work-orders/:id',
+  managerFinance,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const wo = await getAdminWorkOrder(id);
+    if (!wo) throw ApiError.notFound('Work order');
+    if (!canSeeOutlet(req.auth!, wo.outlet.id)) throw ApiError.forbidden('Outlet is outside your scope');
+    res.json({ work_order: wo });
   }),
 );
 
@@ -108,23 +193,46 @@ adminRouter.get(
 // Catalogue CRUD (admin, audited)
 // ---------------------------------------------------------------------------
 
+/** Form inputs arrive as '' for "not set"; store null. */
+const blankToNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
+const optionalText = (max: number) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional());
+
+const bankDetailsSchema = z
+  .object({
+    financial_institution: optionalText(120),
+    account_name: optionalText(120),
+    branch: optionalText(120),
+    branch_code: optionalText(32),
+    account_number: optionalText(64),
+    account_type: optionalText(64),
+  })
+  .nullable()
+  .optional();
+
 const outletSchema = z.object({
   code: z.string().trim().min(2).max(8).toUpperCase(),
   name: z.string().trim().min(2).max(80),
-  address_line: z.string().trim().max(200).nullable().optional(),
-  city: z.string().trim().max(80).nullable().optional(),
-  province: z.string().trim().max(80).nullable().optional(),
+  address_line: optionalText(200),
+  city: optionalText(80),
+  province: optionalText(80),
   country: z.string().length(2).default('ZA'),
   latitude: z.number().min(-90).max(90).nullable().optional(),
   longitude: z.number().min(-180).max(180).nullable().optional(),
-  phone: z.string().trim().max(32).nullable().optional(),
-  email: z.string().email().nullable().optional(),
+  phone: optionalText(32),
+  email: z.preprocess(blankToNull, z.string().trim().email().nullable().optional()),
   timezone: z.string().min(3).max(64).default('Africa/Johannesburg'),
   opening_hours: z.record(z.tuple([z.string(), z.string()]).nullable()).optional(),
   slot_minutes: z.number().int().min(10).max(240).optional(),
   bay_count: z.number().int().min(1).max(50).optional(),
   rating: z.number().min(0).max(5).nullable().optional(),
   is_active: z.boolean().optional(),
+  /** Legal / billing identity printed on quotations (migration 0007). */
+  legal_name: optionalText(160),
+  trading_as: optionalText(160),
+  company_registration_no: optionalText(64),
+  vat_number: optionalText(32),
+  registered_office: optionalText(300),
+  bank_details: bankDetailsSchema,
 });
 
 adminRouter.get('/admin/outlets', managerFinance, asyncHandler(async (_req, res) => {
@@ -261,11 +369,11 @@ adminRouter.delete('/admin/outlets/:id/services/:serviceId', requireAdmin, async
 // Users (ADM-020..023, SEC-014)
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/admin/users', requireAdmin, asyncHandler(async (req, res) => {
+adminRouter.get('/admin/users', managerPlus, asyncHandler(async (req, res) => {
   const q = parseQuery(pagination.extend({ role: z.string().optional(), search: z.string().max(80).optional(), outlet_id: uuid.optional() }), req.query);
   const db = getSupabase();
   const offset = decodeCursor(q.cursor);
-  let query = db.from('profiles').select('*, staff_outlets(outlet_id, is_primary), staff_skills(skill)').neq('role', 'customer').order('full_name').range(offset, offset + q.limit);
+  let query = db.from('profiles').select('*, staff_outlets(outlet_id, is_primary, outlet:outlets(id, name)), staff_skills(skill)').neq('role', 'customer').order('full_name').range(offset, offset + q.limit);
   if (q.role) query = query.in('role', q.role.split(','));
   if (q.search) {
     const s = q.search.replace(/[%_,()]/g, '');
@@ -273,7 +381,14 @@ adminRouter.get('/admin/users', requireAdmin, asyncHandler(async (req, res) => {
   }
   let rows = unwrap<any[]>(await query, 'users');
   if (q.outlet_id) rows = rows.filter((r) => (r.staff_outlets ?? []).some((o: any) => o.outlet_id === q.outlet_id));
-  res.json(pageResult(rows, q.limit, offset));
+  // Flatten the joins into the admin `StaffUser` shape (outlet_ids / outlet_names / skills).
+  const users = rows.map(({ staff_outlets, staff_skills, ...profile }) => ({
+    ...profile,
+    outlet_ids: (staff_outlets ?? []).map((o: any) => o.outlet_id),
+    outlet_names: (staff_outlets ?? []).map((o: any) => o.outlet?.name ?? '').filter(Boolean),
+    skills: (staff_skills ?? []).map((k: any) => k.skill),
+  }));
+  res.json(pageResult(users, q.limit, offset));
 }));
 
 const roleEnum = z.enum(['customer', 'technician', 'supervisor', 'manager', 'admin', 'finance']);
@@ -395,35 +510,73 @@ adminRouter.patch('/admin/users/:id', requireAdmin, asyncHandler(async (req, res
 // Customers (ADM-024/041: access logged)
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/admin/customers', managerPlus, asyncHandler(async (req, res) => {
+const CUSTOMER_COLUMNS = 'id, role, full_name, email, phone, avatar_url, is_active, marketing_opt_in, whatsapp_opt_in, push_opt_in, last_seen_at, created_at';
+
+/** Loyalty summary on customer rows: the account plus the live plan (docs/MEMBERSHIPS.md "customer summary"). */
+async function customerSummaries<T extends { id: string }>(rows: T[]): Promise<Array<T & { vehicle_count: number; booking_count: number; loyalty: Record<string, unknown> | null }>> {
+  if (rows.length === 0) return [];
+  const db = getSupabase();
+  const ids = rows.map((r) => r.id);
+  const [vehicles, bookings, accounts, briefs] = await Promise.all([
+    db.from('vehicles').select('customer_id').in('customer_id', ids).eq('is_active', true),
+    db.from('bookings').select('customer_id').in('customer_id', ids),
+    db.from('loyalty_accounts').select('*').in('customer_id', ids),
+    membershipBriefs(ids),
+  ]);
+  const count = (xs: Array<{ customer_id: string }>) => {
+    const m = new Map<string, number>();
+    for (const x of xs) m.set(x.customer_id, (m.get(x.customer_id) ?? 0) + 1);
+    return m;
+  };
+  const vehicleCount = count(unwrap<Array<{ customer_id: string }>>(vehicles, 'vehicles'));
+  const bookingCount = count(unwrap<Array<{ customer_id: string }>>(bookings, 'bookings'));
+  const account = new Map(unwrap<Array<Record<string, any>>>(accounts, 'loyalty accounts').map((a) => [a.customer_id as string, a]));
+  return rows.map((r) => {
+    const a = account.get(r.id);
+    const brief = briefs.get(r.id) ?? null;
+    const loyalty = a || brief
+      ? { customer_id: r.id, tier: brief?.tier ?? a?.tier ?? 'silver', balance_points: Number(a?.balance_points ?? 0), lifetime_points: Number(a?.lifetime_points ?? 0), tier_since: a?.tier_since ?? a?.updated_at ?? null, plan_code: brief?.plan_code ?? null, plan_name: brief?.plan_name ?? null, membership_status: brief?.status ?? null, included_remaining: includedRemaining(brief) }
+      : null;
+    return { ...r, vehicle_count: vehicleCount.get(r.id) ?? 0, booking_count: bookingCount.get(r.id) ?? 0, loyalty };
+  });
+}
+
+/** `search` matches name, e-mail, phone or number plate. Rows carry `vehicle_count`, `booking_count` and the `loyalty` summary. */
+adminRouter.get('/admin/customers', managerFinance, asyncHandler(async (req, res) => {
   const q = parseQuery(pagination.extend({ search: z.string().max(80).optional() }), req.query);
   const db = getSupabase();
   const offset = decodeCursor(q.cursor);
-  let query = db.from('profiles').select('id, full_name, email, phone, is_active, marketing_opt_in, created_at, last_seen_at, loyalty_accounts(tier, balance_points, lifetime_points)').eq('role', 'customer').order('full_name').range(offset, offset + q.limit);
-  if (q.search) {
-    const s = q.search.replace(/[%_,()]/g, '');
-    query = query.or(`full_name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`);
+  let query = db.from('profiles').select(CUSTOMER_COLUMNS).eq('role', 'customer').order('full_name').range(offset, offset + q.limit);
+  const s = q.search?.replace(/[%_,()"\\]/g, '').trim();
+  if (s) {
+    const plates = unwrap<Array<{ customer_id: string }>>(await db.from('vehicles').select('customer_id').ilike('registration_no', `%${s}%`).limit(100), 'vehicles');
+    const parts = [`full_name.ilike.%${s}%`, `email.ilike.%${s}%`, `phone.ilike.%${s}%`];
+    const ids = [...new Set(plates.map((v) => v.customer_id))];
+    if (ids.length) parts.push(`id.in.(${ids.join(',')})`);
+    query = query.or(parts.join(','));
   }
-  const rows = unwrap<any[]>(await query, 'customers');
-  await audit(req.ctx, { action: 'customer.search', entity_type: 'profile', after: { search: q.search ?? null, count: rows.length } });
-  res.json(pageResult(rows, q.limit, offset));
+  const page = pageResult(unwrap<any[]>(await query, 'customers'), q.limit, offset);
+  await audit(req.ctx, { action: 'customer.search', entity_type: 'profile', after: { search: q.search ?? null, count: page.data.length } });
+  res.json({ data: await customerSummaries(page.data), next_cursor: page.next_cursor });
 }));
 
-adminRouter.get('/admin/customers/:id', managerPlus, asyncHandler(async (req, res) => {
+adminRouter.get('/admin/customers/:id', managerFinance, asyncHandler(async (req, res) => {
   const id = z.string().min(1).parse(req.params.id);
   const db = getSupabase();
-  const customer = unwrap<Profile | null>(await db.from('profiles').select('*').eq('id', id).eq('role', 'customer').maybeSingle(), 'customer');
-  if (!customer) throw ApiError.notFound('Customer');
-  const [vehicles, bookings, account, ledger, payments, membership] = await Promise.all([
+  const row = unwrap<Profile | null>(await db.from('profiles').select(CUSTOMER_COLUMNS).eq('id', id).eq('role', 'customer').maybeSingle(), 'customer');
+  if (!row) throw ApiError.notFound('Customer');
+  const [vehicles, bookings, account, ledger, payments, membership, [summary]] = await Promise.all([
     db.from('vehicles').select('*').eq('customer_id', id).eq('is_active', true),
-    db.from('bookings').select('*, outlet:outlets(name), service:services(name)').eq('customer_id', id).order('slot_start', { ascending: false }).limit(20),
+    db.from('bookings').select('*, outlet:outlets(id, name), service:services(id, name, category, duration_minutes), vehicle:vehicles(id, registration_no, make, model)').eq('customer_id', id).order('slot_start', { ascending: false }).limit(20),
     db.from('loyalty_accounts').select('*').eq('customer_id', id).maybeSingle(),
     db.from('loyalty_ledger').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
     db.from('payments').select('id, status, amount_cents, receipt_no, created_at, booking_id, membership_invoice_id').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
     membershipSummary(id),
+    customerSummaries([row]),
   ]);
   await audit(req.ctx, { action: 'customer.view', entity_type: 'profile', entity_id: id });
-  res.json({ customer, vehicles: vehicles.data ?? [], bookings: bookings.data ?? [], loyalty_account: account.data ?? null, ledger: ledger.data ?? [], payments: payments.data ?? [], membership });
+  const { vehicle_count, booking_count, loyalty, ...customer } = summary;
+  res.json({ customer, vehicle_count, booking_count, loyalty, vehicles: vehicles.data ?? [], bookings: bookings.data ?? [], loyalty_account: account.data ?? null, ledger: ledger.data ?? [], payments: payments.data ?? [], membership });
 }));
 
 // ---------------------------------------------------------------------------
@@ -457,7 +610,7 @@ async function loadConfigs() {
   return { published: unwrap<LoyaltyConfig | null>(pub, 'published'), draft: unwrap<LoyaltyConfig | null>(draft, 'draft') };
 }
 
-adminRouter.get('/admin/loyalty/config', managerPlus, asyncHandler(async (_req, res) => {
+adminRouter.get('/admin/loyalty/config', managerFinance, asyncHandler(async (_req, res) => {
   res.json(await loadConfigs());
 }));
 
@@ -584,18 +737,22 @@ adminRouter.post('/admin/memberships/:id/invoices/:invoiceId/record-payment', ma
 // Inventory, staff performance, templates, audit, exports, flags
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/admin/inventory', managerPlus, asyncHandler(async (req, res) => {
-  const q = parseQuery(z.object({ outlet_id: uuid.optional(), alerts_first: z.coerce.boolean().default(true) }), req.query);
+/** Query-string booleans (`z.coerce.boolean()` would read "false" as true). */
+const queryBool = (fallback: boolean) => z.enum(['true', 'false', '1', '0']).optional().transform((v) => (v === undefined ? fallback : v === 'true' || v === '1'));
+
+adminRouter.get('/admin/inventory', managerFinance, asyncHandler(async (req, res) => {
+  const q = parseQuery(z.object({ outlet_id: uuid.optional(), alerts_first: queryBool(true) }), req.query);
   const scope = scopeFor(req, q.outlet_id);
   const outletIds = scope ?? unwrap<Array<{ id: string }>>(await getSupabase().from('outlets').select('id'), 'outlets').map((o) => o.id);
   res.json({ data: await listInventory(outletIds, q.alerts_first) });
 }));
 
+/** `period`: `today` (since 00:00 UTC), `week` (7 days), `month` (30 days), `quarter` (90 days). */
 adminRouter.get('/admin/staff/performance', managerPlus, asyncHandler(async (req, res) => {
-  const q = parseQuery(z.object({ outlet_id: uuid.optional(), period: z.enum(['week', 'month', 'quarter']).default('month') }), req.query);
-  const days = q.period === 'week' ? 7 : q.period === 'month' ? 30 : 90;
+  const q = parseQuery(z.object({ outlet_id: uuid.optional(), period: z.enum(['today', 'week', 'month', 'quarter']).default('month') }), req.query);
   const to = new Date().toISOString();
-  const from = new Date(Date.now() - days * 86400_000).toISOString();
+  const days = q.period === 'week' ? 7 : q.period === 'month' ? 30 : 90;
+  const from = q.period === 'today' ? todayRangeUtc().from : new Date(Date.now() - days * 86400_000).toISOString();
   res.json({ period: q.period, from, to, data: await staffPerformance(scopeFor(req, q.outlet_id), from, to) });
 }));
 
@@ -616,18 +773,22 @@ const templateSchema = z.object({
   category: z.enum(['car_wash', 'auto_body']),
   steps: z.array(stepSchema).min(1).max(50),
   outlet_id: uuid.nullable().optional(),
-  status: z.enum(['draft', 'published']).default('published'),
+  status: z.enum(['draft', 'published']).optional(),
+  /** Shorthand for `status`: `true` → published, `false` → draft (published when neither is given). */
+  publish: z.boolean().optional(),
 });
+
+const templateStatus = (body: { status?: 'draft' | 'published'; publish?: boolean }): 'draft' | 'published' => body.status ?? (body.publish === false ? 'draft' : 'published');
 
 adminRouter.get('/admin/templates', managerPlus, asyncHandler(async (_req, res) => {
   res.json({ data: unwrap<unknown[]>(await getSupabase().from('checklist_templates').select('*').order('name').order('version', { ascending: false }), 'templates') });
 }));
 
 adminRouter.post('/admin/templates', requireAdmin, asyncHandler(async (req, res) => {
-  const body = parseBody(templateSchema, req.body);
+  const { publish: _publish, ...body } = parseBody(templateSchema, req.body);
   const keys = new Set(body.steps.map((s) => s.key));
   if (keys.size !== body.steps.length) throw ApiError.validation('Step keys must be unique');
-  const row = unwrap<Record<string, unknown>>(await getSupabase().from('checklist_templates').insert({ ...body, version: 1, created_by: req.auth!.uid }).select('*').single(), 'create template');
+  const row = unwrap<Record<string, unknown>>(await getSupabase().from('checklist_templates').insert({ ...body, status: templateStatus({ ...body, publish: _publish }), version: 1, created_by: req.auth!.uid }).select('*').single(), 'create template');
   await audit(req.ctx, { action: 'template.create', entity_type: 'checklist_template', entity_id: String(row.id), outlet_id: body.outlet_id ?? null, after: { name: body.name, version: 1 } });
   res.status(201).json({ template: row });
 }));
@@ -644,7 +805,7 @@ adminRouter.put('/admin/templates/:id', requireAdmin, asyncHandler(async (req, r
   const name = body.name ?? prev.name;
   const latest = unwrap<{ version: number } | null>(await db.from('checklist_templates').select('version').eq('name', name).eq('outlet_key', prev.outlet_key).order('version', { ascending: false }).limit(1).maybeSingle(), 'version');
   const row = unwrap<Record<string, any>>(
-    await db.from('checklist_templates').insert({ name, category: body.category ?? prev.category, steps: body.steps, outlet_id: body.outlet_id === undefined ? prev.outlet_id : body.outlet_id, status: body.status ?? 'published', version: (latest?.version ?? prev.version) + 1, created_by: req.auth!.uid }).select('*').single(),
+    await db.from('checklist_templates').insert({ name, category: body.category ?? prev.category, steps: body.steps, outlet_id: body.outlet_id === undefined ? prev.outlet_id : body.outlet_id, status: templateStatus(body), version: (latest?.version ?? prev.version) + 1, created_by: req.auth!.uid }).select('*').single(),
     'new template version',
   );
   if (row.status === 'published') {
@@ -655,12 +816,13 @@ adminRouter.put('/admin/templates/:id', requireAdmin, asyncHandler(async (req, r
   res.status(201).json({ template: row, previous: { id, version: prev.version } });
 }));
 
-adminRouter.get('/admin/audit', managerPlus, asyncHandler(async (req, res) => {
+/** Admin and finance read everything; managers only events scoped to their outlets. Rows gain `actor_name`. */
+adminRouter.get('/admin/audit', managerFinance, asyncHandler(async (req, res) => {
   const q = parseQuery(pagination.extend({ entity_type: z.string().max(40).optional(), entity_id: z.string().max(80).optional(), actor_id: z.string().max(128).optional(), action: z.string().max(60).optional() }), req.query);
   const db = getSupabase();
   const offset = decodeCursor(q.cursor);
   let query = db.from('audit_events').select('*').order('created_at', { ascending: false }).range(offset, offset + q.limit);
-  if (req.auth!.role !== 'admin') {
+  if (req.auth!.role !== 'admin' && req.auth!.role !== 'finance') {
     if (!req.auth!.outletIds.length) return res.json({ data: [], next_cursor: null });
     query = query.in('outlet_id', req.auth!.outletIds);
   }
@@ -668,7 +830,10 @@ adminRouter.get('/admin/audit', managerPlus, asyncHandler(async (req, res) => {
   if (q.entity_id) query = query.eq('entity_id', q.entity_id);
   if (q.actor_id) query = query.eq('actor_id', q.actor_id);
   if (q.action) query = query.ilike('action', `${q.action.replace(/[%_]/g, '')}%`);
-  res.json(pageResult(unwrap<unknown[]>(await query, 'audit'), q.limit, offset));
+  const page = pageResult(unwrap<Array<Record<string, any>>>(await query, 'audit'), q.limit, offset);
+  const actorIds = [...new Set(page.data.map((e) => e.actor_id).filter((id): id is string => Boolean(id)))];
+  const names = actorIds.length ? new Map(unwrap<Array<{ id: string; full_name: string }>>(await db.from('profiles').select('id, full_name').in('id', actorIds), 'actors').map((p) => [p.id, p.full_name])) : new Map<string, string>();
+  res.json({ data: page.data.map((e) => ({ ...e, actor_name: e.actor_id ? (names.get(e.actor_id) ?? null) : null })), next_cursor: page.next_cursor });
 }));
 
 adminRouter.get('/admin/exports/:report', managerFinance, asyncHandler(async (req, res) => {
@@ -682,7 +847,7 @@ adminRouter.get('/admin/exports/:report', managerFinance, asyncHandler(async (re
   res.send(csv);
 }));
 
-adminRouter.get('/admin/flags', requireAdmin, asyncHandler(async (_req, res) => {
+adminRouter.get('/admin/flags', managerPlus, asyncHandler(async (_req, res) => {
   res.json({ data: unwrap<unknown[]>(await getSupabase().from('feature_flags').select('*').order('key'), 'flags'), effective: await getFlags(true) });
 }));
 
@@ -730,7 +895,7 @@ adminRouter.get('/admin/integrations', managerPlus, asyncHandler(async (_req, re
 const notifyStatusEnum = z.enum(['queued', 'sent', 'delivered', 'failed', 'suppressed']);
 const notifyChannelEnum = z.enum(['push', 'whatsapp', 'sms', 'email']);
 
-adminRouter.get('/admin/notifications', managerPlus, asyncHandler(async (req, res) => {
+adminRouter.get('/admin/notifications', managerFinance, asyncHandler(async (req, res) => {
   const q = parseQuery(
     pagination.extend({ status: z.string().optional(), channel: z.string().optional(), recipient_id: z.string().optional(), template_key: z.string().max(64).optional() }),
     req.query,
@@ -741,7 +906,7 @@ adminRouter.get('/admin/notifications', managerPlus, asyncHandler(async (req, re
   const db = getSupabase();
   let query = db
     .from('notifications')
-    .select('id, recipient_id, channel, template_key, title, body, status, provider_ref, provider_status, provider_error_code, error, attempts, sent_at, delivered_at, read_by_recipient_at, read_at, created_at, updated_at')
+    .select('id, recipient_id, channel, template_key, title, body, status, provider_ref, provider_status, provider_error_code, error, attempts, sent_at, delivered_at, read_by_recipient_at, read_at, created_at')
     .order('created_at', { ascending: false })
     .range(offset, offset + q.limit);
   if (statuses) query = query.in('status', statuses);

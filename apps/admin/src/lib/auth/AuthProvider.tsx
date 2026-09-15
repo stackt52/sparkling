@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const http = new HttpApi(() => u.getIdToken());
         const res = await http.session({ app: 'admin', full_name: u.displayName ?? undefined });
         if (res.claims_updated) await u.getIdToken(true);
-        setProfile(res.profile);
+        setProfile({ ...res.profile, outlet_ids: res.profile.outlet_ids ?? res.outlet_ids ?? [] });
         setStatus(ADMIN_ROLES.includes(res.profile.role) ? 'ready' : 'unauthorised');
       } catch (e) {
         setError((e as Error).message);

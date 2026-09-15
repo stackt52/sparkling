@@ -27,7 +27,28 @@ import type { Attachment, Quotation } from '../types.js';
 export const quotationsRouter = Router();
 quotationsRouter.use('/quotations', requireProfile);
 
-const EXPAND = '*, outlet:outlets(id, name), vehicle:vehicles(id, registration_no, make, model), assessor:profiles!quotations_assessor_id_fkey(id, full_name)';
+const EXPAND = '*, outlet:outlets(id, name), vehicle:vehicles(id, registration_no, make, model, colour), customer:profiles!quotations_customer_id_fkey(id, full_name, phone, email), assessor:profiles!quotations_assessor_id_fkey(id, full_name)';
+
+/**
+ * Re-reads a quotation with its joins, attachments and work order and presents
+ * it for the caller — used by every mutation so responses carry the same
+ * `customer_name` / `assessor_name` / `work_order_ref` fields as `GET /quotations/:id`.
+ */
+async function presentedQuotation(id: string, auth: NonNullable<Request['auth']>): Promise<Record<string, unknown>> {
+  const db = getSupabase();
+  const [row, attachments, workOrder] = await Promise.all([
+    db.from('quotations').select(EXPAND).eq('id', id).maybeSingle(),
+    loadQuotationAttachments([id]),
+    db.from('work_orders').select('id, ref, status').eq('quotation_id', id).maybeSingle(),
+  ]);
+  const q = unwrap<(Quotation & Record<string, unknown>) | null>(row, 'quotation');
+  if (!q) throw ApiError.notFound('Quotation');
+  // Names come from the embedded joins; fall back to direct lookups when a join was not resolved.
+  if (!q.customer && q.customer_id) q.customer = unwrap<{ id: string; full_name: string } | null>(await db.from('profiles').select('id, full_name, phone, email').eq('id', q.customer_id).maybeSingle(), 'customer');
+  if (!q.assessor && q.assessor_id) q.assessor = unwrap<{ id: string; full_name: string } | null>(await db.from('profiles').select('id, full_name').eq('id', q.assessor_id).maybeSingle(), 'assessor');
+  const wo = unwrap<{ id: string; ref: string; status: string } | null>(workOrder, 'work order');
+  return { ...presentQuotation(q, attachments, auth), work_order: wo, work_order_ref: wo?.ref ?? null };
+}
 
 quotationsRouter.get(
   '/quotations',
@@ -63,12 +84,10 @@ quotationsRouter.get(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const db = getSupabase();
-    const q = unwrap<(Quotation & Record<string, unknown>) | null>(await db.from('quotations').select(EXPAND).eq('id', id).maybeSingle(), 'quotation');
+    const q = unwrap<Quotation | null>(await db.from('quotations').select('id, customer_id, outlet_id').eq('id', id).maybeSingle(), 'quotation');
     if (!q) throw ApiError.notFound('Quotation');
     assertCanReadQuotation(req.ctx, q);
-    const attachments = await loadQuotationAttachments([id]);
-    const workOrder = unwrap<{ id: string; ref: string; status: string } | null>(await db.from('work_orders').select('id, ref, status').eq('quotation_id', id).maybeSingle(), 'work order');
-    res.json({ ...presentQuotation(q, attachments, req.auth!), work_order: workOrder });
+    res.json(await presentedQuotation(id, req.auth!));
   }),
 );
 
@@ -124,8 +143,7 @@ quotationsRouter.post(
         clientOpId: body.client_op_id,
         sendToCustomer: body.send_to_customer,
       });
-      const attachments = duplicate ? await loadQuotationAttachments([quotation.id]) : [];
-      return res.status(duplicate ? 200 : 201).json({ quotation: presentQuotation(quotation, attachments, req.auth!), duplicate, notification });
+      return res.status(duplicate ? 200 : 201).json({ quotation: await presentedQuotation(quotation.id, req.auth!), duplicate, notification });
     }
     const body = parseBody(createSchema, req.body);
     const { quotation, duplicate } = await createQuotation(req.ctx, {
@@ -237,7 +255,7 @@ quotationsRouter.post(
   asyncHandler(async (req: Request, res) => {
     const id = uuid.parse(req.params.id);
     const out = await shareQuotation(req.ctx, id);
-    res.json({ public_url: out.public_url, expires_at: out.expires_at, notification: out.notification, quotation: presentQuotation(out.quotation, await loadQuotationAttachments([id]), req.auth!) });
+    res.json({ public_url: out.public_url, expires_at: out.expires_at, notification: out.notification, quotation: await presentedQuotation(id, req.auth!) });
   }),
 );
 
@@ -259,6 +277,7 @@ const quoteSchema = z.object({
   amount_cents: z.number().int().min(0),
   line_items: z.array(lineItemSchema).max(50).default([]),
   valid_until: isoDate,
+  items_note: z.string().trim().max(1000).nullable().optional(),
 });
 
 quotationsRouter.post(
@@ -267,8 +286,8 @@ quotationsRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(quoteSchema, req.body);
-    const updated = await quote(req.ctx, id, body);
-    res.json({ quotation: presentQuotation(updated, await loadQuotationAttachments([id]), req.auth!) });
+    await quote(req.ctx, id, body);
+    res.json({ quotation: await presentedQuotation(id, req.auth!) });
   }),
 );
 
@@ -277,8 +296,8 @@ quotationsRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(z.object({ decision: z.enum(['accept', 'decline']), note: z.string().trim().max(500).nullable().optional() }), req.body);
-    const updated = await decide(req.ctx, id, body.decision, body.note);
-    res.json({ quotation: presentQuotation(updated, await loadQuotationAttachments([id]), req.auth!) });
+    await decide(req.ctx, id, body.decision, body.note);
+    res.json({ quotation: await presentedQuotation(id, req.auth!) });
   }),
 );
 
@@ -287,6 +306,7 @@ quotationsRouter.post(
   requireSupervisor,
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
-    res.status(201).json(await convert(req.ctx, id));
+    const out = await convert(req.ctx, id);
+    res.status(201).json({ ...out, quotation: await presentedQuotation(id, req.auth!) });
   }),
 );
