@@ -11,6 +11,7 @@ import 'test_harness.dart';
 /// is only the add-ons.
 void main() {
   Future<void> openWalkIn(WidgetTester tester) async {
+    await openFabMenu(tester);
     await tester.tap(find.text('Walk-in booking'));
     await settle(tester);
     expect(find.text('Step 1 of 4 · Customer'), findsOneWidget);
@@ -25,9 +26,14 @@ void main() {
   Future<void> registerCustomer(WidgetTester tester, String name, String phone) async {
     await tester.tap(find.text('Register new customer'));
     await settle(tester);
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), name);
-    await tester.enterText(fields.at(1), phone);
+    await tester.enterText(find.byType(TextFormField).first, name);
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(PhoneNumberField),
+        matching: find.byType(TextField),
+      ),
+      phone,
+    );
     await tester.pump();
     await tester.tap(find.widgetWithText(PillButton, 'Register customer'));
     await settle(tester);

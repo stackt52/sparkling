@@ -87,6 +87,20 @@ describe('app wiring (API-001/004/010)', () => {
     expect(db.rows('profiles').some((p) => p.id === 'seed_naledi')).toBe(false);
   });
 
+  it('POST /v1/auth/session refuses unknown accounts on the staff/admin apps without creating a profile', async () => {
+    const rows = db.rows('profiles');
+    rows.splice(0, rows.length, ...rows.filter((p) => p.id !== 'seed_naledi'));
+    for (const app of ['staff', 'admin']) {
+      const r = await call('/v1/auth/session', { method: 'POST', headers: { Authorization: 'Bearer new', 'Content-Type': 'application/json' }, body: JSON.stringify({ app }) });
+      expect(r.status, JSON.stringify(r.body)).toBe(403);
+      expect(r.body.error?.details ?? r.body.details ?? r.body).toMatchObject({ reason: 'not_staff' });
+      expect(db.rows('profiles').some((p) => p.id === 'uid_new')).toBe(false);
+    }
+    const customer = await call('/v1/auth/session', { method: 'POST', headers: { Authorization: 'Bearer new', 'Content-Type': 'application/json' }, body: JSON.stringify({ app: 'customer' }) });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(200);
+    expect(customer.body.profile).toMatchObject({ id: 'uid_new', role: 'customer' });
+  });
+
   it('GET /v1/me returns the profile', async () => {
     const r = await call('/v1/me', { headers: { Authorization: 'Bearer good' } });
     expect(r.status).toBe(200);

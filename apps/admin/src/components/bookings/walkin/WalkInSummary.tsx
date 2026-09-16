@@ -9,6 +9,7 @@ import SectionCard from '@/components/ui/SectionCard';
 import { SIZE_LABEL } from '@/components/catalogue/pricing';
 import { pricing, type WalkInDraft } from './useWalkInDraft';
 import { fmtTime, rands } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
 import { fonts, tk } from '@/theme/tokens';
 import { TIER_NAME } from '@/components/ui/TierChip';
 
@@ -40,7 +41,7 @@ export default function WalkInSummary({ draft, outletName }: { draft: WalkInDraf
   const when = draft.book_now ? 'Now (walk-in)' : draft.slot_start ? `${format(new Date(draft.slot_start), 'EEE d MMM')} · ${fmtTime(draft.slot_start)}` : null;
   return (
     <SectionCard title="Walk-in summary" component="aside" sx={{ position: { lg: 'sticky' }, top: { lg: 96 }, gap: 0 }}>
-      <Line icon="person" label="Customer" value={draft.customer ? <>{draft.customer.full_name}{draft.customer.loyalty && <Typography component="span" variant="body2" color="text.secondary"> · {draft.customer.loyalty.plan_name ?? TIER_NAME[draft.customer.loyalty.tier]}{draft.customer.loyalty.plan_code ? ` · ${draft.customer.loyalty.included_remaining} wash${draft.customer.loyalty.included_remaining === 1 ? '' : 'es'} left` : ''}</Typography>}</> : null} />
+      <Line icon="person" label="Customer" value={draft.customer ? <>{draft.customer.full_name}{draft.customer.phone && <Typography component="span" variant="body2" color="text.secondary"> · {formatPhone(draft.customer.phone)}</Typography>}{draft.customer.loyalty && <Typography component="span" variant="body2" color="text.secondary"> · {draft.customer.loyalty.plan_name ?? TIER_NAME[draft.customer.loyalty.tier]}{draft.customer.loyalty.plan_code ? ` · ${draft.customer.loyalty.included_remaining} wash${draft.customer.loyalty.included_remaining === 1 ? '' : 'es'} left` : ''}</Typography>}</> : null} />
       <Line icon="directions_car" label="Vehicle" value={draft.vehicle ? <>{draft.vehicle.registration_no}<Typography component="span" variant="body2" color="text.secondary" sx={{ fontFamily: fonts.sans }}> · {SIZE_LABEL[draft.vehicle_size]}</Typography></> : null} mono />
       <Line icon="storefront" label="Outlet" value={outletName} />
       <Line icon="local_car_wash" label="Service" value={draft.service ? `${draft.service.name} · ${draft.service.duration_minutes} min` : null} />

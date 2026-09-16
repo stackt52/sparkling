@@ -30,6 +30,7 @@ import { useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
 import { tk } from '@/theme/tokens';
 import { fmtDate, fmtDateTime, initials, num, rands } from '@/lib/format';
+import { formatPhone, normaliseSearch } from '@/lib/phone';
 import type { CustomerSummary } from '@/lib/types';
 
 function CustomerDrawer({ id, onClose, onToast }: { id: string | null; onClose: () => void; onToast: (kind: 'success' | 'error' | 'info', message: string | unknown) => void }) {
@@ -57,7 +58,7 @@ function CustomerDrawer({ id, onClose, onToast }: { id: string | null; onClose: 
           <Typography variant="h2">{c.full_name}</Typography>
         </>
       )}
-      subtitle={c && <>{c.email} · {c.phone}</>}
+      subtitle={c && <>{[c.email, formatPhone(c.phone)].filter(Boolean).join(' · ')}</>}
       headerExtra={c && (
         <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mt: 1, mb: -2 }} aria-label="Customer sections" variant="scrollable" allowScrollButtonsMobile>
           <Tab label={plan ? `Membership · ${plan.name}` : 'Membership'} />
@@ -135,7 +136,8 @@ export default function CustomersPage() {
   const [search, setSearch] = React.useState('');
   const [debounced, setDebounced] = React.useState('');
   const [focus, setFocus] = React.useState<string | null>(params.get('focus'));
-  React.useEffect(() => { const t = setTimeout(() => setDebounced(search), 250); return () => clearTimeout(t); }, [search]);
+  // A pasted `+27 82 …` / `082 …` number is normalised to E.164 before querying.
+  React.useEffect(() => { const t = setTimeout(() => setDebounced(normaliseSearch(search)), 250); return () => clearTimeout(t); }, [search]);
   const q = useQuery({ queryKey: ['customers', debounced], queryFn: () => api.searchCustomers(debounced) });
   const columns: GridColDef<CustomerSummary>[] = [
     { field: 'full_name', headerName: 'Customer', flex: 1.4, minWidth: 200, renderCell: (p) => (
@@ -144,7 +146,7 @@ export default function CustomersPage() {
         <Box><Typography variant="h6" component="span" sx={{ display: 'block' }}>{p.row.full_name}</Typography><Typography variant="caption" color="text.secondary">{p.row.email}</Typography></Box>
       </Box>
     ) },
-    { field: 'phone', headerName: 'Phone', flex: 0.9, minWidth: 140, renderCell: (p) => <span className="mono">{p.row.phone}</span> },
+    { field: 'phone', headerName: 'Phone', flex: 0.9, minWidth: 140, renderCell: (p) => <span className="mono">{formatPhone(p.row.phone)}</span> },
     { field: 'tier', headerName: 'Plan', flex: 1, minWidth: 150, valueGetter: (_v, r) => r.loyalty?.plan_name ?? r.loyalty?.tier ?? '', renderCell: (p) => (p.row.loyalty ? <TierChip tier={p.row.loyalty.tier} label={p.row.loyalty.plan_code ? `${p.row.loyalty.plan_name} · ${p.row.loyalty.included_remaining} left` : 'Silver · no plan'} /> : '—') },
     { field: 'points', headerName: 'Points', flex: 0.7, minWidth: 90, align: 'right', headerAlign: 'right', valueGetter: (_v, r) => r.loyalty?.balance_points ?? 0, renderCell: (p) => <b>{num(p.row.loyalty?.balance_points ?? 0)}</b> },
     { field: 'vehicle_count', headerName: 'Vehicles', flex: 0.6, minWidth: 90, align: 'right', headerAlign: 'right' },

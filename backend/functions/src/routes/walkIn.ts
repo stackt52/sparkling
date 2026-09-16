@@ -1,6 +1,7 @@
 /** Staff — walk-in customers (STF-010/012, CUS-020..025 on behalf of a customer). */
 import { Router } from 'express';
 import { z } from 'zod';
+import { phoneSchema } from '../lib/phone.js';
 import { clientOpId, parseBody, parseQuery, uuid } from '../lib/validate.js';
 import { assertOutlet, requireProfile, requireStaff } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/errors.js';
@@ -26,7 +27,7 @@ walkInRouter.get(
 
 export const customerCreateSchema = z.object({
   full_name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(6).max(32),
+  phone: phoneSchema,
   email: z.string().trim().email().max(254).nullable().optional(),
   marketing_opt_in: z.boolean().optional(),
   whatsapp_opt_in: z.boolean().optional(),

@@ -29,12 +29,14 @@ import M3Switch from '@/components/ui/M3Switch';
 import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { NavyPill } from '@/components/ui/Pills';
+import PhoneField from '@/components/ui/PhoneField';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/lib/hooks';
 import { can, roleLabel } from '@/lib/rbac';
 import { copyText } from '@/lib/clipboard';
 import { fonts, tk } from '@/theme/tokens';
 import { fmtAgo, initials } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
 import { ADMIN_ROLES, type CreateStaffResult, type Profile, type StaffUser, type UserRole } from '@/lib/types';
 
 const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'finance', 'admin'];
@@ -126,14 +128,15 @@ function AddStaffForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const outlets = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
-  const [form, setForm] = React.useState({ full_name: '', email: '', phone: '', role: 'technician' as UserRole, outlet_ids: [] as string[], link: false });
+  // `phone` is E.164 or '' (PhoneField); `phoneValid` gates the submit when a number was typed.
+  const [form, setForm] = React.useState({ full_name: '', email: '', phone: '', phoneValid: false, role: 'technician' as UserRole, outlet_ids: [] as string[], link: false });
   const [result, setResult] = React.useState<CreateStaffResult | null>(null);
   const m = useMutation({
-    mutationFn: () => api.inviteUser({ email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone.trim() || null, role: form.role, outlet_ids: form.outlet_ids, invite: form.link ? 'link' : 'password' }),
+    mutationFn: () => api.inviteUser({ email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone || null, role: form.role, outlet_ids: form.outlet_ids, invite: form.link ? 'link' : 'password' }),
     onSuccess: (r) => { setResult(r); void qc.invalidateQueries({ queryKey: ['users'] }); },
     onError: (e) => toast.error(e),
   });
-  const ready = Boolean(form.email.trim() && form.full_name.trim());
+  const ready = Boolean(form.email.trim() && form.full_name.trim()) && (form.phone === '' || form.phoneValid);
   return (
     <>
       <DialogTitle id="add-staff-title">{result ? 'Credentials' : 'Add staff member'}</DialogTitle>
@@ -144,7 +147,7 @@ function AddStaffForm({ onClose }: { onClose: () => void }) {
           <>
             <TextField label="Full name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} size="small" required autoFocus />
             <TextField label="E-mail" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} size="small" required helperText="Creates the Firebase Auth account with a temporary password." />
-            <TextField label="Phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} size="small" placeholder="+27 82 000 0000" />
+            <PhoneField label="Mobile number" value={form.phone} onChange={(e164, meta) => setForm({ ...form, phone: e164, phoneValid: meta.valid })} size="small" helperText="Optional · any country" />
             <TextField select label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })} size="small" helperText={ADMIN_ROLES.includes(form.role) ? 'Can sign in to the Staff app and this dashboard.' : 'Signs in to the Staff app only.'}>
               {STAFF_ROLES.map((r) => <MenuItem key={r} value={r}>{roleLabel[r]}</MenuItem>)}
             </TextField>
@@ -185,9 +188,10 @@ function EditUserForm({ user, onClose, onResetPassword }: { user: StaffUser; onC
   const qc = useQueryClient();
   const toast = useToast();
   const outlets = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
-  const [form, setForm] = React.useState(() => ({ role: user.role, outlet_ids: user.outlet_ids, is_active: user.is_active }));
+  const [form, setForm] = React.useState(() => ({ role: user.role, outlet_ids: user.outlet_ids, is_active: user.is_active, phone: user.phone ?? '', phoneValid: Boolean(user.phone) }));
+  const phoneChanged = form.phone !== (user.phone ?? '');
   const m = useMutation({
-    mutationFn: () => api.updateUser(user.id, form),
+    mutationFn: () => api.updateUser(user.id, { role: form.role, outlet_ids: form.outlet_ids, is_active: form.is_active, ...(phoneChanged ? { phone: form.phone || null } : {}) }),
     onSuccess: (u) => { toast.success(`${u.full_name} updated${!form.is_active ? ' · refresh tokens revoked' : ''}`); void qc.invalidateQueries({ queryKey: ['users'] }); onClose(); },
     onError: (e) => toast.error(e),
   });
@@ -195,8 +199,9 @@ function EditUserForm({ user, onClose, onResetPassword }: { user: StaffUser; onC
     <>
       <DialogTitle id="user-title">Edit {user.full_name}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, pt: '8px !important' }}>
-        <Typography variant="body2" color="text.secondary">{user.email ?? '—'}{user.phone ? ` · ${user.phone}` : ''}</Typography>
+        <Typography variant="body2" color="text.secondary">{user.email ?? '—'}</Typography>
         {user.must_change_password && <Alert severity="info" sx={{ borderRadius: '14px' }}>Has a temporary password — must choose a new one on the next sign-in.</Alert>}
+        <PhoneField label="Mobile number" value={form.phone} onChange={(e164, meta) => setForm({ ...form, phone: e164, phoneValid: meta.valid })} size="small" helperText={user.phone ? `On file: ${formatPhone(user.phone)}` : 'Optional · any country'} />
         <TextField select label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })} size="small">
           {STAFF_ROLES.map((r) => <MenuItem key={r} value={r}>{roleLabel[r]}</MenuItem>)}
         </TextField>
@@ -208,7 +213,7 @@ function EditUserForm({ user, onClose, onResetPassword }: { user: StaffUser; onC
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="secondary" disabled={m.isPending} onClick={() => m.mutate()}>Save</Button>
+        <Button variant="contained" color="secondary" disabled={m.isPending || (form.phone !== '' && !form.phoneValid)} onClick={() => m.mutate()}>Save</Button>
       </DialogActions>
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
@@ -283,7 +288,7 @@ export default function StaffPage() {
         <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 700, bgcolor: tk.primaryContainer, color: tk.onPrimaryContainer, flexShrink: 0 }}>{initials(p.row.full_name)}</Avatar>
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="h6" component="span" noWrap sx={{ display: 'block', lineHeight: 1.3 }} title={p.row.full_name}>{p.row.full_name}</Typography>
-          <Typography variant="caption" component="span" noWrap color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }} title={p.row.email ?? undefined}>{p.row.email ?? "—"}</Typography>
+          <Typography variant="caption" component="span" noWrap color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }} title={[p.row.email, formatPhone(p.row.phone)].filter(Boolean).join(' · ') || undefined}>{p.row.email ?? '—'}{p.row.phone ? ` · ${formatPhone(p.row.phone)}` : ''}</Typography>
         </Box>
       </Box>
     ) },

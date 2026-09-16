@@ -105,6 +105,13 @@ Future<void> scrollTo(
 }
 
 /// Pumps a few frames without waiting for infinite animations.
+/// Opens the tasks screen's FAB menu (Scan disc / Walk-in booking / Raise
+/// quote live behind the "+" FAB) so tests can tap an action by its label.
+Future<void> openFabMenu(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('fab-menu')));
+  await settle(tester);
+}
+
 Future<void> settle(WidgetTester tester, {int frames = 6}) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 150));

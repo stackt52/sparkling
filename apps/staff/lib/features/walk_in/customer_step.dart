@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
@@ -71,10 +70,12 @@ class _CustomerStepState extends State<CustomerStep> {
   }
 
   void _run() {
+    // A pasted `+44 7400…` / `072 555…` searches by its E.164 form.
+    final q = Phone.normalise(_query) ?? _query;
     setState(() {
       _results = _query.length < 2
           ? null
-          : context.repositories.staff.searchCustomers(_query, limit: 20);
+          : context.repositories.staff.searchCustomers(q, limit: 20);
     });
   }
 
@@ -371,7 +372,7 @@ class _CustomerResult extends StatelessWidget {
       ),
       subtitle: Text(
         [
-          if (c.phone != null) c.phone!,
+          if (c.phone != null) Phone.format(c.phone),
           if (c.email != null) c.email!,
         ].join(' · '),
         maxLines: 1,
@@ -435,7 +436,12 @@ class RegisterCustomerScreen extends StatefulWidget {
 class _RegisterCustomerScreenState extends State<RegisterCustomerScreen> {
   final _form = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.initialName ?? '');
-  late final _phone = TextEditingController(text: widget.initialPhone ?? '');
+
+  /// Any country, entered with its code; a searched-for local number
+  /// (`072 555…`) is carried in as `+27…`.
+  late final _phone = PhoneNumberController(
+    initialValue: Phone.normalise(widget.initialPhone),
+  );
   final _email = TextEditingController();
   bool _whatsapp = true;
   bool _marketing = false;
@@ -452,11 +458,6 @@ class _RegisterCustomerScreenState extends State<RegisterCustomerScreen> {
     super.dispose();
   }
 
-  String? get _normalisedPhone {
-    final p = CustomerInput.normalisePhone(_phone.text);
-    return p.length >= 10 ? p : null;
-  }
-
   Future<void> _submit() async {
     if (!_form.currentState!.validate()) return;
     setState(() => _busy = true);
@@ -465,7 +466,7 @@ class _RegisterCustomerScreenState extends State<RegisterCustomerScreen> {
       final created = await staff.createCustomer(
         CustomerInput(
           fullName: _name.text.trim(),
-          phone: _phone.text.trim(),
+          phone: _phone.value,
           email: _email.text.trim().isEmpty ? null : _email.text.trim(),
           whatsappOptIn: _whatsapp,
           marketingOptIn: _marketing,
@@ -537,7 +538,6 @@ class _RegisterCustomerScreenState extends State<RegisterCustomerScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = context.colors;
-    final normalised = _normalisedPhone;
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -569,27 +569,14 @@ class _RegisterCustomerScreenState extends State<RegisterCustomerScreen> {
                           : null,
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
+                    PhoneNumberField(
                       controller: _phone,
-                      keyboardType: TextInputType.phone,
+                      required: true,
                       textInputAction: TextInputAction.next,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')),
-                        LengthLimitingTextInputFormatter(16),
-                      ],
                       onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        labelText: 'Mobile number',
-                        hintText: '082 123 4567',
-                        prefixIcon: const Icon(Symbols.call_rounded),
-                        helperText: normalised == null
-                            ? 'Saved as +27 … (South African numbers)'
-                            : 'Saved as $normalised',
-                      ),
-                      validator: (v) =>
-                          CustomerInput.normalisePhone(v ?? '').length < 10
-                          ? 'Enter a valid mobile number'
-                          : null,
+                      helperText: _phone.isValid
+                          ? 'Saved as ${Phone.format(_phone.value)}'
+                          : 'Tap the flag to change the country',
                     ),
                     const SizedBox(height: 12),
                     TextFormField(

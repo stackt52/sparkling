@@ -9,6 +9,7 @@ import '../../app/router.dart';
 import '../../app/scope.dart';
 import '../../widgets/adaptive.dart';
 import '../../widgets/async_view.dart';
+import '../../widgets/fab_menu.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/live_sync_chip.dart';
 import '../../widgets/screen_header.dart';
@@ -18,7 +19,7 @@ import '../checklist/handover_sheet.dart';
 import 'task_card.dart';
 
 /// "My tasks" (2a/2g): outlet header + sync chip, Mine/Queue/Done segments
-/// with live counts, task cards and the "Scan disc" FAB. Realtime through
+/// with live counts, task cards and the quick-action FAB menu. Realtime through
 /// `staff.watchTasks`; two-pane with the checklist on tablets (UX-005).
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
@@ -70,8 +71,11 @@ class _TasksScreenState extends State<TasksScreen> {
     }
   }
 
+  final _fabMenu = FabMenuController();
+
   @override
   void dispose() {
+    _fabMenu.dispose();
     for (final s in _subs.values) {
       s.cancel();
     }
@@ -132,118 +136,116 @@ class _TasksScreenState extends State<TasksScreen> {
 
     final master = Scaffold(
       backgroundColor: Colors.transparent,
-      // Speed-dial column of extended FABs (≥ 48px targets): raise quote and
-      // walk-in booking above the primary "Scan disc" action (STF-010/012).
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            key: const ValueKey('fab-raise-quote'),
-            heroTag: 'raise-quote',
-            backgroundColor: context.colors.tertiaryContainer,
-            foregroundColor: context.colors.onTertiaryContainer,
-            onPressed: () => context.push(Routes.quoteNew),
-            icon: const Icon(Symbols.request_quote_rounded, fill: 0),
-            label: const Text('Raise quote'),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'walk-in',
-            backgroundColor: context.colors.secondaryContainer,
-            foregroundColor: context.colors.onSecondaryContainer,
-            onPressed: () => context.push(Routes.walkIn),
-            icon: const Icon(Symbols.person_add_rounded, fill: 0),
-            label: const Text('Walk-in booking'),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'scan-disc',
+      // FAB menu (M3 Expressive): one primary "+" FAB that expands into the
+      // three quick actions — scan disc, walk-in booking, raise quote
+      // (STF-010/012). The scrim below closes it.
+      floatingActionButton: FabMenu(
+        controller: _fabMenu,
+        tooltip: 'Quick actions',
+        actions: [
+          FabMenuAction(
+            key: const ValueKey('fab-scan-disc'),
+            icon: Symbols.qr_code_scanner_rounded,
+            label: 'Scan disc',
+            primary: true,
             onPressed: () => context.go(Routes.scan),
-            icon: const Icon(Symbols.qr_code_scanner_rounded, fill: 0),
-            label: const Text('Scan disc'),
+          ),
+          FabMenuAction(
+            key: const ValueKey('fab-walk-in'),
+            icon: Symbols.person_add_rounded,
+            label: 'Walk-in booking',
+            onPressed: () => context.push(Routes.walkIn),
+          ),
+          FabMenuAction(
+            key: const ValueKey('fab-raise-quote'),
+            icon: Symbols.request_quote_rounded,
+            label: 'Raise quote',
+            onPressed: () => context.push(Routes.quoteNew),
           ),
         ],
       ),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            FutureBuilder<Outlet?>(
-              future: _outlet,
-              builder: (context, snap) => ScreenHeader(
-                overline: '${snap.data?.name ?? 'Outlet'} · Bay team',
-                title: 'My tasks',
-                trailing: const LiveSyncChip(),
-              ),
-            ),
-            const LiveOfflineBanner(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: SegmentedPills<TaskScope>(
-                selected: _scope,
-                onChanged: (s) => setState(() => _scope = s),
-                segments: [
-                  PillSegment(
-                    value: TaskScope.mine,
-                    label: 'Mine',
-                    count: _tasks[TaskScope.mine]?.length,
-                  ),
-                  PillSegment(
-                    value: TaskScope.queue,
-                    label: 'Queue',
-                    count: _tasks[TaskScope.queue]?.length,
-                  ),
-                  PillSegment(
-                    value: TaskScope.done,
-                    label: 'Done',
-                    count: _tasks[TaskScope.done]?.length,
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: AsyncView<List<Task>>(
-                snapshot: snapshot,
-                onRetry: _subscribe,
-                emptyWhen: (l) => l.isEmpty,
-                empty: EmptyState(
-                  icon: Symbols.checklist_rounded,
-                  title: switch (_scope) {
-                    TaskScope.mine => 'No tasks assigned to you',
-                    TaskScope.queue => 'The queue is empty',
-                    TaskScope.done => 'Nothing completed yet today',
-                  },
-                  text: _scope == TaskScope.mine
-                      ? 'Pick one up from the queue or scan a disc to check a vehicle in.'
-                      : null,
-                ),
-                builder: (context, tasks) => ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 160),
-                  itemCount: tasks.length,
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(height: SparklingSpacing.cardGap),
-                  itemBuilder: (context, i) {
-                    final t = tasks[i];
-                    return TaskCard(
-                      key: ValueKey(t.id),
-                      task: t,
-                      selected: t.workOrderId == _selectedWorkOrderId,
-                      onOpen: () => _open(t),
-                      onStart:
-                          (t.status == WorkStatus.assigned ||
-                              t.status == WorkStatus.queued)
-                          ? () => _start(t)
-                          : null,
-                      onHandover: t.workOrder?.awaitingCollection ?? false
-                          ? () => _handover(t)
-                          : null,
-                    );
-                  },
+      body: FabMenuScrim(
+        controller: _fabMenu,
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              FutureBuilder<Outlet?>(
+                future: _outlet,
+                builder: (context, snap) => ScreenHeader(
+                  overline: '${snap.data?.name ?? 'Outlet'} · Bay team',
+                  title: 'My tasks',
+                  trailing: const LiveSyncChip(),
                 ),
               ),
-            ),
-          ],
+              const LiveOfflineBanner(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: SegmentedPills<TaskScope>(
+                  selected: _scope,
+                  onChanged: (s) => setState(() => _scope = s),
+                  segments: [
+                    PillSegment(
+                      value: TaskScope.mine,
+                      label: 'Mine',
+                      count: _tasks[TaskScope.mine]?.length,
+                    ),
+                    PillSegment(
+                      value: TaskScope.queue,
+                      label: 'Queue',
+                      count: _tasks[TaskScope.queue]?.length,
+                    ),
+                    PillSegment(
+                      value: TaskScope.done,
+                      label: 'Done',
+                      count: _tasks[TaskScope.done]?.length,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: AsyncView<List<Task>>(
+                  snapshot: snapshot,
+                  onRetry: _subscribe,
+                  emptyWhen: (l) => l.isEmpty,
+                  empty: EmptyState(
+                    icon: Symbols.checklist_rounded,
+                    title: switch (_scope) {
+                      TaskScope.mine => 'No tasks assigned to you',
+                      TaskScope.queue => 'The queue is empty',
+                      TaskScope.done => 'Nothing completed yet today',
+                    },
+                    text: _scope == TaskScope.mine
+                        ? 'Pick one up from the queue or scan a disc to check a vehicle in.'
+                        : null,
+                  ),
+                  builder: (context, tasks) => ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 160),
+                    itemCount: tasks.length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: SparklingSpacing.cardGap),
+                    itemBuilder: (context, i) {
+                      final t = tasks[i];
+                      return TaskCard(
+                        key: ValueKey(t.id),
+                        task: t,
+                        selected: t.workOrderId == _selectedWorkOrderId,
+                        onOpen: () => _open(t),
+                        onStart:
+                            (t.status == WorkStatus.assigned ||
+                                t.status == WorkStatus.queued)
+                            ? () => _start(t)
+                            : null,
+                        onHandover: t.workOrder?.awaitingCollection ?? false
+                            ? () => _handover(t)
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

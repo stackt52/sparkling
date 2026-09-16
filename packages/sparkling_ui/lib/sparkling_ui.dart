@@ -40,6 +40,7 @@ export 'src/widgets/linear_level_bar.dart';
 export 'src/widgets/list_tile_card.dart';
 export 'src/widgets/notification_bell.dart';
 export 'src/widgets/offline_banner.dart';
+export 'src/widgets/phone_number_field.dart';
 export 'src/widgets/photo_placeholder.dart';
 export 'src/widgets/pill_button.dart';
 export 'src/widgets/plan_card.dart';

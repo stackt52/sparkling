@@ -9,6 +9,7 @@ import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
 import type { WalkInResult } from './useWalkInDraft';
 import { fmtDateTime, fmtTime, rands } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
 import { fonts, tk } from '@/theme/tokens';
 
 function Row({ icon, label, value }: { icon: string; label: string; value: React.ReactNode }) {
@@ -58,7 +59,7 @@ export default function SuccessPanel({ result, onOpenBooking, onNew, onDone }: {
       </Box>
 
       <Tile sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, width: '100%', textAlign: 'left', px: 2.5 }}>
-        <Row icon="person" label="Customer" value={<>{b.customer.full_name}{b.customer.phone ? <Typography component="span" variant="body2" color="text.secondary"> · {b.customer.phone}</Typography> : null}</>} />
+        <Row icon="person" label="Customer" value={<>{b.customer.full_name}{b.customer.phone ? <Typography component="span" variant="body2" color="text.secondary"> · {formatPhone(b.customer.phone)}</Typography> : null}</>} />
         <Row icon="directions_car" label="Vehicle" value={<><span style={{ fontFamily: fonts.mono }}>{b.vehicle.registration_no}</span>{b.vehicle.make ? ` · ${b.vehicle.make} ${b.vehicle.model ?? ''}` : ''}</>} />
         <Row icon="event" label="Slot" value={`${fmtDateTime(b.slot_start)} – ${fmtTime(b.slot_end)} · ${b.outlet.name}`} />
         <Row icon="local_car_wash" label="Service" value={`${b.service.name} · ${payment ? `paid ${rands(payment.amount_cents, { decimals: true })} (${methodLabel})` : `${rands(b.total_cents, { decimals: true })} · ${methodLabel}`}`} />

@@ -16,6 +16,7 @@ import {
 } from '../types';
 import { applyDemoDecision, demoPhotoUrl, demoSeedToken, pdfInputFromQuotation, registerDemoPhoto, registerDemoPublicQuote, syncDemoPublicQuote, withOutletLegal } from './publicQuotes';
 import { QUOTE_TERMS } from '../quoteTerms';
+import { PHONE_HINT, normalisePhone } from '../phone';
 import { buildQuotePdf } from './quotePdf';
 import {
   AUDIT, BADGES, DEMO_PROFILES, FLAGS, INVENTORY, LEDGER, LOYALTY_ACCOUNTS, LOYALTY_CONFIGS, NOTIFICATIONS, OUTLETS, OUTLET_COMPONENTS, OUTLET_OFFERS, PAYMENTS,
@@ -635,7 +636,8 @@ export class DemoApi implements AdminApi {
     await delay();
     this.requireRole('admin');
     if (this.profiles.some((p) => p.email?.toLowerCase() === body.email.toLowerCase())) throw new ApiRequestError(409, { code: 'conflict', message: 'A profile with this e-mail already exists' });
-    const p = { id: nextId('usr'), role: body.role, full_name: body.full_name, email: body.email, phone: body.phone?.trim() || null, avatar_url: null, is_active: true, marketing_opt_in: false, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: null, created_at: nowIso(), must_change_password: true, password_changed_at: null, outlet_ids: body.outlet_ids, skills: body.skills ?? ([] as string[]), availability: 'available' as const };
+    const phone = DemoApi.optionalPhone(body.phone);
+    const p = { id: nextId('usr'), role: body.role, full_name: body.full_name, email: body.email, phone, avatar_url: null, is_active: true, marketing_opt_in: false, whatsapp_opt_in: true, push_opt_in: true, last_seen_at: null, created_at: nowIso(), must_change_password: true, password_changed_at: null, outlet_ids: body.outlet_ids, skills: body.skills ?? ([] as string[]), availability: 'available' as const };
     this.profiles.push(p);
     this.log('user.create', 'profile', p.id, null, { email: body.email, role: body.role, outlet_ids: body.outlet_ids, invite: body.invite ?? 'password' });
     return { profile: DemoApi.toProfile(p), uid: p.id, temporary_password: DemoApi.tempPassword(), invite_link: body.invite === 'link' ? `https://sparkling-4e89d.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=demo-${p.id}` : null };
@@ -658,12 +660,13 @@ export class DemoApi implements AdminApi {
     a.password_changed_at = nowIso();
     return DemoApi.toProfile(a);
   }
-  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean }): Promise<StaffUser> {
+  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean; phone?: string | null }): Promise<StaffUser> {
     await delay();
     this.requireRole('admin');
     const p = this.profiles.find((x) => x.id === id);
     if (!p) throw new ApiRequestError(404, { code: 'not_found', message: 'User not found' });
-    const before = { role: p.role, outlet_ids: p.outlet_ids, is_active: p.is_active };
+    const before = { role: p.role, outlet_ids: p.outlet_ids, is_active: p.is_active, phone: p.phone };
+    if (patch.phone !== undefined) patch = { ...patch, phone: DemoApi.optionalPhone(patch.phone) };
     Object.assign(p, patch);
     this.log('user.update', 'profile', id, before, patch);
     return this.toStaff(p);
@@ -724,6 +727,21 @@ export class DemoApi implements AdminApi {
   private static digits(s: string | null | undefined) {
     return (s ?? '').replace(/\D/g, '');
   }
+  /** Mirrors the API's `phoneSchema`: any valid international number → E.164, otherwise the same 400 the API returns. */
+  private static requirePhone(raw: string | null | undefined): string {
+    const e164 = normalisePhone(raw);
+    if (!e164) throw new ApiRequestError(400, { code: 'validation_error', message: PHONE_HINT, details: [{ path: 'phone', message: PHONE_HINT }] });
+    return e164;
+  }
+  /** Mirrors `optionalPhoneSchema`: empty / null clears the number. */
+  private static optionalPhone(raw: string | null | undefined): string | null {
+    return raw?.trim() ? DemoApi.requirePhone(raw) : null;
+  }
+  /** Same-number test that tolerates legacy `+27 83 …` spacing in older rows. */
+  private static samePhone(a: string | null | undefined, b: string | null | undefined): boolean {
+    if (!a || !b) return false;
+    return (normalisePhone(a) ?? DemoApi.digits(a)) === (normalisePhone(b) ?? DemoApi.digits(b));
+  }
   private static plateKey(s: string | null | undefined) {
     return (s ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase();
   }
@@ -771,13 +789,12 @@ export class DemoApi implements AdminApi {
     const prior = this.ops.get(`customer:${input.client_op_id}`);
     if (prior) return this.walkInCustomer(this.profiles.find((p) => p.id === prior)!);
     const name = input.full_name.trim();
-    const phone = input.phone.trim();
     const email = input.email?.trim() || null;
     if (name.length < 2) throw new ApiRequestError(400, { code: 'validation_error', message: 'Full name is required', details: [{ path: 'full_name', message: 'Required' }] });
-    if (DemoApi.digits(phone).length < 9) throw new ApiRequestError(400, { code: 'validation_error', message: 'Enter a valid phone number', details: [{ path: 'phone', message: 'Invalid' }] });
-    const existing = this.profiles.find((p) => p.role === 'customer' && (DemoApi.digits(p.phone) === DemoApi.digits(phone) || (email && (p.email ?? '').toLowerCase() === email.toLowerCase())));
+    const phone = DemoApi.requirePhone(input.phone);
+    const existing = this.profiles.find((p) => p.role === 'customer' && (DemoApi.samePhone(p.phone, phone) || (email && (p.email ?? '').toLowerCase() === email.toLowerCase())));
     if (existing) {
-      throw new ApiRequestError(409, { code: 'conflict', message: `${existing.full_name} is already registered with this ${DemoApi.digits(existing.phone) === DemoApi.digits(phone) ? 'phone number' : 'e-mail'}`, details: { existing_customer: this.walkInCustomer(existing) } });
+      throw new ApiRequestError(409, { code: 'conflict', message: `${existing.full_name} is already registered with this ${DemoApi.samePhone(existing.phone, phone) ? 'phone number' : 'e-mail'}`, details: { existing_customer: this.walkInCustomer(existing) } });
     }
     const p = { id: `walkin_${uuid()}`, role: 'customer' as UserRole, full_name: name, email, phone, avatar_url: null, is_active: true, marketing_opt_in: Boolean(input.marketing_opt_in), whatsapp_opt_in: input.whatsapp_opt_in ?? true, push_opt_in: false, last_seen_at: null, created_at: nowIso(), must_change_password: false, password_changed_at: null, outlet_ids: [] as string[], skills: [] as string[], availability: undefined };
     this.profiles.push(p);

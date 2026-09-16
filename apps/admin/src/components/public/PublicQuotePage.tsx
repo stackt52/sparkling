@@ -30,6 +30,7 @@ import { copyText } from '@/lib/clipboard';
 import { downloadBlob } from '@/lib/csv';
 import { isDemo } from '@/lib/env';
 import { fmtDate, rands } from '@/lib/format';
+import { formatPhone, normalisePhone } from '@/lib/phone';
 import { useHydrated, useToast } from '@/lib/hooks';
 import { decidePublicQuotation, getPublicQuotation, publicPdfBlob, publicPdfHref, publicPhotoUrl } from '@/lib/publicQuote';
 import { fonts, shape, tk } from '@/theme/tokens';
@@ -224,8 +225,8 @@ function OutletCard({ view, onCopy }: { view: PublicQuotation; onCopy: () => voi
           {view.outlet.vat_number && <Typography variant="caption" color="text.secondary" component="p">VAT No. {view.outlet.vat_number}</Typography>}
           {view.outlet.phone && (
             <Typography variant="body2" sx={{ mt: 0.5 }}>
-              <Box component="a" href={`tel:${view.outlet.phone.replace(/\s+/g, '')}`} sx={{ color: tk.primary, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                <MSymbol name="call" size={18} filled />{view.outlet.phone}
+              <Box component="a" href={`tel:${normalisePhone(view.outlet.phone) ?? view.outlet.phone.replace(/\s+/g, '')}`} sx={{ color: tk.primary, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                <MSymbol name="call" size={18} filled />{formatPhone(view.outlet.phone)}
               </Box>
             </Typography>
           )}

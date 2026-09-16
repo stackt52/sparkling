@@ -22,6 +22,7 @@ import { ErrorState } from '@/components/ui/States';
 import { useApi } from '@/lib/auth/AuthProvider';
 import { tk } from '@/theme/tokens';
 import { fmtDate, initials, rands } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
 import { MEMBERSHIP_STATUSES, type MembershipPlan, type MembershipRow, type MembershipStatus } from '@/lib/types';
 import { STATUS_LABEL, STATUS_TONE, periodLabel } from './planFormat';
 import { CancelMembershipDialog, RecordMembershipPaymentDialog, type CancelTarget, type PaymentTarget } from './MembershipDialogs';
@@ -63,7 +64,7 @@ export default function MembersGrid({ plans, canManage, onToast, onOpenCustomer 
     { field: 'customer', headerName: 'Member', flex: 1.4, minWidth: 210, valueGetter: (_v, r) => r.customer.full_name, renderCell: (p) => (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
         <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 700, bgcolor: tk.secondaryContainer, color: tk.onSecondaryContainer }}>{initials(p.row.customer.full_name)}</Avatar>
-        <Box sx={{ minWidth: 0 }}><Typography variant="h6" component="span" sx={{ display: 'block' }}>{p.row.customer.full_name}</Typography><Typography variant="caption" color="text.secondary"><span className="mono">{p.row.ref}</span> · {p.row.customer.phone}</Typography></Box>
+        <Box sx={{ minWidth: 0 }}><Typography variant="h6" component="span" sx={{ display: 'block' }}>{p.row.customer.full_name}</Typography><Typography variant="caption" color="text.secondary"><span className="mono">{p.row.ref}</span> · {formatPhone(p.row.customer.phone)}</Typography></Box>
       </Box>
     ) },
     { field: 'plan', headerName: 'Plan', flex: 0.9, minWidth: 130, valueGetter: (_v, r) => r.plan.name, renderCell: (p) => <TierChip tier={p.row.plan.tier} label={`${p.row.plan.name} · ${rands(p.row.plan.monthly_fee_cents)}`} /> },

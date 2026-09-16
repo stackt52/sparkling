@@ -33,6 +33,7 @@ Already registered apps:
 | Android customer | `za.co.sparkling.customer` | `apps/customer/android/app/google-services.json` |
 | iOS customer | `za.co.sparkling.customer` | `apps/customer/ios/Runner/GoogleService-Info.plist` |
 | Android staff | `za.co.sparkling.staff` | `apps/staff/android/app/google-services.json` |
+| iOS staff | `za.co.sparkling.staff` (`1:700174326619:ios:ab29f3c1826f948bc5587e`) | `apps/staff/ios/Runner/GoogleService-Info.plist` |
 | Web admin | `1:700174326619:web:bc3dca8003ddeb15c5587e` | `apps/admin/src/lib/firebaseConfig.ts` |
 
 One-time console steps: enable **Authentication → Sign-in method → Email/Password** (and Google if wanted); enable **Cloud Storage**; upgrade to Blaze for Cloud Functions + App Hosting.
@@ -82,9 +83,16 @@ Each app reads `--dart-define-from-file`:
 cd apps/customer
 flutter run --dart-define-from-file=env/demo.json    # no backend needed, seeded demo data
 flutter run --dart-define-from-file=env/dev.json     # real Firebase Auth + API + Supabase realtime
-cd ../staff && flutter run -d <android-device> --dart-define-from-file=env/demo.json
+cd ../staff && flutter run -d <android-or-ios-device> --dart-define-from-file=env/demo.json
 ```
-`env/dev.json` keys: `API_BASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DEMO_MODE=false`.
+`env/dev.json` keys: `API_BASE_URL` (must end in `/v1`), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DEMO_MODE=false`. `env/prod.json` points at the deployed API (`https://europe-west1-sparkling-4e89d.cloudfunctions.net/api/v1`).
+
+Release APKs against the deployed backend (output copied to `dist/`, git-ignored):
+```bash
+(cd apps/customer && flutter build apk --release --dart-define-from-file=env/prod.json)
+(cd apps/staff    && flutter build apk --release --dart-define-from-file=env/prod.json)
+```
+Release builds are currently signed with the **debug** keystore (`signingConfig = signingConfigs.getByName("debug")` in each `android/app/build.gradle.kts`), which is why Google sign-in works with the debug SHA registered in Firebase. Before a Play Store release create an upload keystore, add `android/key.properties`, switch the signing config, and register the release SHA-1/SHA-256 in Firebase → Project settings → Android apps.
 
 Android note: `flutter_secure_storage` requires `compileSdk 37`. Gradle downloads it as `platforms/android-37.0` but AGP looks for `platforms/android-37`; on this machine a symlink `~/Library/Android/sdk/platforms/android-37 → android-37.0` was created. On CI, install platform 37 through `sdkmanager "platforms;android-37"` instead. Run `flutter doctor --android-licenses` once if Gradle asks for licence acceptance.
 Demo sign-in accounts (after seeding and creating the users in Firebase Auth with the same e-mails): `thabo@example.com` (customer, Gold), `pieter@sparkling.co.za` (technician), `johan@sparkling.co.za` (supervisor), `ayesha@sparkling.co.za` (manager), `admin@sparkling.co.za` (admin). The API claims the seeded profile by e-mail on first sign-in.

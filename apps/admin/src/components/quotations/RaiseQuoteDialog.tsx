@@ -35,6 +35,7 @@ import { uuid } from '@/lib/api';
 import { copyText } from '@/lib/clipboard';
 import { useFilters } from '@/lib/filters';
 import { fmtDate, rands } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
 import { fonts, tk } from '@/theme/tokens';
 import { QUOTE_ITEM_CATEGORIES, type QuoteLineItem, type Quotation, type WalkInCustomer, type WalkInVehicle } from '@/lib/types';
 
@@ -230,7 +231,7 @@ function RaiseQuoteDialogBody({ open, onClose, onOpenQuotation, onToast, initial
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <MSymbol name="person" filled size={20} style={{ color: tk.primary }} />
                     <Typography sx={{ fontWeight: 600 }}>{draft.customer.full_name}</Typography>
-                    {draft.customer.phone && <Typography variant="body2" color="text.secondary">{draft.customer.phone}</Typography>}
+                    {draft.customer.phone && <Typography variant="body2" color="text.secondary">{formatPhone(draft.customer.phone)}</Typography>}
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <MSymbol name="directions_car" filled size={20} style={{ color: tk.primary }} />
@@ -266,7 +267,7 @@ function RaiseQuoteDialogBody({ open, onClose, onOpenQuotation, onToast, initial
                 <Tile sx={{ justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="h6" component="p">Send to customer now</Typography>
-                    <Typography variant="body2" color="text.secondary">{draft.customer.whatsapp_opt_in ? 'WhatsApp + push with the public link' : 'Push only — no WhatsApp opt-in on file'} · {draft.customer.phone ?? 'no phone'}</Typography>
+                    <Typography variant="body2" color="text.secondary">{draft.customer.whatsapp_opt_in ? 'WhatsApp + push with the public link' : 'Push only — no WhatsApp opt-in on file'} · {draft.customer.phone ? formatPhone(draft.customer.phone) : 'no phone'}</Typography>
                   </Box>
                   <FormControlLabel control={<M3Switch checked={draft.send} onChange={(e) => patch({ send: e.target.checked })} />} label="Send to customer now" sx={{ m: 0, '& .MuiFormControlLabel-label': { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } }} />
                 </Tile>

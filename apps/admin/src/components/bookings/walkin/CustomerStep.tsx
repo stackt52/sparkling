@@ -20,10 +20,12 @@ import TierChip, { TIER_NAME } from '@/components/ui/TierChip';
 import M3Switch from '@/components/ui/M3Switch';
 import Tile from '@/components/ui/Tile';
 import { EmptyState, ErrorState } from '@/components/ui/States';
+import PhoneField from '@/components/ui/PhoneField';
 import RadioCards from './RadioCards';
 import { useApi } from '@/lib/auth/AuthProvider';
 import { ApiRequestError, conflictDetail, uuid } from '@/lib/api';
 import { initials } from '@/lib/format';
+import { formatPhone, normalisePhone, normaliseSearch } from '@/lib/phone';
 import { fonts, tk } from '@/theme/tokens';
 import type { WalkInCustomer } from '@/lib/types';
 
@@ -40,7 +42,7 @@ function CustomerCard({ c }: { c: WalkInCustomer }) {
       <Avatar sx={{ width: 44, height: 44, bgcolor: tk.secondaryContainer, color: tk.onSecondaryContainer, fontWeight: 700, fontSize: 15 }}>{initials(c.full_name)}</Avatar>
       <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         <Typography variant="h5" component="span" sx={{ color: 'inherit' }}>{c.full_name}</Typography>
-        <Typography variant="body2" component="span" sx={{ color: tk.onSurfaceVariant }}>{[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact details'}</Typography>
+        <Typography variant="body2" component="span" sx={{ color: tk.onSurfaceVariant }}>{[formatPhone(c.phone), c.email].filter(Boolean).join(' · ') || 'No contact details'}</Typography>
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}>
           <PlanPill loyalty={c.loyalty} />
           {c.vehicles.map((v) => (
@@ -61,24 +63,26 @@ function useDebounced(value: string, ms = 300) {
   return v;
 }
 
-interface RegisterState { full_name: string; phone: string; email: string; whatsapp: boolean; marketing: boolean }
-const emptyRegister = (): RegisterState => ({ full_name: '', phone: '', email: '', whatsapp: true, marketing: false });
+/** `phone` is E.164 (`+27821234567`) or `''`; `phoneValid` comes from the `PhoneField` (libphonenumber, any country). */
+interface RegisterState { full_name: string; phone: string; phoneValid: boolean; email: string; whatsapp: boolean; marketing: boolean }
+const emptyRegister = (): RegisterState => ({ full_name: '', phone: '', phoneValid: false, email: '', whatsapp: true, marketing: false });
 
 export default function CustomerStep({ selected, onSelect, onError }: { selected: WalkInCustomer | null; onSelect: (c: WalkInCustomer) => void; onError: (e: unknown) => void }) {
   const api = useApi();
   const [search, setSearch] = React.useState('');
-  const q = useDebounced(search.trim());
+  // A pasted `+44 7911 123456` / `082 123 4567` is normalised to E.164 before it hits the API.
+  const q = useDebounced(normaliseSearch(search));
   const results = useQuery({ queryKey: ['walkin-customers', q], queryFn: () => api.searchWalkInCustomers(q), enabled: q.length >= 2 });
 
   const [registerOpen, setRegisterOpen] = React.useState(false);
   const [form, setForm] = React.useState<RegisterState>(emptyRegister);
   const [opId, setOpId] = React.useState(() => uuid());
   const [existing, setExisting] = React.useState<WalkInCustomer | null>(null);
-  const fieldErrors = { name: form.full_name.trim().length < 2, phone: form.phone.replace(/\D/g, '').length < 9, email: form.email.trim() !== '' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim()) };
+  const fieldErrors = { name: form.full_name.trim().length < 2, phone: !form.phoneValid, email: form.email.trim() !== '' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim()) };
   const valid = !fieldErrors.name && !fieldErrors.phone && !fieldErrors.email;
 
   const register = useMutation({
-    mutationFn: () => api.createWalkInCustomer({ full_name: form.full_name.trim(), phone: form.phone.trim(), email: form.email.trim() || null, whatsapp_opt_in: form.whatsapp, marketing_opt_in: form.marketing, client_op_id: opId }),
+    mutationFn: () => api.createWalkInCustomer({ full_name: form.full_name.trim(), phone: form.phone, email: form.email.trim() || null, whatsapp_opt_in: form.whatsapp, marketing_opt_in: form.marketing, client_op_id: opId }),
     onSuccess: (c) => {
       setRegisterOpen(false);
       setForm(emptyRegister());
@@ -95,7 +99,8 @@ export default function CustomerStep({ selected, onSelect, onError }: { selected
   const openRegister = () => {
     // Seed the form from what was typed so a "no match" search flows straight into registration.
     const digitsOnly = /^[\d\s+()-]{6,}$/.test(search.trim());
-    setForm({ ...emptyRegister(), full_name: !digitsOnly && !search.includes('@') ? search.trim() : '', phone: digitsOnly ? search.trim() : '', email: search.includes('@') ? search.trim() : '' });
+    const phone = digitsOnly ? normalisePhone(search) : null;
+    setForm({ ...emptyRegister(), full_name: !digitsOnly && !search.includes('@') ? search.trim() : '', phone: phone ?? '', phoneValid: Boolean(phone), email: search.includes('@') ? search.trim() : '' });
     setRegisterOpen(true);
   };
 
@@ -155,7 +160,7 @@ export default function CustomerStep({ selected, onSelect, onError }: { selected
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>New walk-in · no app account needed. Bookings, vehicles and points carry over when they sign up.</Typography>
           <Box component="form" id="register-form" onSubmit={(e) => { e.preventDefault(); if (valid) register.mutate(); }} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField label="Full name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required autoFocus error={form.full_name !== '' && fieldErrors.name} helperText={form.full_name !== '' && fieldErrors.name ? 'Enter the customer’s name' : ' '} />
-            <TextField label="Phone" placeholder="082 123 4567" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required error={form.phone !== '' && fieldErrors.phone} helperText={form.phone !== '' && fieldErrors.phone ? 'Enter a valid South African number' : 'Used for WhatsApp receipts and to claim the profile later'} />
+            <PhoneField label="Mobile number" value={form.phone} onChange={(e164, meta) => setForm({ ...form, phone: e164, phoneValid: meta.valid })} required helperText="Any country — used for WhatsApp receipts and to claim the profile later" />
             <TextField label="E-mail (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} error={fieldErrors.email} helperText={fieldErrors.email ? 'That e-mail does not look right' : ' '} />
             <Tile sx={{ justifyContent: 'space-between' }}>
               <Box>

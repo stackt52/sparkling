@@ -4,7 +4,7 @@ Flutter app for outlet technicians, supervisors and managers (SRS STF-*):
 task list, checklist execution, PDF417 licence-disc scanning, walk-in
 customer registration + booking, membership enrolment at the counter,
 staff-raised repair quotes with damage photos, supervisor ops, leaderboard,
-inventory, offline queue and sync centre. Android phone +
+inventory, offline queue and sync centre. Android + iOS phone +
 tablet, dark-first, built on `packages/sparkling_ui` (design system) and
 `packages/sparkling_core` (models, API, offline queue, realtime).
 
@@ -29,6 +29,17 @@ flutter run -d macos --dart-define-from-file=env/emulator.json                 #
 
 `env/*.json` keys: `DEMO_MODE`, `APP_NAME`, `API_BASE_URL`, `SUPABASE_URL`,
 `SUPABASE_ANON_KEY`, `AUTH_EMULATOR_HOST` (empty = live Firebase).
+
+### iOS
+
+The staff app has an iOS target (bundle `za.co.sparkling.staff`, Firebase iOS app `1:700174326619:ios:ab29f3c1826f948bc5587e`, config in `ios/Runner/GoogleService-Info.plist`; deployment target iOS 15, Swift Package Manager). `Info.plist` declares camera / photo-library usage for the disc scanner and damage photos, the Google / Firebase URL schemes for provider sign-in, and the `remote-notification` background mode for FCM.
+
+```bash
+flutter build ios --simulator --dart-define-from-file=env/demo.json   # simulator
+flutter run -d <iphone-udid> --dart-define-from-file=env/prod.json    # device (needs Developer Mode + a signing team)
+```
+
+Push on iOS additionally needs an APNs key uploaded in Firebase → Project settings → Cloud Messaging and the Push Notifications capability on the Runner target (added automatically by Xcode when you enable it).
 
 ## Authentication (STF-001 / STF-004)
 
@@ -123,9 +134,11 @@ Four steps (`lib/features/walk_in/`, `Step n of 4` header + progress strip,
 mirroring the customer booking flow 1b/1c/1f/1g):
 
 1. **Customer** — search by name / phone / e-mail / plate
-   (`GET /staff/customers?search`, 300 ms debounce, ≥ 2 chars) or **Register
-   new customer** (`POST /staff/customers`: name, `+27`-normalised mobile,
-   optional e-mail, WhatsApp opt-in on / marketing off, POPIA note). A `409
+   (`GET /staff/customers?search`, 300 ms debounce, ≥ 2 chars; a pasted
+   `+44 7400…` / `072 555…` is normalised to E.164 first) or **Register
+   new customer** (`POST /staff/customers`: name, mobile number from any
+   country entered with its code (see *Mobile numbers* below), optional
+   e-mail, WhatsApp opt-in on / marketing off, POPIA note). A `409
    conflict` opens the "Already registered" sheet offering the existing
    customer (`ApiException.existingCustomer`).
 2. **Vehicle** — the customer's vehicles, **Scan disc** (returns a
@@ -170,6 +183,24 @@ only its selected plan services), checks the VAT total on an auto-body offer
 and the by-quote → raise-quote jump. Screenshots:
 `screenshots/walkin-{1-customer,1-register,2-vehicle,3-service,4-payment,5-confirmation}.png`,
 `screenshots/catalogue-walkin-services.png`.
+
+### Mobile numbers (any country)
+
+Customer mobile numbers are stored and sent as E.164 (`+27821234567`). The
+register form uses `PhoneNumberField` (sparkling_ui): a country chip (flag +
+`+27`) opens a searchable sheet of all countries (name / dial code / ISO,
+default South Africa, recent picks pinned), and the national number is
+grouped live (`82 123 4567`); a leading trunk `0` is dropped and pasting a
+full `+44 7400 123456` switches the country. Validation is per country via
+`Phone` (sparkling_core, `phone_numbers_parser`) — "Enter a valid United
+Kingdom mobile number" inline, and the API / demo store answer 400
+`validation_error` "Enter the mobile number with its country code, e.g.
++27 82 123 4567" for anything that is not a mobile number. Customer tiles,
+the customer card, the quote review and confirmations show numbers with
+`Phone.format` (`+44 7911 123456`). Demo: **Priya Naidoo** (`+44 7911
+123456`) shows the international formatting; `test/walk_in_test.dart`
+registers a walk-in with a UK number through the sheet. Screenshot:
+`screenshots/phone-field.png` (register form with the country sheet open).
 
 ## Membership plans at the counter (docs/MEMBERSHIPS.md)
 
@@ -313,3 +344,6 @@ successful verification.
 
 ## Branding
 App icon ("hex bolt badge") and native splash are generated — see `docs/branding/README.md`.
+
+
+Screenshot: `screenshots/tasks-fab-menu.png` — the tasks FAB menu (scan disc, walk-in booking, raise quote).

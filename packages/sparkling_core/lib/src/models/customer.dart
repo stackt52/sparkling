@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'enums.dart';
 import 'json.dart';
+import 'phone.dart';
 import 'service.dart';
 import 'vehicle.dart';
 
@@ -263,24 +264,15 @@ class CustomerInput {
   final bool whatsappOptIn;
   final String clientOpId;
 
-  /// South African numbers to E.164: `082 123 4567` → `+27821234567`,
-  /// `27 82 …` → `+2782…`; already-international numbers keep their `+`.
-  static String normalisePhone(String raw) {
-    final trimmed = raw.trim();
-    final plus = trimmed.startsWith('+');
-    final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return '';
-    if (plus) return '+$digits';
-    if (digits.startsWith('0') && digits.length == 10) {
-      return '+27${digits.substring(1)}';
-    }
-    if (digits.startsWith('27') && digits.length == 11) return '+$digits';
-    return '+$digits';
-  }
+  /// Any country's mobile number to E.164 via [Phone.normalise]
+  /// (`082 123 4567` → `+27821234567`, `+44 7400 123456` → `+447400123456`).
+  /// Input that is not a valid mobile number is passed through trimmed so
+  /// the API can reject it with its own message.
+  static String normalisePhone(String raw) =>
+      Phone.normalise(raw) ?? raw.trim();
 
   /// Digits only — the key used for duplicate detection.
-  static String phoneKey(String? raw) =>
-      raw == null ? '' : normalisePhone(raw).replaceAll('+', '');
+  static String phoneKey(String? raw) => Phone.key(raw);
 
   Json toJson() => compact({
     'full_name': fullName.trim(),

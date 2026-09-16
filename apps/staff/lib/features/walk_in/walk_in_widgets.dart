@@ -295,7 +295,7 @@ class CustomerCard extends StatelessWidget {
     final cs = context.colors;
     final c = customer;
     final meta = [
-      if (c.phone != null) c.phone!,
+      if (c.phone != null) Phone.format(c.phone),
       if (!compact && c.email != null) c.email!,
     ].join(' · ');
     return ListTileCard(

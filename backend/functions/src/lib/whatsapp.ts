@@ -49,26 +49,9 @@ export interface WhatsAppAdapter {
 // Phone numbers
 // ---------------------------------------------------------------------------
 
-export const E164 = /^\+[1-9]\d{6,14}$/;
+import { normalisePhone } from './phone.js';
 
-/**
- * Normalises a phone number to E.164. South African local numbers
- * (`0xx xxx xxxx`) become `+27xx…`; spaces, dashes and brackets are stripped;
- * a `whatsapp:` prefix or `00` international prefix is accepted. Returns null
- * when the result is not a valid E.164 number.
- */
-export function normalisePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let s = String(raw).trim().replace(/^whatsapp:/i, '').replace(/[\s\-().]/g, '');
-  if (s.startsWith('00')) s = `+${s.slice(2)}`;
-  if (/^0\d{9}$/.test(s)) s = `+27${s.slice(1)}`;
-  else if (/^27\d{9}$/.test(s)) s = `+${s}`;
-  return E164.test(s) ? s : null;
-}
-
-export function isE164(value: string | null | undefined): boolean {
-  return !!value && E164.test(value.trim());
-}
+export { E164, isE164, normalisePhone } from './phone.js';
 
 export function maskPhone(phone: string): string {
   return phone.replace(/\d(?=\d{3})/g, '*');

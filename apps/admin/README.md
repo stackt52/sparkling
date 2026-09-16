@@ -61,7 +61,7 @@ Admins (`user:manage`) create staff accounts from the dashboard; the account get
 works in the Sparkling Staff app (any staff role) and in this dashboard (manager / admin / finance / supervisor),
 and the first sign-in forces a password change.
 
-* **Add staff member** (header pill) — full name, e-mail, phone, role, outlets and an optional "Also generate a
+* **Add staff member** (header pill) — full name, e-mail, phone (`PhoneField`, any country → E.164), role, outlets and an optional "Also generate a
   reset link" → `POST /admin/users` `{ email, full_name, role, phone?, outlet_ids[], invite: 'password'|'link' }`.
   On `201` the form is replaced by a **Credentials** panel: e-mail and temporary password in monospace with copy
   buttons, a copy-all **Send these details** text, the Firebase reset link when requested, and the note that
@@ -82,6 +82,31 @@ and the first sign-in forces a password change.
 * **Demo mode** — "Continue with demo admin" never hits the gate. `DemoApi.inviteUser` / `resetUserPassword`
   return fake `Spk-…` passwords and flag the row; `/change-password` renders as a preview and "Set password" just
   returns to the dashboard.
+
+## Phone numbers (any country, E.164)
+
+Every phone typed in the dashboard goes through **`PhoneField`** (`src/components/ui/PhoneField.tsx`) and is sent to
+the API as **E.164** (`+27821234567`); the API rejects anything else with `400 validation_error`
+"Enter the mobile number with its country code, e.g. +27 82 123 4567".
+
+* **`PhoneField`** — a country picker (MUI `Autocomplete`: flag · name · `+dial`, searchable by name, dial code or
+  ISO code, default `ZA`, last choice remembered in `localStorage` `sparkling.phone.country`) as the start adornment
+  of a `tel` input that formats the national number as you type (`libphonenumber-js/max` `AsYouType`). Props:
+  `value` (E.164 or `''`), `onChange(e164, { valid, country, national })`, `label`, `required`, `helperText`, `size`,
+  `disabled`, `autoFocus`, `error`, `kind` (`mobile` | `any` — only changes the error wording; outlets allow landlines).
+  A `value` from another country moves the picker; pasting a full `+44 …` / `0044 …` number into the number box
+  switches the country automatically. Invalid + non-empty (after blur) → red with "Enter a valid *Country* mobile
+  number". Used by the walk-in **Register customer** form, Staff → **Add staff member** / edit dialog (`PATCH
+  /admin/users` now carries `phone`) and the **Outlets** editor (legacy free-text numbers stay on file until replaced).
+* **`src/lib/phone.ts`** — `normalisePhone(raw, 'ZA')` (accepts `+27…`, `0027…`, `27…` and bare ZA `082…`),
+  `isValidPhone`, `formatPhone('+27821234567') → '+27 82 123 4567'` (non-E.164 strings are returned unchanged),
+  `phoneCountry`, `splitPhone`, `formatNational`, `normaliseSearch` (the customer / walk-in search boxes normalise a
+  pasted number before querying). Same rules and `max` metadata as `backend/functions/src/lib/phone.ts`.
+* Phones are displayed with `formatPhone` everywhere (customer grid + drawer, walk-in cards / summary / success,
+  staff grid, memberships grid, raise-quote dialog, public quote page footer + `tel:` link, demo PDF).
+* Demo API: `createWalkInCustomer`, `inviteUser` and `updateUser` validate with `normalisePhone` and throw the API's
+  400 shape; duplicates are matched on E.164. Seed phones are E.164 and include one international customer, **Priya
+  Naidoo** `+447911123456` (renders as `+44 7911 123456`).
 
 ## Messages (notifications) and WhatsApp
 
@@ -187,6 +212,8 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `memberships-members.png` | Members tab after "Run renewals" — Zanele's renewal invoice open, row actions |
 | `memberships-customer.png` | Customer drawer → Membership tab (Black plan: allowances, invoices, enrol / cancel) |
 | `memberships-walkin.png` | Walk-in service step for a Gold member — "Included in Gold · 2 of 4 left" at R 0, plan discount on other services |
+| `phone-field.png` | Walk-in register form — `PhoneField` with the country picker open (search "united") |
+| `phone-field-invalid.png` | The same field after blur with a too-short UK number — "Enter a valid United Kingdom mobile number" |
 | `staff-add.png` | Add staff member dialog — name, e-mail, phone, role, outlets, "Also generate a reset link" |
 | `staff-credentials.png` | Credentials panel after creation — e-mail, temporary password, reset link, "Send these details"; the new row carries the "Must change password" chip |
 | `change-password.png` | First-sign-in gate (`/change-password`) — rules checklist and strength hint |

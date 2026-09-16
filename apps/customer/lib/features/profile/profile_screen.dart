@@ -31,8 +31,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _editDetails(Profile p) async {
+    final form = GlobalKey<FormState>();
     final name = TextEditingController(text: p.fullName);
-    final phone = TextEditingController(text: p.phone ?? '');
+    // Any country, entered with its code; saved as E.164 (`+27821234567`).
+    final phone = PhoneNumberController(initialValue: p.phone);
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -43,32 +45,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
           20,
           20 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SectionHeader(title: 'Your details'),
-            TextField(
-              controller: name,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Full name'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Mobile number',
-                helperText: 'Used for WhatsApp updates',
+        child: Form(
+          key: form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SectionHeader(title: 'Your details'),
+              TextFormField(
+                controller: name,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'Full name'),
               ),
-            ),
-            const SizedBox(height: 16),
-            PillButton(
-              label: 'Save',
-              expand: true,
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-          ],
+              const SizedBox(height: 10),
+              PhoneNumberField(
+                controller: phone,
+                helperText: 'Used for WhatsApp updates',
+                textInputAction: TextInputAction.done,
+              ),
+              const SizedBox(height: 16),
+              PillButton(
+                label: 'Save',
+                expand: true,
+                onPressed: () {
+                  if (form.currentState!.validate()) {
+                    Navigator.of(context).pop(true);
+                  }
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -76,7 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _patch(
         ProfileUpdate(
           fullName: name.text.trim().isEmpty ? null : name.text.trim(),
-          phone: phone.text.trim().isEmpty ? null : phone.text.trim(),
+          phone: phone.isEmpty ? null : phone.value,
         ),
       );
     }
@@ -155,7 +162,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     leading: AvatarTile(initials: p.initials, size: 52),
                     title: Text(p.fullName),
                     subtitle: Text(
-                      [p.email, p.phone].whereType<String>().join(' · '),
+                      [
+                        p.email,
+                        if (p.phone != null) Phone.format(p.phone),
+                      ].whereType<String>().join(' · '),
                     ),
                     trailing: Icon(Symbols.edit_rounded, color: cs.primary),
                   ),

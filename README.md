@@ -4,7 +4,7 @@ Multi-outlet car-wash and auto-body service platform (SRS v1.0, 28 Aug 2026): a 
 
 ```
 apps/customer            Flutter — Android + iOS customer app (booking, PDF417 disc scan, payment, tracking, loyalty, quotes)
-apps/staff               Flutter — Android staff app (tasks, checklists, supervisor ops, leaderboard, inventory, offline sync)
+apps/staff               Flutter — staff app (Android + iOS) (tasks, checklists, supervisor ops, leaderboard, inventory, offline sync)
 apps/admin               Next.js + MUI — admin dashboard (ops, loyalty config, inventory, users, reports, audit)
 packages/sparkling_ui    Flutter design system: tokens, M3 theme, shared widgets
 packages/sparkling_core  Flutter shared domain: models, API client, realtime, offline queue, PDF417 parser, demo data

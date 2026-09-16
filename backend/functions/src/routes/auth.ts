@@ -13,7 +13,7 @@ import { audit } from '../services/audit.js';
 import { findProfileByContact, isClaimableProfileId, WALK_IN_PREFIX } from '../services/customers.js';
 import { ledgerBalance } from '../services/loyalty.js';
 import { membershipBrief } from '../services/memberships.js';
-import { normalisePhone } from '../lib/whatsapp.js';
+import { normalisePhone, optionalPhoneSchema } from '../lib/phone.js';
 
 export const authRouter = Router();
 
@@ -81,12 +81,17 @@ authRouter.post(
         profile = unwrap<Profile>(await db.from('profiles').update(patch).eq('id', claimable.id).select('*').single(), 'claim profile');
         req.log.info({ claimed_id: claimable.id, by: claimable.email && auth.email && claimable.email.toLowerCase() === auth.email.toLowerCase() ? 'email' : 'phone' }, 'claimed profile');
       }
+      if (!profile && body.app !== 'customer') {
+        // Staff and admin accounts are provisioned by an admin (POST /admin/users); never auto-create a
+        // customer profile for an unknown account that signed in through the staff or admin app.
+        throw ApiError.forbidden('This account is not a Sparkling staff account. Ask your manager to add you in the admin dashboard.', { reason: 'not_staff' });
+      }
       if (!profile) {
         const fullName = body.full_name ?? (auth.tokenClaims.name as string | undefined) ?? auth.email?.split('@')[0] ?? 'Sparkling customer';
         profile = unwrap<Profile>(
           await db
             .from('profiles')
-            .insert({ id: auth.uid, role: 'customer', full_name: fullName, email: auth.email, phone: phone ?? body.phone ?? null, last_seen_at: new Date().toISOString() })
+            .insert({ id: auth.uid, role: 'customer', full_name: fullName, email: auth.email, phone: phone ?? body.phone ?? null, is_active: true, last_seen_at: new Date().toISOString() })
             .select('*')
             .single(),
           'create profile',
@@ -102,7 +107,7 @@ authRouter.post(
     if (!profile.is_active) throw ApiError.forbidden('Account is deactivated');
 
     const role = profile.role;
-    if (body.app === 'staff' && !STAFF_ROLES.includes(role)) throw ApiError.forbidden('Staff app requires a staff role');
+    if (body.app === 'staff' && !STAFF_ROLES.includes(role)) throw ApiError.forbidden('This account is a customer account. Ask your manager to add you as staff in the admin dashboard.', { reason: 'not_staff' });
     if (body.app === 'admin' && !['manager', 'admin', 'finance'].includes(role)) throw ApiError.forbidden('Admin dashboard requires manager, admin or finance role');
 
     const outletIds = STAFF_ROLES.includes(role) ? await loadOutletIds(auth.uid) : [];
@@ -164,7 +169,7 @@ authRouter.get(
 const meSchema = z
   .object({
     full_name: z.string().trim().min(1).max(120),
-    phone: z.string().trim().max(32).nullable(),
+    phone: optionalPhoneSchema,
     avatar_url: z.string().url().max(2048).nullable(),
     marketing_opt_in: z.boolean(),
     whatsapp_opt_in: z.boolean(),

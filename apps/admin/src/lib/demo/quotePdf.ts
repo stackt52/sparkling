@@ -9,6 +9,7 @@
  */
 import type { jsPDF } from 'jspdf';
 import { QUOTE_TERMS } from '../quoteTerms';
+import { formatPhone } from '../phone';
 import type { OutletLegal, QuoteLineItem, QuotationDecisionSource, QuotationStatus } from '../types';
 
 export interface QuotePdfInput {
@@ -132,7 +133,7 @@ export async function buildQuotePdf(q: QuotePdfInput): Promise<Blob> {
     tradingAs ? `T/A ${tradingAs}` : null,
     nonEmpty(o.address_line),
     nonEmpty(o.city),
-    nonEmpty(o.phone) ? `Tel: ${o.phone}` : null,
+    nonEmpty(o.phone) ? `Tel: ${formatPhone(o.phone)}` : null,
     nonEmpty(o.email) ? `email: ${o.email}` : null,
   ].filter((l): l is string => Boolean(l));
   meta.forEach(([label, value], i) => {
@@ -160,7 +161,7 @@ export async function buildQuotePdf(q: QuotePdfInput): Promise<Blob> {
   font('normal', 9);
   const customerLines = [
     q.customer_name,
-    nonEmpty(q.customer_phone),
+    nonEmpty(q.customer_phone) ? formatPhone(q.customer_phone) : null,
     [q.vehicle.make, q.vehicle.model].filter(Boolean).join(' ') || null,
     q.vehicle.registration_no,
     nonEmpty(q.vehicle.colour),

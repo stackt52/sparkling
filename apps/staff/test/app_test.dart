@@ -19,7 +19,17 @@ void main() {
     expect(find.text('Continue checklist'), findsOneWidget);
     expect(find.text('4/7 steps'), findsOneWidget);
     expect(find.byType(SyncChip), findsOneWidget);
+    // Quick actions live behind the "+" FAB menu.
+    expect(find.byKey(const ValueKey('fab-menu')), findsOneWidget);
+    expect(find.text('Scan disc'), findsNothing);
+    await openFabMenu(tester);
     expect(find.text('Scan disc'), findsOneWidget);
+    expect(find.text('Walk-in booking'), findsOneWidget);
+    expect(find.text('Raise quote'), findsOneWidget);
+    // The scrim closes it again.
+    await tester.tap(find.byKey(const ValueKey('fab-menu-scrim')));
+    await settle(tester);
+    expect(find.text('Walk-in booking'), findsNothing);
     // Technicians get Scan instead of Ops in the nav bar.
     expect(find.text('Scan'), findsWidgets);
     expect(find.text('Ops'), findsNothing);

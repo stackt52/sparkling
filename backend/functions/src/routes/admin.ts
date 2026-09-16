@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { firebaseAuth } from '../lib/firebase.js';
+import { optionalPhoneSchema } from '../lib/phone.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
 import { isoDate, isoDateTime, pagination, parseBody, parseQuery, pricingMode, uuid, vatMode } from '../lib/validate.js';
@@ -396,7 +397,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   full_name: z.string().trim().min(2).max(120),
   role: roleEnum,
-  phone: z.string().trim().max(32).nullable().optional(),
+  phone: optionalPhoneSchema.optional(),
   outlet_ids: z.array(uuid).max(20).default([]),
   skills: z.array(z.string().trim().min(1).max(32)).max(20).default([]),
   /** 'password' (default) returns a temporary password the admin hands over; 'link' also returns a password-reset link. */
@@ -491,7 +492,7 @@ const patchUserSchema = z.object({
   skills: z.array(z.string().trim().min(1).max(32)).max(20).optional(),
   is_active: z.boolean().optional(),
   full_name: z.string().trim().min(2).max(120).optional(),
-  phone: z.string().trim().max(32).nullable().optional(),
+  phone: optionalPhoneSchema.optional(),
 }).strict();
 
 adminRouter.patch('/admin/users/:id', requireAdmin, asyncHandler(async (req, res) => {

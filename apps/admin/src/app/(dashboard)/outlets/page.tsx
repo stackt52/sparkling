@@ -22,11 +22,13 @@ import IconTile from '@/components/ui/IconTile';
 import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { NavyPill } from '@/components/ui/Pills';
+import PhoneField from '@/components/ui/PhoneField';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
 import { fonts, tk } from '@/theme/tokens';
+import { formatPhone, isE164 } from '@/lib/phone';
 import type { OpeningHours, Outlet, OutletBankDetails } from '@/lib/types';
 
 const DAYS: (keyof OpeningHours)[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -69,6 +71,9 @@ function OutletForm({ outlet, onClose }: { outlet: Outlet | null; onClose: () =>
   const qc = useQueryClient();
   const toast = useToast();
   const [form, setForm] = React.useState<Partial<Outlet>>(() => (outlet ? { ...outlet } : { ...blank }));
+  // Outlet numbers are stored as E.164; older rows may still hold free text ("012 348 4228 / 079 …") — shown until replaced.
+  const legacyPhone = form.phone && !isE164(form.phone) ? form.phone : null;
+  const [phoneValid, setPhoneValid] = React.useState(true);
   const m = useMutation({
     mutationFn: () => (outlet ? api.updateOutlet(outlet.id, form) : api.createOutlet(form)),
     onSuccess: (o) => { toast.success(`${o.name} saved`); void qc.invalidateQueries({ queryKey: ['outlets'] }); onClose(); },
@@ -90,7 +95,7 @@ function OutletForm({ outlet, onClose }: { outlet: Outlet | null; onClose: () =>
         <TextField label="Address" value={form.address_line ?? ''} onChange={(e) => setForm({ ...form, address_line: e.target.value })} size="small" sx={{ gridColumn: '1 / -1' }} />
         <TextField label="City" value={form.city ?? ''} onChange={(e) => setForm({ ...form, city: e.target.value })} size="small" />
         <TextField label="Province" value={form.province ?? ''} onChange={(e) => setForm({ ...form, province: e.target.value })} size="small" />
-        <TextField label="Phone" value={form.phone ?? ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} size="small" />
+        <PhoneField label="Phone" kind="any" value={legacyPhone ? '' : form.phone ?? ''} onChange={(e164, meta) => { setForm({ ...form, phone: e164 || null }); setPhoneValid(e164 === '' || meta.valid); }} size="small" helperText={legacyPhone ? `On file: ${legacyPhone} — enter the main number to replace it` : 'Landline or mobile, with country code'} />
         <TextField label="E-mail" value={form.email ?? ''} onChange={(e) => setForm({ ...form, email: e.target.value })} size="small" />
         <TextField label="Bays" type="number" value={form.bay_count ?? 3} onChange={(e) => setForm({ ...form, bay_count: Number(e.target.value) })} size="small" slotProps={{ htmlInput: { min: 1 } }} />
         <TextField label="Slot minutes" type="number" value={form.slot_minutes ?? 30} onChange={(e) => setForm({ ...form, slot_minutes: Number(e.target.value) })} size="small" slotProps={{ htmlInput: { min: 10, max: 240 } }} />
@@ -127,7 +132,7 @@ function OutletForm({ outlet, onClose }: { outlet: Outlet | null; onClose: () =>
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="secondary" disabled={m.isPending || !form.name || !form.code} onClick={() => m.mutate()}>Save</Button>
+        <Button variant="contained" color="secondary" disabled={m.isPending || !form.name || !form.code || !phoneValid} onClick={() => m.mutate()}>Save</Button>
       </DialogActions>
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
@@ -159,7 +164,7 @@ export default function OutletsPage() {
     { field: 'opening_hours', headerName: 'Hours', flex: 1.2, minWidth: 220, sortable: false, valueGetter: (_v, r) => hoursSummary(r.opening_hours), renderCell: (p) => <Typography variant="body2" noWrap title={p.value as string}>{p.value as string}</Typography> },
     { field: 'phone', headerName: 'Contact', flex: 1, minWidth: 200, sortable: false, renderCell: (p) => (
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap>{p.row.phone ?? '—'}</Typography>
+        <Typography variant="body2" noWrap>{formatPhone(p.row.phone) || '—'}</Typography>
         <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{p.row.email ?? ''}</Typography>
       </Box>
     ) },

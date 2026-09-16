@@ -203,22 +203,24 @@ const person = (id: string, role: UserRole, full_name: string, email: string, ph
 });
 
 export const DEMO_PROFILES: DemoProfile[] = [
-  person('seed_admin', 'admin', 'Sparkling Admin', 'admin@sparklingauto.co.za', '+27 82 000 0001', ALL_OUTLETS),
-  person('seed_finance', 'finance', 'Nomvula Finance', 'finance@sparklingauto.co.za', '+27 82 000 0002', ALL_OUTLETS),
-  person('seed_ayesha', 'manager', 'Ayesha Patel', 'ayesha@sparklingauto.co.za', '+27 82 000 0010', [OUTLET_MEN, OUTLET_GLV]),
-  person('seed_johan', 'supervisor', 'Johan Botha', 'johan@sparklingauto.co.za', '+27 82 000 0011', [OUTLET_MEN], [], 'available'),
-  person('seed_pieter', 'technician', 'Pieter van der Merwe', 'pieter@sparklingauto.co.za', '+27 82 000 0012', [OUTLET_MEN], ['wash', 'detail'], 'available'),
-  person('seed_lerato', 'technician', 'Lerato Mahlangu', 'lerato@sparklingauto.co.za', '+27 82 000 0013', [OUTLET_MEN], ['wash', 'interior'], 'busy'),
-  person('seed_sipho_staff', 'technician', 'Sipho Ndlovu', 'sipho.n@sparklingauto.co.za', '+27 82 000 0014', [OUTLET_MEN], ['wash', 'paint', 'panel'], 'busy'),
-  person('seed_thandi', 'technician', 'Thandi Khumalo', 'thandi@sparklingauto.co.za', '+27 82 000 0015', [OUTLET_GLV], ['wash'], 'available'),
-  person('seed_thabo', 'customer', 'Thabo Nkosi', 'thabo@example.com', '+27 83 111 2222', [], [], undefined, true),
-  person('seed_naledi', 'customer', 'Naledi Mokoena', 'naledi@example.com', '+27 83 111 3333'),
-  person('seed_sipho', 'customer', 'Sipho Dlamini', 'sipho@example.com', '+27 83 111 4444', [], [], undefined, true),
-  person('seed_zanele', 'customer', 'Zanele Mthembu', 'zanele@example.com', '+27 83 111 5555', [], [], undefined, true),
-  person('seed_daniel', 'customer', 'Daniel Botha', 'daniel@example.com', '+27 83 111 6666'),
-  person('seed_ayanda', 'customer', 'Ayanda Zulu', 'ayanda@example.com', '+27 83 111 7777'),
-  person('seed_lindiwe', 'customer', 'Lindiwe Sithole', 'lindiwe@example.com', '+27 83 111 8888'),
-  person('seed_kabelo', 'customer', 'Kabelo Molefe', 'kabelo@example.com', '+27 83 111 9999'),
+  person('seed_admin', 'admin', 'Sparkling Admin', 'admin@sparklingauto.co.za', '+27820000001', ALL_OUTLETS),
+  person('seed_finance', 'finance', 'Nomvula Finance', 'finance@sparklingauto.co.za', '+27820000002', ALL_OUTLETS),
+  person('seed_ayesha', 'manager', 'Ayesha Patel', 'ayesha@sparklingauto.co.za', '+27820000010', [OUTLET_MEN, OUTLET_GLV]),
+  person('seed_johan', 'supervisor', 'Johan Botha', 'johan@sparklingauto.co.za', '+27820000011', [OUTLET_MEN], [], 'available'),
+  person('seed_pieter', 'technician', 'Pieter van der Merwe', 'pieter@sparklingauto.co.za', '+27820000012', [OUTLET_MEN], ['wash', 'detail'], 'available'),
+  person('seed_lerato', 'technician', 'Lerato Mahlangu', 'lerato@sparklingauto.co.za', '+27820000013', [OUTLET_MEN], ['wash', 'interior'], 'busy'),
+  person('seed_sipho_staff', 'technician', 'Sipho Ndlovu', 'sipho.n@sparklingauto.co.za', '+27820000014', [OUTLET_MEN], ['wash', 'paint', 'panel'], 'busy'),
+  person('seed_thandi', 'technician', 'Thandi Khumalo', 'thandi@sparklingauto.co.za', '+27820000015', [OUTLET_GLV], ['wash'], 'available'),
+  person('seed_thabo', 'customer', 'Thabo Nkosi', 'thabo@example.com', '+27831112222', [], [], undefined, true),
+  person('seed_naledi', 'customer', 'Naledi Mokoena', 'naledi@example.com', '+27831113333'),
+  person('seed_sipho', 'customer', 'Sipho Dlamini', 'sipho@example.com', '+27831114444', [], [], undefined, true),
+  person('seed_zanele', 'customer', 'Zanele Mthembu', 'zanele@example.com', '+27831115555', [], [], undefined, true),
+  person('seed_daniel', 'customer', 'Daniel Botha', 'daniel@example.com', '+27831116666'),
+  person('seed_ayanda', 'customer', 'Ayanda Zulu', 'ayanda@example.com', '+27831117777'),
+  person('seed_lindiwe', 'customer', 'Lindiwe Sithole', 'lindiwe@example.com', '+27831118888'),
+  person('seed_kabelo', 'customer', 'Kabelo Molefe', 'kabelo@example.com', '+27831119999'),
+  // International customer (UK mobile) — shows the E.164 storage / `formatPhone` display.
+  person('seed_priya', 'customer', 'Priya Naidoo', 'priya@example.com', '+447911123456'),
 ];
 export const profileById = (id: string) => DEMO_PROFILES.find((p) => p.id === id);
 export const profileName = (id: string | null) => (id ? profileById(id)?.full_name ?? id : null);
@@ -237,6 +239,7 @@ export const VEHICLES: Vehicle[] = [
   veh('d0000000-0000-4000-8000-000000000007', 'seed_ayanda', 'FT 21 GB GP', 'JTDKN3DU5A0123456', 'Hyundai', 'i20', 'Fiery Red', 2021, '2026-12-31', 'scan', 'small'),
   veh('d0000000-0000-4000-8000-000000000008', 'seed_lindiwe', 'HX 42 KL GP', 'KMHCT41BAFU123456', 'Kia', 'Sonet', 'Aurora Black', 2023, '2027-04-30', 'scan', 'small'),
   veh('d0000000-0000-4000-8000-000000000009', 'seed_kabelo', 'DR 88 SN GP', null, 'Mazda', 'CX-5', 'Soul Red', 2020, '2026-09-30', 'manual', 'large'),
+  veh('d0000000-0000-4000-8000-000000000010', 'seed_priya', 'LX 19 PN GP', null, 'Mini', 'Cooper', 'British Racing Green', 2022, '2027-06-30', 'manual', 'small'),
 ];
 export const vehicleById = (id: string) => VEHICLES.find((v) => v.id === id)!;
 
@@ -285,6 +288,7 @@ export const LOYALTY_ACCOUNTS: LoyaltyAccount[] = [
   acct('seed_ayanda', 260, 260, 80),
   acct('seed_lindiwe', 845, 845, 30),
   acct('seed_kabelo', 40, 40, 5),
+  acct('seed_priya', 90, 90, 12),
 ];
 
 const led = (i: number, customer_id: string, delta: number, type: LedgerEntry['type'], reference: string, description: string, key: string, days: number): LedgerEntry => ({

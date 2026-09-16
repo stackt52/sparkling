@@ -45,8 +45,8 @@ export class ApiError extends Error {
   static unauthenticated(msg = 'Authentication required') {
     return new ApiError('unauthenticated', msg);
   }
-  static forbidden(msg = 'You do not have access to this resource') {
-    return new ApiError('forbidden', msg);
+  static forbidden(msg = 'You do not have access to this resource', details?: unknown) {
+    return new ApiError('forbidden', msg, details);
   }
   static notFound(what = 'Resource') {
     return new ApiError('not_found', `${what} not found`);

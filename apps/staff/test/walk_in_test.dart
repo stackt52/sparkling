@@ -10,7 +10,12 @@ import 'test_harness.dart';
 
 /// Walk-in booking flow (STF-010/012) on the demo repositories.
 void main() {
+  final phoneInput = find.descendant(
+    of: find.byType(PhoneNumberField),
+    matching: find.byType(TextField),
+  );
   Future<void> openWalkIn(WidgetTester tester) async {
+    await openFabMenu(tester);
     await tester.tap(find.text('Walk-in booking'));
     await settle(tester);
     expect(find.text('Step 1 of 4 · Customer'), findsOneWidget);
@@ -25,6 +30,67 @@ void main() {
 
   group('technician', () {
     final h = DemoHarness()..install();
+
+    testWidgets('registers a walk-in with a UK mobile via the country sheet', (
+      tester,
+    ) async {
+      await pumpStaffApp(tester, h.repos);
+      await openWalkIn(tester);
+      await tester.tap(find.text('Register new customer'));
+      await settle(tester);
+      await tester.enterText(find.byType(TextFormField).first, 'Priya Patel');
+
+      // Country chip → sheet → United Kingdom.
+      expect(find.text('+27'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('phone-country-chip')));
+      await settle(tester);
+      expect(find.text('Choose country'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('phone-country-search')),
+        'united king',
+      );
+      await settle(tester, frames: 2);
+      await tester.tap(find.text('United Kingdom'));
+      await settle(tester);
+      expect(find.text('+44'), findsOneWidget);
+
+      // A local UK number (trunk 0) is grouped and saved as E.164.
+      await tester.enterText(phoneInput, '07400 123456');
+      await tester.pump();
+      expect(find.text('Saved as +44 7400 123456'), findsOneWidget);
+      await tester.tap(find.widgetWithText(PillButton, 'Register customer'));
+      await settle(tester);
+
+      expect(find.text('Priya Patel'), findsOneWidget);
+      expect(find.text('+44 7400 123456'), findsOneWidget);
+      final found = await pumpUntil(
+        tester,
+        h.repos.staff.searchCustomers('+44 7400 123456'),
+      );
+      expect(found.single.phone, '+447400123456');
+      await flushIo(tester);
+    });
+
+    testWidgets('rejects a number that is not a mobile number', (
+      tester,
+    ) async {
+      await pumpStaffApp(tester, h.repos);
+      await openWalkIn(tester);
+      await tester.tap(find.text('Register new customer'));
+      await settle(tester);
+      await tester.enterText(find.byType(TextFormField).first, 'Landline Larry');
+      await tester.enterText(phoneInput, '012 345 6789'); // Pretoria landline
+      await tester.pump();
+      await tester.tap(find.widgetWithText(PillButton, 'Register customer'));
+      await settle(tester);
+      expect(
+        find.text('Enter a valid South Africa mobile number'),
+        findsOneWidget,
+      );
+      // Still on the form — nothing was registered.
+      expect(find.widgetWithText(PillButton, 'Register customer'), findsOneWidget);
+      await flushIo(tester);
+    });
 
     testWidgets('searching "Thabo" finds him with tier and plates', (
       tester,
@@ -60,14 +126,14 @@ void main() {
         await tester.tap(find.text('Register new customer'));
         await settle(tester);
         expect(find.text('Register customer'), findsWidgets);
-        final fields = find.byType(TextFormField);
-        await tester.enterText(fields.at(0), 'Lindiwe Zulu');
-        await tester.enterText(fields.at(1), '072 555 0199');
+        await tester.enterText(find.byType(TextFormField).first, 'Lindiwe Zulu');
+        await tester.enterText(phoneInput, '072 555 0199');
         await tester.pump();
-        expect(find.text('Saved as +27725550199'), findsOneWidget);
+        expect(find.text('Saved as +27 72 555 0199'), findsOneWidget);
         await tester.tap(find.widgetWithText(PillButton, 'Register customer'));
         await settle(tester);
         expect(find.text('Lindiwe Zulu'), findsOneWidget);
+        expect(find.text('+27 72 555 0199'), findsOneWidget);
         expect(find.text('Walk-in'), findsOneWidget); // no loyalty account yet
         await tester.tap(find.text('Choose vehicle'));
         await settle(tester);

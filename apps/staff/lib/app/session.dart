@@ -43,7 +43,8 @@ class SessionController extends ChangeNotifier {
   StreamSubscription<AuthUser?>? _sub;
 
   static const String notStaffMessage =
-      'This account is not an outlet staff account.';
+      'This account is not an outlet staff account. Ask your manager to add '
+      'you as staff in the admin dashboard, then sign in again.';
   static const String notStaffOfflineMessage =
       'This account is not an outlet staff account. Sparkling servers '
       "couldn't be reached to verify staff access — try again when you're "
@@ -270,6 +271,11 @@ class SessionController extends ChangeNotifier {
     try {
       profile = await repositories.bootstrapSession(app: 'staff');
     } on ApiException catch (e) {
+      // The API refuses unknown / customer accounts on the staff app (403
+      // `not_staff`) without creating a profile — surface that plainly.
+      if (e.isForbidden) {
+        throw AuthException('not_staff', e.message);
+      }
       // Offline / API down: fall back to claims cached in the ID token
       // (returning staff keep working; brand-new accounts cannot be verified).
       if (!e.isNetwork) rethrow;

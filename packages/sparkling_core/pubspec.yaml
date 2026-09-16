@@ -21,6 +21,7 @@ dependencies:
   hive_ce_flutter: ^2.3.4
   intl: ^0.20.3
   meta: ^1.19.0
+  phone_numbers_parser: ^9.0.26
   supabase_flutter: ^2.17.2
   uuid: ^4.6.0
 

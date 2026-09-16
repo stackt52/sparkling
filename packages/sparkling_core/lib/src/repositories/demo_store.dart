@@ -589,6 +589,14 @@ class DemoStore {
       '+27 83 111 5555',
       marketing: true,
     );
+    // Visiting from the UK — shows international formatting (+44 7911 123456).
+    person(
+      'seed_priya',
+      UserRole.customer,
+      'Priya Naidoo',
+      'priya@example.com',
+      '+447911123456',
+    );
 
     const allOutlets = [
       outletMenlyn,
@@ -2504,9 +2512,14 @@ class DemoStore {
   }
 
   Profile updateMe(ProfileUpdate u) {
+    String? phone;
+    if (u.phone != null && u.phone!.trim().isNotEmpty) {
+      phone = Phone.normalise(u.phone);
+      if (phone == null) throw _invalidPhone();
+    }
     final p = requireProfile(uid).copyWith(
       fullName: u.fullName,
-      phone: u.phone,
+      phone: phone,
       avatarUrl: u.avatarUrl,
       marketingOptIn: u.marketingOptIn,
       whatsappOptIn: u.whatsappOptIn,
@@ -2682,9 +2695,14 @@ class DemoStore {
     _requireRole(role.isStaff);
     final q = query.trim().toLowerCase();
     if (q.length < 2) return const [];
-    final digits = q.replaceAll(RegExp(r'[^0-9]'), '');
+    // A pasted `+44 7400…` / `072 555…` compares against the E.164 key.
+    final digits = Phone.normalise(q)?.replaceAll('+', '') ??
+        q.replaceAll(RegExp(r'[^0-9]'), '');
     final plate = q.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
-    final phoneQuery = digits.length >= 3 && digits.length >= q.length ~/ 2;
+    // Only an all-numeric query (`072 555…`, `+44 7400…`) is a phone search;
+    // plates and names carry letters.
+    final phoneQuery =
+        digits.length >= 3 && RegExp(r'^[+0-9\s().-]+$').hasMatch(q);
     final matches = <CustomerSummary>[];
     for (final p in profiles.values) {
       if (p.role != UserRole.customer || !p.isActive) continue;
@@ -2721,7 +2739,6 @@ class DemoStore {
       if (existing != null) return customerSummary(existing);
     }
     final name = input.fullName.trim();
-    final phone = CustomerInput.normalisePhone(input.phone);
     if (name.length < 2) {
       throw ApiException(
         code: 'validation_error',
@@ -2729,13 +2746,8 @@ class DemoStore {
         statusCode: 400,
       );
     }
-    if (phone.length < 10) {
-      throw ApiException(
-        code: 'validation_error',
-        message: 'Enter a valid mobile number',
-        statusCode: 400,
-      );
-    }
+    final phone = Phone.normalise(input.phone);
+    if (phone == null) throw _invalidPhone();
     final email = input.email?.trim().toLowerCase();
     final phoneKey = CustomerInput.phoneKey(phone);
     final dup = profiles.values
@@ -2784,6 +2796,14 @@ class DemoStore {
 
   /// client_op_id → created walk-in profile id (idempotent replays).
   final Map<String, String> _walkInOps = {};
+
+  /// 400 `validation_error` the API returns for a phone that is not a valid
+  /// mobile number in its country (`POST /staff/customers`, `PATCH /me`).
+  static ApiException _invalidPhone() => const ApiException(
+    code: 'validation_error',
+    message: Phone.invalidMessage,
+    statusCode: 400,
+  );
 
   // ---------------------------------------------------------------------------
   // Availability & bookings

@@ -89,6 +89,22 @@ Screenshots of every screen (iPhone 16 simulator, demo mode) live in
 `screenshots/`; `screenshots/auth-*.png` were taken against the Firebase Auth
 emulator (`env/emulator.json`, API not running).
 
+## Mobile number (any country)
+
+**Profile → Your details** edits the name and mobile number with
+`PhoneNumberField` (sparkling_ui): a country chip (flag + `+27`) opens a
+searchable sheet of all countries (default South Africa), the national
+number is grouped live (`82 123 4567`), a leading trunk `0` is dropped and
+pasting a full `+44 7400 123456` switches the country. The number is saved
+as E.164 (`PATCH /me` `phone: "+447400123456"`); anything that is not a
+mobile number for the chosen country shows "Enter a valid <Country> mobile
+number" inline, and the API / demo store reject it with 400
+`validation_error` "Enter the mobile number with its country code, e.g.
++27 82 123 4567". Numbers are displayed with `Phone.format`
+(`+27 83 111 2222`). `test/profile_test.dart` saves a UK number and checks
+the validation; screenshot: `screenshots/phone-field.png` (the details
+sheet with the country picker open).
+
 ## Vehicle collection (pickup OTP)
 
 When a supervisor verifies the work, the API issues a 5-digit **collection

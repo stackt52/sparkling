@@ -251,3 +251,23 @@ describe('status mapping + adapter selection', () => {
     expect(twilioStatusCallbackUrl()).toBe('https://europe-west1-sparkling-4e89d.cloudfunctions.net/api/v1/notifications/twilio/status');
   });
 });
+
+describe('normalisePhone — international numbers (libphonenumber)', () => {
+  it('accepts numbers from other countries with their country code', () => {
+    expect(normalisePhone('+44 7911 123456')).toBe('+447911123456');
+    expect(normalisePhone('0044 7911 123456')).toBe('+447911123456');
+    expect(normalisePhone('+1 (415) 555-2671')).toBe('+14155552671');
+    expect(normalisePhone('+263 77 123 4567')).toBe('+263771234567');
+    expect(normalisePhone('263771234567')).toBe('+263771234567');
+    expect(normalisePhone('+91 98765 43210')).toBe('+919876543210');
+  });
+  it('still understands South African local numbers and rejects invalid ones', () => {
+    expect(normalisePhone('082 123 4567')).toBe('+27821234567');
+    expect(normalisePhone('27 82 123 4567')).toBe('+27821234567');
+    expect(normalisePhone('+27 82 123 456 78')).toBeNull(); // too long for ZA
+    expect(normalisePhone('+27 82 12')).toBeNull();          // too short for ZA
+    expect(normalisePhone('+44 12')).toBeNull();
+    expect(normalisePhone('12345')).toBeNull();
+    expect(normalisePhone('+999 123456789')).toBeNull();     // no such country code
+  });
+});

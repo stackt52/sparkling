@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { normalisePhone } from '../lib/whatsapp.js';
+import { PHONE_HINT } from '../lib/phone.js';
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { ApiError } from '../middleware/errors.js';
 import type { LoyaltyTier, Profile, RequestContext, Vehicle } from '../types.js';
@@ -195,7 +196,7 @@ export async function findProfileByContact(phone: string | null | undefined, ema
 export async function createWalkInCustomer(ctx: RequestContext, input: CreateCustomerInput): Promise<CustomerSummary> {
   const db = getSupabase();
   const phone = normalisePhone(input.phone);
-  if (!phone) throw ApiError.validation('phone must be a valid South African or E.164 number', [{ path: 'phone', message: 'Invalid phone number' }]);
+  if (!phone) throw ApiError.validation(PHONE_HINT, [{ path: 'phone', message: PHONE_HINT }]);
   const email = input.email ? input.email.trim().toLowerCase() : null;
 
   const existing = await findProfileByContact(phone, email);

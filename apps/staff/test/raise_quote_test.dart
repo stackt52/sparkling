@@ -27,6 +27,7 @@ final Uint8List kTinyPng = Uint8List.fromList(const [
 /// Raise-quote flow (STF-010/012, CUS-030..034) on the demo repositories.
 void main() {
   Future<void> openRaiseQuote(WidgetTester tester) async {
+    await openFabMenu(tester);
     await tester.tap(find.byKey(const ValueKey('fab-raise-quote')));
     await settle(tester);
     expect(find.text('Step 1 of 4 · Customer'), findsOneWidget);
@@ -67,9 +68,14 @@ void main() {
         // Step 1 — register a new customer.
         await tester.tap(find.text('Register new customer'));
         await settle(tester);
-        final fields = find.byType(TextFormField);
-        await tester.enterText(fields.at(0), 'Lindiwe Zulu');
-        await tester.enterText(fields.at(1), '072 555 0199');
+        await tester.enterText(find.byType(TextFormField).first, 'Lindiwe Zulu');
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(PhoneNumberField),
+            matching: find.byType(TextField),
+          ),
+          '072 555 0199',
+        );
         await tester.pump();
         await tester.tap(find.widgetWithText(PillButton, 'Register customer'));
         await settle(tester);

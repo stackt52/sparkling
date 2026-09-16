@@ -11,6 +11,7 @@ import 'test_harness.dart';
 /// prefill on the quote item sheet.
 void main() {
   Future<void> openWalkIn(WidgetTester tester) async {
+    await openFabMenu(tester);
     await tester.tap(find.text('Walk-in booking'));
     await settle(tester);
     expect(find.text('Step 1 of 4 · Customer'), findsOneWidget);
@@ -167,6 +168,7 @@ void main() {
       tester,
     ) async {
       await pumpStaffApp(tester, h.repos);
+      await openFabMenu(tester);
       await tester.tap(find.byKey(const ValueKey('fab-raise-quote')));
       await settle(tester);
       await search(tester, 'Thabo');

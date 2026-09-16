@@ -233,7 +233,7 @@ class _ReviewStepState extends State<ReviewStep> {
                     title: const Text('Send to customer now'),
                     subtitle: Text(
                       flow.sendToCustomer
-                          ? 'Push + WhatsApp with the public link to ${customer.firstName}${customer.phone == null ? '' : ' (${customer.phone})'}'
+                          ? 'Push + WhatsApp with the public link to ${customer.firstName}${customer.phone == null ? '' : ' (${Phone.format(customer.phone)})'}'
                           : 'Kept for later — share the link from the quote screen',
                       maxLines: 2,
                     ),
