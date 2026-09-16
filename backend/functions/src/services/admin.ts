@@ -23,22 +23,51 @@ function hourOf(iso: string, timezone: string): number {
   return Number(fmt.format(new Date(iso))) % 24;
 }
 
-export function todayRangeUtc(now = new Date()): { from: string; to: string } {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const end = new Date(start.getTime() + 86400_000);
-  return { from: start.toISOString(), to: end.toISOString() };
+/** Business timezone for the dashboard's day / week / month boundaries (South African outlets). */
+export const BUSINESS_TZ = 'Africa/Johannesburg';
+
+function localParts(now: Date, tz: string): { y: number; m: number; d: number; offsetMs: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const y = get('year');
+  const m = get('month');
+  const d = get('day');
+  const localAsUtc = Date.UTC(y, m - 1, d, get('hour') % 24, get('minute'), get('second'));
+  // Offset of `tz` at this instant (whole seconds), e.g. +2h for Africa/Johannesburg.
+  const offsetMs = localAsUtc - Math.floor(now.getTime() / 1000) * 1000;
+  return { y, m, d, offsetMs };
 }
 
-/** Calendar range for the dashboard presets (UTC): today, this week (Mon→now), this month (1st→now). */
-export function periodRange(period: KpiPeriod, now = new Date()): { from: string; to: string } {
+/** UTC instant of local midnight for the local calendar day containing `now` (+ `dayOffset` days) in `tz`. */
+export function startOfDayIn(now: Date, tz = BUSINESS_TZ, dayOffset = 0): Date {
+  const { y, m, d, offsetMs } = localParts(now, tz);
+  return new Date(Date.UTC(y, m - 1, d + dayOffset) - offsetMs);
+}
+
+/** `[local midnight, next local midnight)` for the business day containing `now`. */
+export function todayRange(now = new Date(), tz = BUSINESS_TZ): { from: string; to: string } {
+  return { from: startOfDayIn(now, tz).toISOString(), to: startOfDayIn(now, tz, 1).toISOString() };
+}
+/** @deprecated alias — the "today" window is the business-timezone day, not UTC. */
+export const todayRangeUtc = todayRange;
+
+/** `[local midnight, next local midnight)` for a `YYYY-MM-DD` calendar date in `tz`. */
+export function dayRangeFor(date: string, tz = BUSINESS_TZ): { from: string; to: string } {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const noonUtc = new Date(Date.UTC(y, m - 1, d, 12));
+  return { from: startOfDayIn(noonUtc, tz).toISOString(), to: startOfDayIn(noonUtc, tz, 1).toISOString() };
+}
+
+/** Calendar range for the dashboard presets in the business timezone: today, this week (Mon→now), this month (1st→now). */
+export function periodRange(period: KpiPeriod, now = new Date(), tz = BUSINESS_TZ): { from: string; to: string } {
   const to = now.toISOString();
-  if (period === 'today') return { from: todayRangeUtc(now).from, to };
+  if (period === 'today') return { from: startOfDayIn(now, tz).toISOString(), to };
+  const { y, m, d } = localParts(now, tz);
   if (period === 'week') {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-    return { from: d.toISOString(), to };
+    const weekday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // Monday = 0
+    return { from: startOfDayIn(now, tz, -weekday).toISOString(), to };
   }
-  return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), to };
+  return { from: startOfDayIn(now, tz, -(d - 1)).toISOString(), to };
 }
 
 export function initialsOf(name: string): string {

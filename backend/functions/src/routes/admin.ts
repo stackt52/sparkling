@@ -10,7 +10,7 @@ import { isoDate, isoDateTime, pagination, parseBody, parseQuery, pricingMode, u
 import { canSeeOutlet, requireAdmin, requireProfile, requireRole } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { audit } from '../services/audit.js';
-import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, listAdminPayments, periodRange, REPORTS, staffPerformance, todayRangeUtc, type ReportName } from '../services/admin.js';
+import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, dayRangeFor, listAdminPayments, periodRange, REPORTS, staffPerformance, todayRange, type ReportName } from '../services/admin.js';
 import { getAdminWorkOrder, listAdminWorkOrders } from '../services/adminWorkOrders.js';
 import { createService, deleteOutletService, listAdminOutletOffers, listServicesWithComponents, updateService, upsertOutletService } from '../services/catalogueAdmin.js';
 import { integrationStatus } from '../services/integrations.js';
@@ -45,8 +45,8 @@ const dateOrDateTime = z.union([isoDate, isoDateTime]);
 const reportFilterSchema = z.object({ outlet_id: uuid.optional(), from: dateOrDateTime.optional(), to: dateOrDateTime.optional() });
 
 export function reportBounds(from: string | undefined, to: string | undefined, defaultDays = 30): { from: string; to: string } {
-  const toIso = to ? (to.length === 10 ? `${to}T23:59:59.999Z` : new Date(to).toISOString()) : new Date().toISOString();
-  const fromIso = from ? (from.length === 10 ? `${from}T00:00:00.000Z` : new Date(from).toISOString()) : new Date(new Date(toIso).getTime() - defaultDays * 86400_000).toISOString();
+  const toIso = to ? (to.length === 10 ? dayRangeFor(to).to : new Date(to).toISOString()) : new Date().toISOString();
+  const fromIso = from ? (from.length === 10 ? dayRangeFor(from).from : new Date(from).toISOString()) : new Date(new Date(toIso).getTime() - defaultDays * 86400_000).toISOString();
   if (new Date(fromIso) > new Date(toIso)) throw ApiError.validation('from must be before to');
   return { from: fromIso, to: toIso };
 }
@@ -148,7 +148,10 @@ adminRouter.get(
     const scope = scopeFor(req, q.outlet_id);
     let query = db.from('bookings').select(BOOKING_EXPAND).order('slot_start', { ascending: true }).range(offset, offset + q.limit);
     if (scope) query = query.in('outlet_id', scope);
-    if (q.date) query = query.gte('slot_start', `${q.date}T00:00:00Z`).lt('slot_start', `${q.date}T23:59:59.999Z`);
+    if (q.date) {
+      const day = dayRangeFor(q.date);
+      query = query.gte('slot_start', day.from).lt('slot_start', day.to);
+    }
     if (q.status) query = query.in('status', q.status.split(','));
     if (q.search) {
       const filter = await bookingSearchFilter(q.search);
@@ -166,14 +169,14 @@ adminRouter.get(
 
 const workStatusEnum = z.enum(['queued', 'assigned', 'in_progress', 'blocked', 'completed', 'verified', 'cancelled']);
 
-/** Active work orders + those finished since `done_since` (default: start of today, UTC); `status` (comma list) lists exactly those statuses. */
+/** Active work orders + those finished since `done_since` (default: start of today in the business timezone); `status` (comma list) lists exactly those statuses. */
 adminRouter.get(
   '/admin/work-orders',
   managerFinance,
   asyncHandler(async (req, res) => {
     const q = parseQuery(z.object({ outlet_id: uuid.optional(), status: z.string().optional(), done_since: isoDateTime.optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }), req.query);
     const statuses = q.status ? q.status.split(',').map((s) => workStatusEnum.parse(s.trim()) as WorkStatus) : null;
-    const data = await listAdminWorkOrders({ outletIds: scopeFor(req, q.outlet_id), statuses, doneSince: q.done_since ?? todayRangeUtc().from, limit: q.limit });
+    const data = await listAdminWorkOrders({ outletIds: scopeFor(req, q.outlet_id), statuses, doneSince: q.done_since ?? todayRange().from, limit: q.limit });
     res.json({ data });
   }),
 );
@@ -785,7 +788,7 @@ adminRouter.get('/admin/staff/performance', managerPlus, asyncHandler(async (req
   const q = parseQuery(z.object({ outlet_id: uuid.optional(), period: z.enum(['today', 'week', 'month', 'quarter']).default('month') }), req.query);
   const to = new Date().toISOString();
   const days = q.period === 'week' ? 7 : q.period === 'month' ? 30 : 90;
-  const from = q.period === 'today' ? todayRangeUtc().from : new Date(Date.now() - days * 86400_000).toISOString();
+  const from = q.period === 'today' ? todayRange().from : new Date(Date.now() - days * 86400_000).toISOString();
   res.json({ period: q.period, from, to, data: await staffPerformance(scopeFor(req, q.outlet_id), from, to) });
 }));
 

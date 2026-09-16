@@ -221,3 +221,5 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 
 ## Branding
 Favicon family (`favicon.ico`, `public/icon.svg`, `icon-192/512.png`, `apple-touch-icon.png`) is generated — see `docs/branding/README.md`.
+
+- **Skills** are set in the Add staff member and Edit dialogs (`SkillsPicker`: wash / paint / panel / detail / engine plus free tags, saved as `staff_skills`). Auto-assignment matches `wash` to car-wash work orders and `paint` / `panel` to auto-body ones; the Staff grid shows the chips.

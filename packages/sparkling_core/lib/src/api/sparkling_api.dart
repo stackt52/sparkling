@@ -220,6 +220,12 @@ class SparklingApi {
   }
 
   static j.Json _obj(dynamic d) => j.asJson(d);
+
+  /// Unwraps the API's single-entity envelope (`{ "booking": {…}, "duplicate": false }`
+  /// → the inner object). Falls back to the payload itself when [key] is absent,
+  /// so flat responses keep working.
+  static j.Json _entity(dynamic d, String key) =>
+      d is Map && d[key] is Map ? j.asJson(d[key]) : j.asJson(d);
   static List<j.Json> _list(dynamic d) =>
       d is Map && d['data'] is List ? j.asJsonList(d['data']) : j.asJsonList(d);
   static void _void(dynamic _) {}
@@ -332,13 +338,13 @@ class SparklingApi {
         '/vehicles',
         body: input.toJson(),
         idempotencyKey: idempotencyKey,
-        map: (d) => Vehicle.fromJson(_obj(d)),
+        map: (d) => Vehicle.fromJson(_entity(d, 'vehicle')),
       );
 
   Future<Vehicle> updateVehicle(String id, VehicleInput input) => patch(
     '/vehicles/$id',
     body: input.toJson(),
-    map: (d) => Vehicle.fromJson(_obj(d)),
+    map: (d) => Vehicle.fromJson(_entity(d, 'vehicle')),
   );
 
   /// Soft delete.
@@ -376,7 +382,7 @@ class SparklingApi {
     '/bookings',
     body: input.toJson(),
     idempotencyKey: input.clientOpId,
-    map: (d) => Booking.fromJson(_obj(d)),
+    map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
   Future<Booking> cancelBooking(
@@ -387,7 +393,7 @@ class SparklingApi {
     '/bookings/$id/cancel',
     body: j.compact({'reason': reason}),
     idempotencyKey: idempotencyKey,
-    map: (d) => Booking.fromJson(_obj(d)),
+    map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
   Future<Booking> rescheduleBooking(
@@ -398,7 +404,7 @@ class SparklingApi {
     '/bookings/$id/reschedule',
     body: {'slot_start': j.iso(slotStart)},
     idempotencyKey: idempotencyKey,
-    map: (d) => Booking.fromJson(_obj(d)),
+    map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
   /// `POST /bookings/:id/checkin` (staff) — creates the work order + task.
@@ -411,7 +417,7 @@ class SparklingApi {
     '/bookings/$id/checkin',
     body: j.compact({'bay': bay, 'priority': priority}),
     idempotencyKey: idempotencyKey,
-    map: (d) => Booking.fromJson(_obj(d)),
+    map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
   // ---------------------------------------------------------------------------
@@ -441,14 +447,14 @@ class SparklingApi {
     '/quotations',
     body: input.toJson(),
     idempotencyKey: input.clientOpId,
-    map: (d) => Quotation.fromJson(_obj(d)),
+    map: (d) => Quotation.fromJson(_entity(d, 'quotation')),
   );
 
   Future<Attachment> addQuotationAttachment(String id, AttachmentInput input) =>
       post(
         '/quotations/$id/attachments',
         body: input.toJson(),
-        map: (d) => Attachment.fromJson(_obj(d)),
+        map: (d) => Attachment.fromJson(_entity(d, 'attachment')),
       );
 
   /// `POST /quotations/:id/quote` (supervisor/manager)
@@ -460,7 +466,7 @@ class SparklingApi {
     '/quotations/$id/quote',
     body: input.toJson(),
     idempotencyKey: idempotencyKey,
-    map: (d) => Quotation.fromJson(_obj(d)),
+    map: (d) => Quotation.fromJson(_entity(d, 'quotation')),
   );
 
   /// `POST /quotations/:id/decision` (CUS-033)
@@ -473,7 +479,7 @@ class SparklingApi {
     '/quotations/$id/decision',
     body: j.compact({'decision': accept ? 'accept' : 'decline', 'note': note}),
     idempotencyKey: idempotencyKey,
-    map: (d) => Quotation.fromJson(_obj(d)),
+    map: (d) => Quotation.fromJson(_entity(d, 'quotation')),
   );
 
   /// `POST /quotations/:id/convert` (CUS-034)
@@ -481,7 +487,7 @@ class SparklingApi {
       post(
         '/quotations/$id/convert',
         idempotencyKey: idempotencyKey,
-        map: (d) => Quotation.fromJson(_obj(d)),
+        map: (d) => Quotation.fromJson(_entity(d, 'quotation')),
       );
 
   // ---- Staff-raised quotations, damage photos & public link ------------------
@@ -513,14 +519,20 @@ class SparklingApi {
   }) async {
     assert(bytes != null || path != null, 'bytes or path required');
     final type = mimeType ?? _mimeFor(filename ?? path);
-    final name = filename ?? (path == null ? 'photo.jpg' : path.split('/').last);
+    final name =
+        filename ?? (path == null ? 'photo.jpg' : path.split('/').last);
     final media = DioMediaType.parse(type);
     final file = bytes != null
         ? MultipartFile.fromBytes(bytes, filename: name, contentType: media)
-        : await MultipartFile.fromFile(path!, filename: name, contentType: media);
+        : await MultipartFile.fromFile(
+            path!,
+            filename: name,
+            contentType: media,
+          );
     final form = FormData.fromMap({
       'photo': file,
-      if (caption != null && caption.trim().isNotEmpty) 'caption': caption.trim(),
+      if (caption != null && caption.trim().isNotEmpty)
+        'caption': caption.trim(),
     });
     return _run(
       () => dio.post('/quotations/$id/photos', data: form, options: _opts()),
@@ -559,7 +571,8 @@ class SparklingApi {
 
   /// Streams an attachment (`GET /quotations/:id/photos/:attachmentId`) with
   /// the bearer token → raw bytes for an `AuthedImage`.
-  Future<Uint8List> quotationPhotoBytes(String url) => _bytes(resolveApiUrl(url));
+  Future<Uint8List> quotationPhotoBytes(String url) =>
+      _bytes(resolveApiUrl(url));
 
   /// `DELETE /quotations/:id/photos/:attachmentId` (staff, before decision).
   Future<void> deleteQuotationPhoto(String id, String attachmentId) =>
@@ -598,7 +611,7 @@ class SparklingApi {
   Future<PaymentMethod> addPaymentMethod(PaymentMethodInput input) => post(
     '/payments/methods',
     body: input.toJson(),
-    map: (d) => PaymentMethod.fromJson(_obj(d)),
+    map: (d) => PaymentMethod.fromJson(_entity(d, 'method')),
   );
 
   /// `POST /payments/intents` → status `pending`.
@@ -627,7 +640,7 @@ class SparklingApi {
   );
 
   Future<Payment> payment(String id) =>
-      get('/payments/$id', map: (d) => Payment.fromJson(_obj(d)));
+      get('/payments/$id', map: (d) => Payment.fromJson(_entity(d, 'payment')));
 
   // ---------------------------------------------------------------------------
   // Loyalty
@@ -635,7 +648,7 @@ class SparklingApi {
 
   Future<LoyaltyAccountSummary> loyaltyAccount() => get(
     '/loyalty/account',
-    map: (d) => LoyaltyAccountSummary.fromJson(_obj(d)),
+    map: (d) => LoyaltyAccountSummary.fromJson(_entity(d, 'payment')),
   );
 
   Future<Page<LedgerEntry>> loyaltyLedger({int? limit, String? cursor}) => get(
@@ -677,7 +690,7 @@ class SparklingApi {
     '/tasks/$taskId/transition',
     body: input.toJson(),
     idempotencyKey: input.clientOpId,
-    map: (d) => Task.fromJson(_obj(d)),
+    map: (d) => Task.fromJson(_entity(d, 'task')),
   );
 
   /// `POST /tasks/:id/assign` (STF-021)
@@ -690,7 +703,7 @@ class SparklingApi {
     '/tasks/$taskId/assign',
     body: j.compact({'assignee_id': assigneeId, 'reason': reason}),
     idempotencyKey: idempotencyKey,
-    map: (d) => Task.fromJson(_obj(d)),
+    map: (d) => Task.fromJson(_entity(d, 'task')),
   );
 
   /// `POST /work-orders/:id/steps/:key`
@@ -735,10 +748,8 @@ class SparklingApi {
   );
 
   /// `GET /memberships/me`.
-  Future<MembershipSummary> membershipMe() => get(
-    '/memberships/me',
-    map: (d) => MembershipSummary.fromJson(_obj(d)),
-  );
+  Future<MembershipSummary> membershipMe() =>
+      get('/memberships/me', map: (d) => MembershipSummary.fromJson(_obj(d)));
 
   /// `POST /memberships` → 201 `{ membership (pending), invoice, payment }`;
   /// 409 `conflict` when a live membership exists.
@@ -852,7 +863,7 @@ class SparklingApi {
     '/staff/customers',
     body: input.toJson(),
     idempotencyKey: input.clientOpId,
-    map: (d) => CustomerSummary.fromJson(_obj(d)),
+    map: (d) => CustomerSummary.fromJson(_entity(d, 'customer')),
   );
 
   /// `POST /staff/customers/:id/vehicles` — 409 with `existing_vehicle_id`
@@ -871,7 +882,7 @@ class SparklingApi {
         'client_op_id': opId,
       },
       idempotencyKey: opId,
-      map: (d) => Vehicle.fromJson(_obj(d)),
+      map: (d) => Vehicle.fromJson(_entity(d, 'vehicle')),
     );
   }
 
@@ -881,7 +892,7 @@ class SparklingApi {
     '/bookings',
     body: input.toJson(),
     idempotencyKey: input.clientOpId,
-    map: (d) => Booking.fromJson(_obj(d)),
+    map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
   /// `POST /payments/record` — cash / card-terminal attestation; idempotent
@@ -969,7 +980,7 @@ class SparklingApi {
       'name': name,
       'unit': unit,
     }),
-    map: (d) => InventoryItem.fromJson(_obj(d)),
+    map: (d) => InventoryItem.fromJson(_entity(d, 'item')),
   );
 
   // ---------------------------------------------------------------------------
@@ -1023,12 +1034,15 @@ class SparklingApi {
 
   Future<List<Outlet>> adminOutlets() =>
       get('/admin/outlets', map: (d) => _list(d).map(Outlet.fromJson).toList());
-  Future<Outlet> adminCreateOutlet(j.Json body) =>
-      post('/admin/outlets', body: body, map: (d) => Outlet.fromJson(_obj(d)));
+  Future<Outlet> adminCreateOutlet(j.Json body) => post(
+    '/admin/outlets',
+    body: body,
+    map: (d) => Outlet.fromJson(_entity(d, 'outlet')),
+  );
   Future<Outlet> adminUpdateOutlet(String id, j.Json body) => patch(
     '/admin/outlets/$id',
     body: body,
-    map: (d) => Outlet.fromJson(_obj(d)),
+    map: (d) => Outlet.fromJson(_entity(d, 'outlet')),
   );
 
   Future<List<Service>> adminServices() => get(
@@ -1038,12 +1052,12 @@ class SparklingApi {
   Future<Service> adminCreateService(j.Json body) => post(
     '/admin/services',
     body: body,
-    map: (d) => Service.fromJson(_obj(d)),
+    map: (d) => Service.fromJson(_entity(d, 'service')),
   );
   Future<Service> adminUpdateService(String id, j.Json body) => patch(
     '/admin/services/$id',
     body: body,
-    map: (d) => Service.fromJson(_obj(d)),
+    map: (d) => Service.fromJson(_entity(d, 'service')),
   );
 
   /// `PUT /admin/outlets/:id/services/:serviceId` — `{ price_cents?, is_available? }`
@@ -1076,12 +1090,12 @@ class SparklingApi {
   Future<Profile> adminInviteUser(AdminUserInput input) => post(
     '/admin/users',
     body: input.toJson(),
-    map: (d) => Profile.fromJson(_obj(d)),
+    map: (d) => Profile.fromJson(_entity(d, 'profile')),
   );
   Future<Profile> adminUpdateUser(String id, AdminUserInput input) => patch(
     '/admin/users/$id',
     body: input.toJson(),
-    map: (d) => Profile.fromJson(_obj(d)),
+    map: (d) => Profile.fromJson(_entity(d, 'profile')),
   );
 
   Future<Page<Profile>> adminCustomers({
@@ -1109,13 +1123,13 @@ class SparklingApi {
   }) => put(
     '/admin/loyalty/config/draft',
     body: draft.toDraftJson(changeNote: changeNote),
-    map: (d) => LoyaltyConfig.fromJson(_obj(d)),
+    map: (d) => LoyaltyConfig.fromJson(_entity(d, 'draft')),
   );
   Future<LoyaltyConfig> adminPublishLoyaltyConfig({String? idempotencyKey}) =>
       post(
         '/admin/loyalty/config/publish',
         idempotencyKey: idempotencyKey,
-        map: (d) => LoyaltyConfig.fromJson(_obj(d)),
+        map: (d) => LoyaltyConfig.fromJson(_entity(d, 'published')),
       );
   Future<void> adminDiscardLoyaltyDraft() =>
       post('/admin/loyalty/config/discard', map: _void);
@@ -1145,7 +1159,7 @@ class SparklingApi {
   Future<ChecklistTemplate> adminCreateTemplate(ChecklistTemplate t) => post(
     '/admin/templates',
     body: t.toJson(),
-    map: (d) => ChecklistTemplate.fromJson(_obj(d)),
+    map: (d) => ChecklistTemplate.fromJson(_entity(d, 'template')),
   );
   Future<ChecklistTemplate> adminUpdateTemplate(
     String id,
@@ -1153,7 +1167,7 @@ class SparklingApi {
   ) => put(
     '/admin/templates/$id',
     body: t.toJson(),
-    map: (d) => ChecklistTemplate.fromJson(_obj(d)),
+    map: (d) => ChecklistTemplate.fromJson(_entity(d, 'template')),
   );
 
   Future<Page<AuditEvent>> adminAudit({
@@ -1194,7 +1208,7 @@ class SparklingApi {
       patch(
         '/admin/flags/$key',
         body: {'enabled': enabled},
-        map: (d) => FeatureFlag.fromJson(_obj(d)),
+        map: (d) => FeatureFlag.fromJson(_entity(d, 'flag')),
       );
 
   // ---------------------------------------------------------------------------

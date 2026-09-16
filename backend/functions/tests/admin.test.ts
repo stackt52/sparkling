@@ -174,7 +174,8 @@ describe('GET /admin/reports/summary (REP-005)', () => {
     const r = await get('/v1/admin/reports/summary?from=2026-09-01&to=2026-09-30', 'admin');
     expect(r.status).toBe(200);
     const s = r.body;
-    expect(s.range).toEqual({ from: '2026-09-01T00:00:00.000Z', to: '2026-09-30T23:59:59.999Z', outlet_ids: null });
+    // Calendar dates resolve to local (Africa/Johannesburg) midnights: 1 Sep 00:00 local = 31 Aug 22:00Z; `to` is the next local midnight (exclusive).
+    expect(s.range).toEqual({ from: '2026-08-31T22:00:00.000Z', to: '2026-09-30T22:00:00.000Z', outlet_ids: null });
     expect(s.financial).toMatchObject({ revenue_cents: 19800, refunds_cents: 1000, payments_total: 3, payments_successful: 1, payments_failed: 1, avg_ticket_cents: 19800 });
     expect(s.financial.by_status.map((x: any) => x.status).sort()).toEqual(['failed', 'refunded', 'successful']);
     expect(s.financial.by_outlet.map((o: any) => [o.name, o.bookings])).toEqual([['Sparkling Sandton', 1], ['Sparkling Rosebank', 1]]);

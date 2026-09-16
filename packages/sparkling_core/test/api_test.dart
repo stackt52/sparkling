@@ -406,4 +406,91 @@ void main() {
       );
     });
   });
+
+  group('single-entity envelopes (live API shape)', () {
+    test(
+      'walk-in customer: { customer } → CustomerSummary with the name',
+      () async {
+        adapter.handler = (o) async => _json({
+          'customer': {
+            'id': 'walkin_1',
+            'full_name': 'Oliver Bennett',
+            'phone': '+447911123456',
+            'email': null,
+            'role': 'customer',
+          },
+        }, status: 201);
+        final c = await api.createCustomer(
+          const CustomerInput(
+            fullName: 'Oliver Bennett',
+            phone: '+447911123456',
+            clientOpId: 'op-c1',
+          ),
+        );
+        expect(c.id, 'walkin_1');
+        expect(c.fullName, 'Oliver Bennett');
+      },
+    );
+
+    test(
+      'staff vehicle: { vehicle } → Vehicle with the scanned details',
+      () async {
+        adapter.handler = (o) async => _json({
+          'vehicle': {
+            'id': 'v1',
+            'customer_id': 'walkin_1',
+            'registration_no': 'KL 45 MN GP',
+            'make': 'Toyota',
+            'model': 'Corolla Cross',
+            'colour': 'White',
+            'source': 'scan',
+          },
+        }, status: 201);
+        final v = await api.createCustomerVehicle(
+          'walkin_1',
+          const VehicleInput(registrationNo: 'KL 45 MN GP', make: 'Toyota'),
+          clientOpId: 'op-v1',
+        );
+        expect(v.registrationNo, 'KL 45 MN GP');
+        expect(v.make, 'Toyota');
+        expect(v.model, 'Corolla Cross');
+      },
+    );
+
+    test(
+      'booking: { booking, duplicate } → Booking; flat payloads still parse',
+      () async {
+        adapter.handler = (o) async => _json({
+          'booking': {
+            'id': 'b9',
+            'ref': 'SPK-2026-0099',
+            'status': 'confirmed',
+            'customer_id': 'walkin_1',
+            'slot_start': '2026-09-16T07:00:00Z',
+            'slot_end': '2026-09-16T07:20:00Z',
+          },
+          'duplicate': false,
+        }, status: 201);
+        final b = await api.createBooking(
+          BookingInput(
+            vehicleId: 'v1',
+            outletId: 'o',
+            serviceId: 's',
+            slotStart: DateTime.utc(2026, 9, 16, 7),
+            clientOpId: 'op-b9',
+          ),
+        );
+        expect(b.ref, 'SPK-2026-0099');
+        adapter.handler = (o) async => _json({
+          'id': 'b9',
+          'ref': 'SPK-2026-0099',
+          'status': 'confirmed',
+          'customer_id': 'walkin_1',
+          'slot_start': '2026-09-16T07:00:00Z',
+          'slot_end': '2026-09-16T07:20:00Z',
+        });
+        expect((await api.booking('b9')).ref, 'SPK-2026-0099');
+      },
+    );
+  });
 }

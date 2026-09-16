@@ -10,7 +10,7 @@ import { createApp } from '../src/app.js';
 import { setFirebaseAuthForTests, setFirebaseMessagingForTests } from '../src/lib/firebase.js';
 import { setSupabaseClient } from '../src/lib/supabase.js';
 import { resetRateLimits } from '../src/middleware/rateLimit.js';
-import { avgCycleMinutes, formatRandShort, initialsOf, periodRange } from '../src/services/admin.js';
+import { avgCycleMinutes, dayRangeFor, formatRandShort, initialsOf, periodRange, todayRange } from '../src/services/admin.js';
 import { invalidateFlags } from '../src/services/flags.js';
 import { stockCapacity } from '../src/routes/inventory.js';
 import { fakeSupabase, type FakeSupabase } from './helpers/fakeSupabase.js';
@@ -170,10 +170,15 @@ const send = (method: string, path: string, token: string, body: unknown) => cal
 
 describe('helpers', () => {
   it('derives calendar preset ranges, initials, cycle averages and rand labels', () => {
-    expect(periodRange('today', new Date(NOW))).toEqual({ from: '2026-09-14T00:00:00.000Z', to: NOW });
-    expect(periodRange('week', new Date(NOW)).from).toBe('2026-09-14T00:00:00.000Z'); // 14 Sep 2026 is a Monday
-    expect(periodRange('week', new Date('2026-09-16T12:00:00.000Z')).from).toBe('2026-09-14T00:00:00.000Z');
-    expect(periodRange('month', new Date(NOW)).from).toBe('2026-09-01T00:00:00.000Z');
+    // Boundaries are local (Africa/Johannesburg, UTC+2): local midnight 14 Sep = 13 Sep 22:00Z.
+    expect(periodRange('today', new Date(NOW))).toEqual({ from: '2026-09-13T22:00:00.000Z', to: NOW });
+    expect(periodRange('week', new Date(NOW)).from).toBe('2026-09-13T22:00:00.000Z'); // 14 Sep 2026 is a Monday
+    expect(periodRange('week', new Date('2026-09-16T12:00:00.000Z')).from).toBe('2026-09-13T22:00:00.000Z');
+    expect(periodRange('month', new Date(NOW)).from).toBe('2026-08-31T22:00:00.000Z');
+    // 23:30Z on the 16th is already 01:30 on the 17th in Johannesburg → "today" is the 17th.
+    expect(todayRange(new Date('2026-09-16T23:30:00.000Z'))).toEqual({ from: '2026-09-16T22:00:00.000Z', to: '2026-09-17T22:00:00.000Z' });
+    expect(dayRangeFor('2026-09-17')).toEqual({ from: '2026-09-16T22:00:00.000Z', to: '2026-09-17T22:00:00.000Z' });
+    expect(periodRange('week', new Date('2026-09-13T23:00:00.000Z')).from).toBe('2026-09-13T22:00:00.000Z'); // Monday 01:00 local
     expect(initialsOf('Pieter van der Merwe')).toBe('PV');
     expect(avgCycleMinutes([{ elapsed_seconds: 1800 }, { started_at: '2026-09-14T06:00:00.000Z', completed_at: '2026-09-14T06:40:00.000Z' }])).toBe(35);
     expect(avgCycleMinutes([])).toBeNull();
@@ -240,7 +245,7 @@ describe('GET /admin/kpis', () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
       period: 'today',
-      range: { from: '2026-09-14T00:00:00.000Z', to: NOW },
+      range: { from: '2026-09-13T22:00:00.000Z', to: NOW },
       revenue_cents: 15000,
       revenue_compare_label: 'vs R 0 yesterday',
       bookings_count: 2,
@@ -361,7 +366,7 @@ describe('GET /admin/staff/performance', () => {
   it('accepts period=today and returns rank, period points, lifetime points, outlet and badges', async () => {
     const r = await get('/v1/admin/staff/performance?period=today', 'admin');
     expect(r.status).toBe(200);
-    expect(r.body.from).toBe('2026-09-14T00:00:00.000Z');
+    expect(r.body.from).toBe('2026-09-13T22:00:00.000Z'); // local midnight, Africa/Johannesburg
     const tech = r.body.data.find((s: any) => s.staff_id === 'tech_1');
     expect(tech).toMatchObject({ name: 'Pieter Marais', outlet_name: 'Sparkling Sandton', tasks_completed: 1, tasks_verified: 1, avg_cycle_minutes: 30, checklist_compliance_pct: 100, points: 65, points_period: 25, rank: 1, delta: 0 });
     expect(tech.badges).toEqual([{ code: 'speed_demon', name: 'Speed demon', icon: 'bolt', colour: '#FFB300', earned_at: '2026-09-01T00:00:00.000Z' }]);

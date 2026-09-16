@@ -660,12 +660,12 @@ export class DemoApi implements AdminApi {
     a.password_changed_at = nowIso();
     return DemoApi.toProfile(a);
   }
-  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean; phone?: string | null }): Promise<StaffUser> {
+  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; skills?: string[]; is_active?: boolean; phone?: string | null }): Promise<StaffUser> {
     await delay();
     this.requireRole('admin');
     const p = this.profiles.find((x) => x.id === id);
     if (!p) throw new ApiRequestError(404, { code: 'not_found', message: 'User not found' });
-    const before = { role: p.role, outlet_ids: p.outlet_ids, is_active: p.is_active, phone: p.phone };
+    const before = { role: p.role, outlet_ids: p.outlet_ids, skills: p.skills, is_active: p.is_active, phone: p.phone };
     if (patch.phone !== undefined) patch = { ...patch, phone: DemoApi.optionalPhone(patch.phone) };
     Object.assign(p, patch);
     this.log('user.update', 'profile', id, before, patch);

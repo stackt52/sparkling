@@ -197,7 +197,7 @@ export interface AdminApi {
   listUsers(): Promise<StaffUser[]>;
   /** `POST /admin/users` — creates the Firebase user with a temporary password (ADM-010). */
   inviteUser(body: CreateStaffInput): Promise<CreateStaffResult>;
-  updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean; phone?: string | null }): Promise<StaffUser>;
+  updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; skills?: string[]; is_active?: boolean; phone?: string | null }): Promise<StaffUser>;
   /** `POST /admin/users/:id/reset-password` — new temporary password, refresh tokens revoked, `must_change_password` re-flagged. */
   resetUserPassword(id: string): Promise<ResetPasswordResult>;
   /** `POST /auth/password-changed` — clears `must_change_password` after the client set a new password (fresh `auth_time` required). */
@@ -544,9 +544,9 @@ export class HttpApi implements AdminApi {
     const res = await this.request<{ profile: Profile }>('POST', '/auth/password-changed');
     return res.profile;
   }
-  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; is_active?: boolean; phone?: string | null }) {
+  async updateUser(id: string, patch: { role?: UserRole; outlet_ids?: string[]; skills?: string[]; is_active?: boolean; phone?: string | null }) {
     const res = await this.request<{ profile: Profile; outlet_ids: string[] }>('PATCH', `/admin/users/${id}`, patch);
-    return { ...res.profile, outlet_ids: res.outlet_ids ?? [], outlet_names: [], skills: [] } as StaffUser;
+    return { ...res.profile, outlet_ids: res.outlet_ids ?? [], outlet_names: [], skills: patch.skills ?? [] } as StaffUser;
   }
   /** Rows without completed tasks have null cycle / compliance figures; the grid shows them as 0. */
   async staffPerformance(p: OutletScoped & { period: Period }) {

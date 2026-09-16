@@ -17,6 +17,7 @@ import Avatar from '@mui/material/Avatar';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Checkbox from '@mui/material/Checkbox';
+import { SkillsPicker } from '@/components/staff/SkillsPicker';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -129,10 +130,10 @@ function AddStaffForm({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const outlets = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
   // `phone` is E.164 or '' (PhoneField); `phoneValid` gates the submit when a number was typed.
-  const [form, setForm] = React.useState({ full_name: '', email: '', phone: '', phoneValid: false, role: 'technician' as UserRole, outlet_ids: [] as string[], link: false });
+  const [form, setForm] = React.useState({ full_name: '', email: '', phone: '', phoneValid: false, role: 'technician' as UserRole, outlet_ids: [] as string[], skills: [] as string[], link: false });
   const [result, setResult] = React.useState<CreateStaffResult | null>(null);
   const m = useMutation({
-    mutationFn: () => api.inviteUser({ email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone || null, role: form.role, outlet_ids: form.outlet_ids, invite: form.link ? 'link' : 'password' }),
+    mutationFn: () => api.inviteUser({ email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone || null, role: form.role, outlet_ids: form.outlet_ids, skills: form.skills, invite: form.link ? 'link' : 'password' }),
     onSuccess: (r) => { setResult(r); void qc.invalidateQueries({ queryKey: ['users'] }); },
     onError: (e) => toast.error(e),
   });
@@ -154,6 +155,7 @@ function AddStaffForm({ onClose }: { onClose: () => void }) {
             <TextField select label="Outlets" value={form.outlet_ids} onChange={(e) => setForm({ ...form, outlet_ids: (typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) as string[] })} size="small" slotProps={{ select: { multiple: true, renderValue: (v) => (v as string[]).map((id) => outlets.data?.find((o) => o.id === id)?.name.replace('Sparkling ', '')).join(', ') } }}>
               {(outlets.data ?? []).map((o) => <MenuItem key={o.id} value={o.id}>{o.name}</MenuItem>)}
             </TextField>
+            <SkillsPicker value={form.skills} onChange={(skills) => setForm({ ...form, skills })} />
             <FormControlLabel control={<Checkbox checked={form.link} onChange={(e) => setForm({ ...form, link: e.target.checked })} />} label={<Typography variant="body2">Also generate a reset link</Typography>} />
           </>
         )}
@@ -188,10 +190,10 @@ function EditUserForm({ user, onClose, onResetPassword }: { user: StaffUser; onC
   const qc = useQueryClient();
   const toast = useToast();
   const outlets = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
-  const [form, setForm] = React.useState(() => ({ role: user.role, outlet_ids: user.outlet_ids, is_active: user.is_active, phone: user.phone ?? '', phoneValid: Boolean(user.phone) }));
+  const [form, setForm] = React.useState(() => ({ role: user.role, outlet_ids: user.outlet_ids, skills: user.skills ?? [], is_active: user.is_active, phone: user.phone ?? '', phoneValid: Boolean(user.phone) }));
   const phoneChanged = form.phone !== (user.phone ?? '');
   const m = useMutation({
-    mutationFn: () => api.updateUser(user.id, { role: form.role, outlet_ids: form.outlet_ids, is_active: form.is_active, ...(phoneChanged ? { phone: form.phone || null } : {}) }),
+    mutationFn: () => api.updateUser(user.id, { role: form.role, outlet_ids: form.outlet_ids, skills: form.skills, is_active: form.is_active, ...(phoneChanged ? { phone: form.phone || null } : {}) }),
     onSuccess: (u) => { toast.success(`${u.full_name} updated${!form.is_active ? ' · refresh tokens revoked' : ''}`); void qc.invalidateQueries({ queryKey: ['users'] }); onClose(); },
     onError: (e) => toast.error(e),
   });
@@ -208,6 +210,7 @@ function EditUserForm({ user, onClose, onResetPassword }: { user: StaffUser; onC
         <TextField select label="Outlets" value={form.outlet_ids} onChange={(e) => setForm({ ...form, outlet_ids: (typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) as string[] })} size="small" slotProps={{ select: { multiple: true, renderValue: (v) => (v as string[]).map((id) => outlets.data?.find((o) => o.id === id)?.name.replace('Sparkling ', '')).join(', ') } }}>
           {(outlets.data ?? []).map((o) => <MenuItem key={o.id} value={o.id}>{o.name}</MenuItem>)}
         </TextField>
+        <SkillsPicker value={form.skills} onChange={(skills) => setForm({ ...form, skills })} />
         <FormControlLabel control={<M3Switch checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />} label={form.is_active ? 'Active' : 'Deactivated — sign-in revoked (SEC-014)'} />
         <Button variant="outlined" onClick={onResetPassword} startIcon={<MSymbol name="lock_reset" size={20} />} sx={{ alignSelf: 'flex-start' }}>Reset password</Button>
       </DialogContent>
