@@ -3,6 +3,7 @@
  */
 import type { RequestHandler } from 'express';
 import { firebaseAuth } from '../lib/firebase.js';
+import { logger } from './correlation.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { ApiError, asyncHandler } from './errors.js';
 import type { AuthContext, Profile, RequestContext, UserRole } from '../types.js';
@@ -53,8 +54,20 @@ export const authenticate: RequestHandler = asyncHandler(async (req, _res, next)
   req.auth = auth;
   req.ctx = buildContext(req, auth);
   req.log = req.log.child({ uid, role });
+  touchLastSeen(profile);
   next();
 });
+
+const LAST_SEEN_THROTTLE_MS = 2 * 60_000;
+/** Keeps `profiles.last_seen_at` fresh while the apps are in use (at most one write per 2 min per user; fire-and-forget). */
+function touchLastSeen(profile: Profile | null): void {
+  if (!profile) return;
+  const last = profile.last_seen_at ? new Date(profile.last_seen_at).getTime() : 0;
+  if (Date.now() - last < LAST_SEEN_THROTTLE_MS) return;
+  void getSupabase().from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', profile.id).then(({ error }) => {
+    if (error) logger.warn({ err: error, uid: profile.id }, 'last_seen touch failed');
+  });
+}
 
 export function buildContext(req: import('express').Request, auth: AuthContext): RequestContext {
   return {

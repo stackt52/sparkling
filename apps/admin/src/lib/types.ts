@@ -96,7 +96,7 @@ export interface StaffUser extends Profile {
   outlet_ids: string[];
   outlet_names: string[];
   skills: string[];
-  availability?: 'available' | 'busy' | 'break' | 'off';
+  availability?: 'available' | 'busy' | 'break' | 'off' | null;
 }
 
 /** `POST /admin/users` body (ADM-010). `invite:'link'` additionally returns a Firebase password-reset link. */

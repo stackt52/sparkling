@@ -526,6 +526,10 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   Future<void> dispose() async => _deferredSub?.cancel();
 
   @override
+  Future<void> setAvailability(AvailabilityStatus status) =>
+      api.setAvailability(status);
+
+  @override
   Future<List<Task>> tasks({required TaskScope scope, String? outletId}) =>
       cached(
         'tasks:${scope.name}:${outletId ?? ''}',

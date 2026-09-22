@@ -3467,6 +3467,64 @@ paths:
           schema:
             type: string
             format: date
+  /staff/me/availability:
+    put:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  availability:
+                    type: object
+                    properties:
+                      profile_id:
+                        type: string
+                      status:
+                        type: string
+                      capacity:
+                        type: integer
+                      updated_at:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: setMyAvailability
+      summary: Set the signed-in staff member's availability
+      requestBody:
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - available
+                    - busy
+                    - break
+                    - 'off'
+              required:
+                - status
   /staff/team:
     get:
       responses:

@@ -922,6 +922,13 @@ class SparklingApi {
   // Staff — ops, inventory, gamification
   // ---------------------------------------------------------------------------
 
+  /// `PUT /staff/me/availability`
+  Future<void> setAvailability(AvailabilityStatus status) => put(
+    '/staff/me/availability',
+    body: {'status': status.db},
+    map: _void,
+  );
+
   Future<OpsSummary> opsSummary({required String outletId, DateTime? date}) =>
       get(
         '/staff/ops-summary',

@@ -294,7 +294,7 @@ class SessionController extends ChangeNotifier {
     final user = current.copyWith(
       claims: {
         ...current.claims,
-        'role': profile.role.db,
+        'app_role': profile.role.db,
         'outlet_ids': profile.outletIds.isNotEmpty
             ? profile.outletIds
             : current.outletIds,

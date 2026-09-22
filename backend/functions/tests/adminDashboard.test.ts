@@ -446,3 +446,21 @@ describe('outlets, templates, audit, memberships, quotations', () => {
     expect(db.rows('quotations').find((q) => q.id === QUOTE_2)?.items_note).toBe('Courtesy wash included');
   });
 });
+
+describe('PUT /staff/me/availability', () => {
+  it('upserts the caller\'s availability and the admin users list reflects it', async () => {
+    const r = await fetch(`${base}/v1/staff/me/availability`, { method: 'PUT', headers: { Authorization: 'Bearer tech', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'break' }) });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.availability).toMatchObject({ profile_id: 'tech_1', status: 'break' });
+    expect(db.rows('staff_availability').find((a) => a.profile_id === 'tech_1')).toMatchObject({ status: 'break' });
+    const bad = await fetch(`${base}/v1/staff/me/availability`, { method: 'PUT', headers: { Authorization: 'Bearer tech', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'asleep' }) });
+    expect(bad.status).toBe(400);
+    const customer = await fetch(`${base}/v1/staff/me/availability`, { method: 'PUT', headers: { Authorization: 'Bearer customer', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'busy' }) });
+    expect(customer.status).toBe(403);
+    // (The fake Supabase does not resolve embedded selects, so the `/admin/users` join is covered by the live schema only.)
+    const users = await get('/v1/admin/users?limit=100', 'admin');
+    expect(users.status).toBe(200);
+    expect(users.body.data.find((u: any) => u.id === 'tech_1')).toHaveProperty('availability');
+  });
+});

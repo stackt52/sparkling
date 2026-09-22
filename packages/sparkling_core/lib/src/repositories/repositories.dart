@@ -160,6 +160,10 @@ abstract interface class StaffRepository {
   /// `invalid_otp` (see `attemptsLeft`) or `rate_limited`.
   Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp);
 
+  /// `PUT /staff/me/availability` — the signed-in staff member's availability
+  /// (drives the supervisor assign sheet and the admin Staff page).
+  Future<void> setAvailability(AvailabilityStatus status);
+
   /// Re-sends the collection OTP to the customer (WhatsApp + push).
   /// Throws `rate_limited` when called again within the cooldown.
   Future<void> resendPickupOtp(String workOrderId);

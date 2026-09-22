@@ -20,7 +20,9 @@ export function getSupabase(getToken: () => Promise<string | null>): SupabaseCli
 }
 
 /** Admin realtime channels per docs/API.md (bookings, work_orders, payments, inventory_alerts, task_events). */
-export const ADMIN_REALTIME_TABLES = ['bookings', 'work_orders', 'payments', 'inventory_alerts', 'task_events'] as const;
+export const ADMIN_REALTIME_TABLES = ['bookings', 'work_orders', 'payments', 'inventory_alerts', 'task_events', 'profiles', 'staff_availability'] as const;
+/** Tables without an `outlet_id` column — subscribed unfiltered. */
+const UNSCOPED_TABLES = new Set<string>(['task_events', 'profiles', 'staff_availability']);
 
 export function subscribeAdminChanges(
   sb: SupabaseClient,
@@ -29,7 +31,7 @@ export function subscribeAdminChanges(
 ): () => void {
   const channels: RealtimeChannel[] = [];
   for (const table of ADMIN_REALTIME_TABLES) {
-    const filter = outletId && table !== 'task_events' ? `outlet_id=eq.${outletId}` : undefined;
+    const filter = outletId && !UNSCOPED_TABLES.has(table) ? `outlet_id=eq.${outletId}` : undefined;
     const ch = sb
       .channel(`admin:${table}:${outletId ?? 'all'}`)
       .on('postgres_changes', { event: '*', schema: 'public', table, ...(filter ? { filter } : {}) }, () =>

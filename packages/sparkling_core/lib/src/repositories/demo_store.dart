@@ -49,6 +49,13 @@ class DemoStore {
   }
 
   String get uid => currentUser.uid;
+
+  /// `PUT /staff/me/availability` — the signed-in persona's availability.
+  void setAvailability(AvailabilityStatus status) {
+    final prev = staffAvailability[uid];
+    staffAvailability[uid] = (status: status, capacity: prev?.capacity ?? 3);
+    _changes.add(const DemoChange('staff_availability'));
+  }
   UserRole get role => currentUser.role;
 
   void signInAs(AuthUser user) {

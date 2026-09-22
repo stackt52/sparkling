@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { isoDate, parseQuery, uuid } from '../lib/validate.js';
+import { isoDate, parseBody, parseQuery, uuid } from '../lib/validate.js';
 import { assertOutlet, requireProfile, requireStaff, requireSupervisor } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { leaderboard, periodStart } from '../services/gamification.js';
@@ -151,3 +151,20 @@ staffRouter.get(
 );
 
 export type { Task };
+
+const availabilitySchema = z.object({ status: z.enum(['available', 'busy', 'break', 'off']) });
+
+/** The signed-in staff member's own availability (shown on the supervisor assign sheet and the admin Staff page). */
+staffRouter.put(
+  '/staff/me/availability',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(availabilitySchema, req.body);
+    const db = getSupabase();
+    const row = unwrap<{ profile_id: string; status: string; updated_at?: string }>(
+      await db.from('staff_availability').upsert({ profile_id: req.auth!.uid, status: body.status, updated_at: new Date().toISOString() }, { onConflict: 'profile_id' }).select('*').single(),
+      'availability',
+    );
+    res.json({ availability: row });
+  }),
+);

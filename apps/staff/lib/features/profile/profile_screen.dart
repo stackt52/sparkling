@@ -167,6 +167,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onChanged: (v) {
                       settings.setAvailability(v);
                       StaffHaptics.tap(context);
+                      // Mirror to the server so the assign sheet and the admin
+                      // Staff page see it (kept locally if offline).
+                      context.session.repositories.staff
+                          .setAvailability(v)
+                          .catchError((Object e) {
+                            if (context.mounted) {
+                              StaffSnack.show(
+                                context,
+                                "Couldn't update your availability — it will "
+                                'show locally until you are back online.',
+                              );
+                            }
+                          });
                     },
                     segments: const [
                       PillSegment(

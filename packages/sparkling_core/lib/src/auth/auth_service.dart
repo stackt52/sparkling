@@ -41,7 +41,18 @@ class AuthUser {
   bool get requiresProviderReauth =>
       !hasPasswordProvider && providerIds.isNotEmpty;
 
-  UserRole get role => UserRole.fromDb(claims['role']?.toString());
+  /// Sparkling role from the `app_role` claim. (`role` is reserved by Supabase
+  /// and always `authenticated` on live tokens; older tokens carried the
+  /// Sparkling role there, so it is still honoured as a fallback.)
+  UserRole get role {
+    final appRole = claims['app_role']?.toString();
+    if (appRole != null && appRole.isNotEmpty) return UserRole.fromDb(appRole);
+    final legacy = claims['role']?.toString();
+    if (legacy == null || legacy == 'authenticated' || legacy == 'anon') {
+      return UserRole.fromDb(null);
+    }
+    return UserRole.fromDb(legacy);
+  }
   List<String> get outletIds =>
       (claims['outlet_ids'] as List?)?.map((e) => e.toString()).toList() ??
       const [];
@@ -465,7 +476,7 @@ class DemoAuthService implements AuthGateway {
     email: 'thabo@example.com',
     displayName: 'Thabo Nkosi',
     emailVerified: true,
-    claims: {'role': 'customer', 'outlet_ids': <String>[]},
+    claims: {'app_role': 'customer', 'outlet_ids': <String>[]},
   );
 
   static const AuthUser demoTechnician = AuthUser(
@@ -474,7 +485,7 @@ class DemoAuthService implements AuthGateway {
     displayName: 'Pieter van der Merwe',
     emailVerified: true,
     claims: {
-      'role': 'technician',
+      'app_role': 'technician',
       'outlet_ids': ['a0000000-0000-4000-8000-000000000001'],
     },
   );
@@ -488,7 +499,7 @@ class DemoAuthService implements AuthGateway {
     displayName: 'Nomsa Dube',
     emailVerified: true,
     claims: {
-      'role': 'technician',
+      'app_role': 'technician',
       'outlet_ids': ['a0000000-0000-4000-8000-000000000001'],
     },
   );

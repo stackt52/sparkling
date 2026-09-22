@@ -32,7 +32,7 @@ import MSymbol from '@/components/MSymbol';
 import { NavyPill } from '@/components/ui/Pills';
 import PhoneField from '@/components/ui/PhoneField';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
-import { useToast } from '@/lib/hooks';
+import { useLive, useToast } from '@/lib/hooks';
 import { can, roleLabel } from '@/lib/rbac';
 import { copyText } from '@/lib/clipboard';
 import { fonts, tk } from '@/theme/tokens';
@@ -41,6 +41,7 @@ import { formatPhone } from '@/lib/phone';
 import { ADMIN_ROLES, type CreateStaffResult, type Profile, type StaffUser, type UserRole } from '@/lib/types';
 
 const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'finance', 'admin'];
+const AVAILABILITY_LABEL: Record<NonNullable<StaffUser['availability']>, string> = { available: 'Available', busy: 'Busy', break: 'On break', off: 'Off shift' };
 
 const FIRST_SIGN_IN_NOTE = "They'll be asked to choose a new password the first time they sign in to the Sparkling Staff app or this dashboard.";
 
@@ -278,6 +279,7 @@ function ResetPasswordBody({ user, onClose }: { user: StaffUser; onClose: () => 
 export default function StaffPage() {
   const api = useApi();
   const { role } = useAuth();
+  useLive(['users']); // last_seen_at / availability change live (profiles + staff_availability realtime, 30 s fallback)
   const q = useQuery({ queryKey: ['users'], queryFn: () => api.listUsers() });
   const [edit, setEdit] = React.useState<StaffUser | null>(null);
   const [editOpen, setEditOpen] = React.useState(false);
@@ -302,6 +304,9 @@ export default function StaffPage() {
     { field: 'is_active', headerName: 'Status', flex: 1.2, minWidth: 240, renderCell: (p) => (
       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
         <StatusChip tone={p.row.is_active ? 'success' : 'error'} label={p.row.is_active ? 'Active' : 'Inactive'} />
+        {p.row.is_active && p.row.availability && (
+          <StatusChip tone={p.row.availability === 'available' ? 'success' : p.row.availability === 'busy' ? 'warning' : 'neutral'} label={AVAILABILITY_LABEL[p.row.availability]} sx={{ height: 22, fontSize: 11 }} />
+        )}
         {p.row.must_change_password && <StatusChip tone="warning" label="Must change password" icon={<MSymbol name="lock_reset" size={16} />} sx={{ height: 22, fontSize: 11, '& .MuiChip-icon': { color: 'inherit', ml: 0.75 } }} />}
       </Box>
     ) },

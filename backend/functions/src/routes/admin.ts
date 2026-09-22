@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { firebaseAuth } from '../lib/firebase.js';
+import { staffClaims } from './auth.js';
 import { optionalPhoneSchema } from '../lib/phone.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
@@ -377,7 +378,7 @@ adminRouter.get('/admin/users', managerPlus, asyncHandler(async (req, res) => {
   const q = parseQuery(pagination.extend({ role: z.string().optional(), search: z.string().max(80).optional(), outlet_id: uuid.optional() }), req.query);
   const db = getSupabase();
   const offset = decodeCursor(q.cursor);
-  let query = db.from('profiles').select('*, staff_outlets(outlet_id, is_primary, outlet:outlets(id, name)), staff_skills(skill)').neq('role', 'customer').order('full_name').range(offset, offset + q.limit);
+  let query = db.from('profiles').select('*, staff_outlets(outlet_id, is_primary, outlet:outlets(id, name)), staff_skills(skill), staff_availability(status)').neq('role', 'customer').order('full_name').range(offset, offset + q.limit);
   if (q.role) query = query.in('role', q.role.split(','));
   if (q.search) {
     const s = q.search.replace(/[%_,()]/g, '');
@@ -386,11 +387,12 @@ adminRouter.get('/admin/users', managerPlus, asyncHandler(async (req, res) => {
   let rows = unwrap<any[]>(await query, 'users');
   if (q.outlet_id) rows = rows.filter((r) => (r.staff_outlets ?? []).some((o: any) => o.outlet_id === q.outlet_id));
   // Flatten the joins into the admin `StaffUser` shape (outlet_ids / outlet_names / skills).
-  const users = rows.map(({ staff_outlets, staff_skills, ...profile }) => ({
+  const users = rows.map(({ staff_outlets, staff_skills, staff_availability, ...profile }) => ({
     ...profile,
     outlet_ids: (staff_outlets ?? []).map((o: any) => o.outlet_id),
     outlet_names: (staff_outlets ?? []).map((o: any) => o.outlet?.name ?? '').filter(Boolean),
     skills: (staff_skills ?? []).map((k: any) => k.skill),
+    availability: (Array.isArray(staff_availability) ? staff_availability[0]?.status : staff_availability?.status) ?? null,
   }));
   res.json(pageResult(users, q.limit, offset));
 }));
@@ -456,7 +458,7 @@ adminRouter.post('/admin/users', requireAdmin, asyncHandler(async (req, res) => 
   }
   await db.from('staff_skills').delete().eq('profile_id', user.uid);
   if (body.skills.length) await db.from('staff_skills').insert(body.skills.map((skill) => ({ profile_id: user.uid, skill })));
-  await auth.setCustomUserClaims(user.uid, { role: body.role, outlet_ids: STAFF_ROLES.includes(body.role) ? body.outlet_ids : [] });
+  await auth.setCustomUserClaims(user.uid, staffClaims(body.role, STAFF_ROLES.includes(body.role) ? body.outlet_ids : []));
   await audit(req.ctx, { action: 'user.create', entity_type: 'profile', entity_id: user.uid, after: { role: body.role, outlet_ids: body.outlet_ids, invite: body.invite } });
   res.status(201).json({ profile, uid: user.uid, temporary_password: password, invite_link: inviteLink });
 }));
@@ -527,7 +529,7 @@ adminRouter.patch('/admin/users/:id', requireAdmin, asyncHandler(async (req, res
   if (!id.startsWith('seed_')) {
     try {
       if (profile.is_active) {
-        await fb.setCustomUserClaims(id, { role: profile.role, outlet_ids: outletIds });
+        await fb.setCustomUserClaims(id, staffClaims(profile.role, outletIds));
         if (before.is_active === false) await fb.updateUser(id, { disabled: false });
       } else {
         await fb.setCustomUserClaims(id, {});

@@ -264,6 +264,10 @@ class DemoStaffRepository implements StaffRepository {
   final DemoStore store;
 
   @override
+  Future<void> setAvailability(AvailabilityStatus status) =>
+      _later(() => store.setAvailability(status));
+
+  @override
   Future<List<Task>> tasks({required TaskScope scope, String? outletId}) =>
       _later(() => store.taskList(scope: scope, outletId: outletId));
   @override

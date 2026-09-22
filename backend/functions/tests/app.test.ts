@@ -9,6 +9,7 @@ import { fakeSupabase, type FakeSupabase } from './helpers/fakeSupabase.js';
 
 let server: Server;
 let base: string;
+const claimsSet: unknown[][] = [];
 let db: FakeSupabase;
 
 beforeAll(async () => {
@@ -21,7 +22,7 @@ beforeAll(async () => {
       if (token === 'new') return { uid: 'uid_new', email: 'naledi@example.com', name: 'Naledi' };
       throw new Error('bad token');
     },
-    setCustomUserClaims: async () => undefined,
+    setCustomUserClaims: async (uid: string, claims: unknown) => { claimsSet.push([uid, claims]); },
   } as any);
   setPaymentProviderForTests(new SandboxProvider('s3cret'));
 });
@@ -85,6 +86,8 @@ describe('app wiring (API-001/004/010)', () => {
     expect(r.body.profile.full_name).toBe('Naledi Mokoena');
     expect(r.body.claims_updated).toBe(true);
     expect(db.rows('profiles').some((p) => p.id === 'seed_naledi')).toBe(false);
+    // Supabase reserves `role` (= Postgres role); the Sparkling role travels in `app_role`.
+    expect(claimsSet.at(-1)).toEqual(['uid_new', { role: 'authenticated', app_role: 'customer', outlet_ids: [] }]);
   });
 
   it('POST /v1/auth/session refuses unknown accounts on the staff/admin apps without creating a profile', async () => {

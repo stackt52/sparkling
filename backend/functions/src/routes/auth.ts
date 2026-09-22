@@ -25,12 +25,21 @@ const sessionSchema = z.object({
 
 /** Sets custom claims when they differ from the current token. */
 export async function syncClaims(uid: string, role: UserRole, outletIds: string[], tokenClaims: Record<string, unknown>): Promise<boolean> {
-  const currentRole = tokenClaims.role;
+  const currentRole = tokenClaims.app_role;
   const currentOutlets = Array.isArray(tokenClaims.outlet_ids) ? (tokenClaims.outlet_ids as string[]) : [];
-  const same = currentRole === role && currentOutlets.length === outletIds.length && currentOutlets.every((o) => outletIds.includes(o));
+  const same = currentRole === role && tokenClaims.role === 'authenticated' && currentOutlets.length === outletIds.length && currentOutlets.every((o) => outletIds.includes(o));
   if (same) return false;
-  await firebaseAuth().setCustomUserClaims(uid, { role, outlet_ids: outletIds });
+  await firebaseAuth().setCustomUserClaims(uid, staffClaims(role, outletIds));
   return true;
+}
+
+/**
+ * Custom claims carried by the Firebase ID token. Supabase (PostgREST + Realtime) reads the
+ * reserved `role` claim as the Postgres role, so it must be `authenticated`; the Sparkling
+ * role lives in `app_role` (RLS `app.role()` reads it) next to the outlet scope.
+ */
+export function staffClaims(role: UserRole, outletIds: string[]): Record<string, unknown> {
+  return { role: 'authenticated', app_role: role, outlet_ids: outletIds };
 }
 
 /**
