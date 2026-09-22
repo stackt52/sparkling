@@ -162,6 +162,28 @@ on other services (R 792).
 total and the size selector. Screenshots:
 `screenshots/catalogue-{services,addons,payment}.png`.
 
+## Cash on collection
+
+When the public flag `cash_on_collection` (`GET /v1/config`, no auth —
+`Repositories.config.config()`, cached for the session) is on and there is
+something to pay, **Review & pay** offers a third radio card under the saved
+methods: **Cash on collection** — "Pay R x in cash at the counter when you
+collect your car". Selecting it turns the CTA into **Confirm booking · pay on
+collection**; `POST /bookings` then carries `payment_method: 'cash'` and the
+server answers a **confirmed** booking straight away (no payment intent, no
+sandbox step). The confirmation and the booking detail show an amber
+**Cash due on collection · R x** line until staff record the cash at the
+hand-over, after which they show **Paid · cash** (+ receipt). A 409
+`validation_error {reason:'cash_disabled'}` (flag switched off meanwhile)
+shows the server message, deselects cash and hides the option. The choice is
+kept in the flow state only (not in the persisted draft). The flag off →
+the option is simply absent.
+
+Demo: the flag is on; Thabo's ready-for-collection wash `SPK-2026-0098`
+(R 81) is cash on collection and unpaid. `test/cash_on_collection_test.dart`
+covers flag on / off, the `cash_disabled` fallback and the detail states.
+Screenshot: `screenshots/cash-option.png`.
+
 ## Membership plans (docs/MEMBERSHIPS.md)
 
 The loyalty tier **is** the membership plan: Silver = no plan (points only),

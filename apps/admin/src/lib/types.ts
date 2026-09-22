@@ -316,6 +316,9 @@ export interface WorkOrderSummary {
   blocked_reason: string | null;
 }
 
+/** How the customer chose to pay at booking time (`cash` = cash on collection, feature flag `cash_on_collection`). */
+export type BookingPaymentMethod = 'card' | 'eft' | 'cash';
+
 export interface Booking {
   id: string;
   ref: string;
@@ -337,6 +340,12 @@ export interface Booking {
   customer: { id: string; full_name: string; email: string | null; phone: string | null };
   work_order: WorkOrderSummary | null;
   payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number; method?: PosPaymentMethod | null; provider?: string | null } | null;
+  /**
+   * Chosen at booking time. A `cash` booking is created `confirmed` with no online payment; `payment` stays null
+   * until staff record the cash at the counter (`POST /payments/record`), and collection is refused (409
+   * `validation_error` `{ reason: 'payment_due', amount_cents }`) until then.
+   */
+  payment_method?: BookingPaymentMethod | null;
   quotation_id: string | null;
   /** Staff-created walk-in (STF-010/012). */
   walk_in?: boolean;
@@ -597,6 +606,8 @@ export interface WalkInBookingInput {
   notes?: string | null;
   client_op_id: string;
   checkin?: { bay?: string | null; priority?: WalkInPriority };
+  /** `cash` needs the `cash_on_collection` flag (409 `validation_error` `{ reason: 'cash_disabled' }` otherwise). */
+  payment_method?: BookingPaymentMethod | null;
 }
 
 export interface WalkInBookingResult {

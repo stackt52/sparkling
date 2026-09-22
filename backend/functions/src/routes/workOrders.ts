@@ -21,7 +21,7 @@ workOrdersRouter.get(
     const wo = unwrap<(WorkOrder & Record<string, unknown>) | null>(
       await db
         .from('work_orders')
-        .select('*, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), outlet:outlets(id, name), customer:profiles!work_orders_customer_id_fkey(id, full_name, phone), assignee:profiles!work_orders_assignee_id_fkey(id, full_name), booking:bookings(id, ref, status, slot_start, slot_end, total_cents)')
+        .select('*, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), outlet:outlets(id, name), customer:profiles!work_orders_customer_id_fkey(id, full_name, phone), assignee:profiles!work_orders_assignee_id_fkey(id, full_name), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method)')
         .eq('id', id)
         .maybeSingle(),
       'work order',
@@ -38,6 +38,12 @@ workOrdersRouter.get(
     const steps = template?.steps ?? [];
     if (isCustomer) delete (wo as Record<string, unknown>).customer;
     // The collection OTP is only ever shown to the owning customer while the vehicle is ready and uncollected.
+    // Cash-on-collection: tell staff whether the counter payment has been recorded yet.
+    const bk = wo.booking as ({ id: string; payment_method?: string | null } & Record<string, unknown>) | null;
+    if (bk?.id) {
+      const paid = unwrap<{ id: string }[]>(await db.from('payments').select('id').eq('booking_id', bk.id).eq('status', 'successful'), 'payments');
+      (wo as Record<string, unknown>).booking = { ...bk, paid: paid.length > 0 };
+    }
     const safe = redactPickupOtp(req.auth!, wo, (wo.booking as { status?: string } | null)?.status ?? null);
     res.json({
       work_order: { ...safe, ...progress(steps, results) },

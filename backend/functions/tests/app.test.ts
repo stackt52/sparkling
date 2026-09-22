@@ -104,6 +104,13 @@ describe('app wiring (API-001/004/010)', () => {
     expect(customer.body.profile).toMatchObject({ id: 'uid_new', role: 'customer' });
   });
 
+  it('GET /v1/config is public and lists only the safe flags', async () => {
+    db.rows('feature_flags').push({ key: 'cash_on_collection', enabled: true }, { key: 'payments_sandbox', enabled: true }, { key: 'secret_internal', enabled: true });
+    const r = await call('/v1/config');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ flags: { cash_on_collection: true, payments_sandbox: true, whatsapp_enabled: false } });
+  });
+
   it('GET /v1/me returns the profile', async () => {
     const r = await call('/v1/me', { headers: { Authorization: 'Bearer good' } });
     expect(r.status).toBe(200);

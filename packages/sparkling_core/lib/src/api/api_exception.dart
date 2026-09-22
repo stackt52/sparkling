@@ -53,6 +53,28 @@ class ApiException implements Exception {
     return reason == 'by_quote';
   }
 
+  /// 409 `validation_error` `{ reason: 'cash_disabled' }` from
+  /// `POST /bookings`: the `cash_on_collection` flag is off — offer card /
+  /// instant EFT instead.
+  bool get isCashDisabled => _reason == 'cash_disabled';
+
+  /// 409 `validation_error` `{ reason: 'payment_due', amount_cents,
+  /// booking_id, method: 'cash' }` from `POST /work-orders/:id/pickup/verify`:
+  /// the cash-on-collection booking is unpaid — record the cash first.
+  bool get isPaymentDue => _reason == 'payment_due';
+
+  /// `amount_cents` carried by a [isPaymentDue] error.
+  int? get paymentDueCents {
+    final v = _detail('amount_cents') ?? data?['amount_cents'];
+    return v == null ? null : int.tryParse(v.toString());
+  }
+
+  /// `booking_id` carried by a [isPaymentDue] error.
+  String? get paymentDueBookingId =>
+      (_detail('booking_id') ?? data?['booking_id'])?.toString();
+
+  String? get _reason => (data?['reason'] ?? _detail('reason'))?.toString();
+
   /// `existing_vehicle_id` on a 409 from `POST /vehicles` (CUS-015).
   String? get existingVehicleId =>
       data?['existing_vehicle_id']?.toString() ??

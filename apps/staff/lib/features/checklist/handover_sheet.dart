@@ -12,6 +12,12 @@ import '../../widgets/feedback.dart';
 /// reads their 5-digit collection OTP at the counter, staff type it and the
 /// keys are released (`POST /work-orders/:id/pickup/verify`).
 ///
+/// A **cash on collection** booking ([booking] with `isCashDue`) first shows
+/// "Cash due · R x" with **Record cash payment** (`POST /payments/record`,
+/// method `cash`, full amount) and only then the OTP step; a 409
+/// `payment_due` from the verify (when the caller had no booking expansion)
+/// surfaces the same banner and button.
+///
 /// Returns the [PickupVerifyResult] when the keys were released, otherwise
 /// `null` (dismissed).
 Future<PickupVerifyResult?> showHandoverSheet(
@@ -20,6 +26,7 @@ Future<PickupVerifyResult?> showHandoverSheet(
   required String ref,
   String? customerName,
   String? vehicleLabel,
+  WorkOrderBooking? booking,
 }) {
   return showModalBottomSheet<PickupVerifyResult>(
     context: context,
@@ -31,6 +38,7 @@ Future<PickupVerifyResult?> showHandoverSheet(
       ref: ref,
       customerName: customerName,
       vehicleLabel: vehicleLabel,
+      booking: booking,
     ),
   );
 }
@@ -43,6 +51,7 @@ class HandoverSheet extends StatefulWidget {
     required this.ref,
     this.customerName,
     this.vehicleLabel,
+    this.booking,
     this.resendCooldown = const Duration(seconds: 60),
   });
 
@@ -50,6 +59,10 @@ class HandoverSheet extends StatefulWidget {
   final String ref;
   final String? customerName;
   final String? vehicleLabel;
+
+  /// Linked booking (`booking` expansion) — when it is cash on collection and
+  /// unpaid the sheet starts with the cash step.
+  final WorkOrderBooking? booking;
 
   /// Client-side cooldown before "Resend OTP" is offered again.
   final Duration resendCooldown;
@@ -59,6 +72,9 @@ class HandoverSheet extends StatefulWidget {
 }
 
 enum _Phase { input, busy, released, locked }
+
+/// Cash still to be recorded before the OTP is accepted.
+typedef _CashDue = ({String? bookingId, int amountCents});
 
 class _HandoverSheetState extends State<HandoverSheet> {
   final _controller = TextEditingController();
@@ -71,6 +87,13 @@ class _HandoverSheetState extends State<HandoverSheet> {
   int _cooldownLeft = 0;
   Timer? _cooldown;
 
+  _CashDue? _cashDue;
+  bool _recording = false;
+  String? _cashRecorded;
+
+  /// One idempotency key per sheet so a retried record never double-charges.
+  String? _cashOpId;
+
   static const int otpLength = 5;
 
   /// Wrong codes tolerated by the API before `rate_limited` (docs/API.md).
@@ -79,6 +102,10 @@ class _HandoverSheetState extends State<HandoverSheet> {
   @override
   void initState() {
     super.initState();
+    final b = widget.booking;
+    if (b != null && b.isCashDue) {
+      _cashDue = (bookingId: b.id, amountCents: b.totalCents);
+    }
     _controller.addListener(() {
       if (_error != null) setState(() => _error = null);
       setState(() {});
@@ -124,6 +151,19 @@ class _HandoverSheetState extends State<HandoverSheet> {
           _error = e.message;
           _attemptsLeft = 0;
         });
+      } else if (e.isPaymentDue) {
+        // Cash on collection not recorded yet (caller had no booking
+        // expansion): show the cash step with the amount the API reports.
+        setState(() {
+          _phase = _Phase.input;
+          _error = null;
+          _cashDue = (
+            bookingId: e.paymentDueBookingId ?? widget.booking?.id,
+            amountCents:
+                e.paymentDueCents ?? widget.booking?.totalCents ?? 0,
+          );
+          _paymentDueMessage = e.message;
+        });
       } else if (e.isInvalidOtp) {
         final left = e.attemptsLeft;
         // Clear before showing the error: the text listener resets `_error`.
@@ -150,6 +190,61 @@ class _HandoverSheetState extends State<HandoverSheet> {
         _phase = _Phase.input;
         _error = ErrorState.messageFor(e);
       });
+    }
+  }
+
+  String? _paymentDueMessage;
+
+  /// `POST /payments/record { method: 'cash', amount_cents }` for the full
+  /// booking total, then on to the OTP step.
+  Future<void> _recordCash() async {
+    final due = _cashDue;
+    if (due == null || _recording) return;
+    final bookingId = due.bookingId;
+    if (bookingId == null) {
+      StaffSnack.show(
+        context,
+        'Record the cash under Payments first, then verify the OTP.',
+      );
+      return;
+    }
+    setState(() => _recording = true);
+    try {
+      final payment = await context.repositories.staff.recordPayment(
+        RecordPaymentInput(
+          bookingId: bookingId,
+          method: PaymentMethodKind.cash,
+          amountCents: due.amountCents,
+          idempotencyKey: _cashOpId ??= SparklingApi.newOpId(),
+        ),
+      );
+      if (!mounted) return;
+      StaffHaptics.success(context);
+      setState(() {
+        _cashDue = null;
+        _paymentDueMessage = null;
+        _cashRecorded = payment.receiptNo == null
+            ? '${Money.formatZar(payment.amountCents)} cash recorded'
+            : '${Money.formatZar(payment.amountCents)} cash recorded · ${payment.receiptNo}';
+      });
+      _focus.requestFocus();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.isConflict && e.message.toLowerCase().contains('already paid')) {
+        // Recorded elsewhere meanwhile — carry on with the OTP.
+        setState(() {
+          _cashDue = null;
+          _paymentDueMessage = null;
+          _cashRecorded = 'Cash already recorded';
+        });
+      } else {
+        StaffHaptics.error(context);
+        StaffSnack.error(context, e);
+      }
+    } catch (e) {
+      if (mounted) StaffSnack.error(context, e);
+    } finally {
+      if (mounted) setState(() => _recording = false);
     }
   }
 
@@ -217,7 +312,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: SafeArea(
         top: false,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -249,6 +344,17 @@ class _HandoverSheetState extends State<HandoverSheet> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (widget.booking?.isCashOnCollection ?? false) ...[
+                          const SizedBox(height: 6),
+                          StatusChip(
+                            label: 'Cash on collection',
+                            tone: _cashDue == null
+                                ? StatusChipTone.success
+                                : StatusChipTone.warning,
+                            icon: Symbols.payments_rounded,
+                            dense: true,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -279,7 +385,45 @@ class _HandoverSheetState extends State<HandoverSheet> {
                     ),
                   ),
                 )
-              else ...[
+              else if (_cashDue != null) ...[
+                InfoBanner(
+                  key: const ValueKey('handover-cash-due'),
+                  tone: InfoTone.warning,
+                  icon: Symbols.payments_rounded,
+                  bordered: true,
+                  title: 'Cash due · ${Money.formatZar(_cashDue!.amountCents)}',
+                  text:
+                      _paymentDueMessage ??
+                      'This booking is paid in cash at the counter. Take the '
+                          'cash and record it — the collection OTP is only '
+                          'accepted once the payment is on file.',
+                ),
+                const SizedBox(height: 16),
+                PillButton(
+                  key: const ValueKey('handover-record-cash'),
+                  label:
+                      'Record cash payment · ${Money.formatZar(_cashDue!.amountCents)}',
+                  icon: Symbols.point_of_sale_rounded,
+                  expand: true,
+                  minHeight: 56,
+                  loading: _recording,
+                  onPressed: _recording ? null : _recordCash,
+                ),
+                const SizedBox(height: 8),
+                const AuditNote(
+                  icon: Symbols.receipt_long_rounded,
+                  text: 'A receipt is issued and the customer is notified; the payment is recorded against your ID.',
+                ),
+              ] else ...[
+                if (_cashRecorded != null) ...[
+                  InfoBanner(
+                    key: const ValueKey('handover-cash-recorded'),
+                    tone: InfoTone.success,
+                    icon: Symbols.check_circle_rounded,
+                    text: '$_cashRecorded — now verify the collection OTP.',
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Text(
                   'Ask the customer for the 5-digit collection OTP from their '
                   'WhatsApp / app, then release the keys.',

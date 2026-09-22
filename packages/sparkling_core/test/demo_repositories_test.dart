@@ -887,6 +887,16 @@ void main() {
     test('five wrong codes rate-limit; resend issues a fresh OTP', () async {
       await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
       await Future<void>.delayed(const Duration(milliseconds: 5));
+      // SPK-2026-0098 is cash on collection: settle it first, otherwise the
+      // verify answers 409 payment_due before any OTP attempt is counted.
+      await repos.staff.recordPayment(
+        RecordPaymentInput(
+          bookingId: DemoStore.bookingReady,
+          method: PaymentMethodKind.cash,
+          amountCents: 8100,
+          idempotencyKey: 'test-cash-0098',
+        ),
+      );
       for (var i = 1; i <= 4; i++) {
         await expectLater(
           repos.staff.verifyPickupOtp(DemoStore.woReady, '11111'),

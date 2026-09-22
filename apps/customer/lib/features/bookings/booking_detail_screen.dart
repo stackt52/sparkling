@@ -402,13 +402,45 @@ class _PriceCard extends StatelessWidget {
               ),
             ],
           ),
-          if (b.payment != null) ...[
+          if (b.isCashDue) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('cash-due-line'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: x.warningContainer,
+                borderRadius: BorderRadius.circular(SparklingShapes.tile),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Symbols.payments_rounded,
+                    size: 20,
+                    color: x.onWarningContainer,
+                    fill: 1,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Cash due on collection · ${Money.formatZar(b.totalCents)}',
+                      style: SparklingTypography.titleMedium.copyWith(
+                        fontSize: 15,
+                        color: x.onWarningContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (b.payment != null) ...[
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: StatusChip(
                 label: paid
-                    ? 'Payment verified${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
+                    ? b.isCashOnCollection
+                          ? 'Paid · cash${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
+                          : 'Payment verified${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
                     : 'Payment ${b.payment!.status.label.toLowerCase()}',
                 tone: paid ? StatusChipTone.success : StatusChipTone.warning,
                 dense: true,

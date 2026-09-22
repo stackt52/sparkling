@@ -28,6 +28,12 @@ class BookingFlowController extends ChangeNotifier {
   Vehicle? vehicle;
   DateTime? slotStart;
   String? methodId;
+
+  /// How the customer chose to pay at "Review & pay": a saved card / instant
+  /// EFT ([methodId]) or **cash on collection** (`payment_method: cash`, only
+  /// when the `cash_on_collection` flag is on). Kept in memory for the flow
+  /// only — not part of the persisted draft.
+  PaymentChoice? paymentChoice;
   String clientOpId = SparklingApi.newOpId();
   DateTime? restoredAt;
 
@@ -233,10 +239,19 @@ class BookingFlowController extends ChangeNotifier {
     _persist();
   }
 
-  void setMethod(String? id) {
+  void setMethod(String? id, {PaymentChoice? choice}) {
     methodId = id;
+    paymentChoice = choice;
     _persist();
   }
+
+  /// Selects **cash on collection** (the saved method stays remembered).
+  void setPayCash() {
+    paymentChoice = PaymentChoice.cash;
+    notifyListeners();
+  }
+
+  bool get payCash => paymentChoice == PaymentChoice.cash;
 
   BookingInput toInput() => BookingInput(
     vehicleId: vehicle!.id,
@@ -246,6 +261,7 @@ class BookingFlowController extends ChangeNotifier {
     clientOpId: clientOpId,
     vehicleSize: vehicleSize,
     addonServiceIds: addons.map((a) => a.serviceId).toList(),
+    paymentMethod: nothingToPay ? null : paymentChoice,
   );
 
   /// Clears the draft after a successful booking (or on explicit discard).
@@ -256,6 +272,7 @@ class BookingFlowController extends ChangeNotifier {
     vehicle = null;
     slotStart = null;
     methodId = null;
+    paymentChoice = null;
     restoredAt = null;
     clientOpId = SparklingApi.newOpId();
     repositories.drafts.delete(draftKey);

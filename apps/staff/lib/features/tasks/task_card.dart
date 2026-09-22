@@ -99,6 +99,23 @@ class TaskCard extends StatelessWidget {
               ),
             ),
           ],
+          if (wo?.isCashOnCollection ?? false) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                key: const ValueKey('cash-on-collection-chip'),
+                label: wo!.isCashDue
+                    ? 'Cash on collection · ${Money.formatZar(wo.booking!.totalCents)} due'
+                    : 'Cash on collection · paid',
+                tone: wo.isCashDue
+                    ? StatusChipTone.warning
+                    : StatusChipTone.success,
+                icon: Symbols.payments_rounded,
+                dense: true,
+              ),
+            ),
+          ],
           if (blocked) ...[
             const SizedBox(height: 6),
             Text(

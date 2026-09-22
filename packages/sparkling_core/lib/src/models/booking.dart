@@ -488,6 +488,7 @@ class Booking extends Equatable {
     this.entitlementId,
     this.membershipBenefit,
     this.membership,
+    this.paymentMethod,
   });
 
   final String id;
@@ -550,6 +551,16 @@ class Booking extends Equatable {
   final String? entitlementId;
   final MembershipBenefit? membershipBenefit;
   final BookingMembership? membership;
+
+  /// How the customer chose to pay (`bookings.payment_method`); `cash` means
+  /// **cash on collection** — confirmed without an online payment, settled at
+  /// the counter before the keys are released.
+  final PaymentChoice? paymentMethod;
+
+  bool get isCashOnCollection => paymentMethod == PaymentChoice.cash;
+
+  /// Cash still to be collected at the counter (no verified payment yet).
+  bool get isCashDue => isCashOnCollection && totalCents > 0 && !isPaid;
 
   /// The service was covered by the customer's plan (base price waived).
   bool get isIncluded =>
@@ -659,6 +670,7 @@ class Booking extends Equatable {
     membership: json['membership'] is Map
         ? BookingMembership.fromJson(asJson(json['membership']))
         : null,
+    paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
   );
 
   Json toJson() => compact({
@@ -704,6 +716,7 @@ class Booking extends Equatable {
     'entitlement_id': entitlementId,
     'membership_benefit': membershipBenefit?.db,
     'membership': membership?.toJson(),
+    'payment_method': paymentMethod?.db,
   });
 
   Booking copyWith({
@@ -764,6 +777,7 @@ class Booking extends Equatable {
     entitlementId: entitlementId,
     membershipBenefit: membershipBenefit,
     membership: membership,
+    paymentMethod: paymentMethod,
   );
 
   @override
@@ -783,6 +797,7 @@ class Booking extends Equatable {
     updatedAt,
     pendingSync,
     membershipBenefit,
+    paymentMethod,
   ];
 }
 
@@ -797,6 +812,7 @@ class BookingInput {
     this.notes,
     this.vehicleSize,
     this.addonServiceIds = const [],
+    this.paymentMethod,
   });
 
   final String vehicleId;
@@ -812,6 +828,11 @@ class BookingInput {
   /// Add-ons (`is_addon` services of the service's group).
   final List<String> addonServiceIds;
 
+  /// `payment_method`: `cash` confirms the booking for payment at the counter
+  /// (409 `validation_error {reason: 'cash_disabled'}` when the
+  /// `cash_on_collection` flag is off); `card` / `eft` are informational.
+  final PaymentChoice? paymentMethod;
+
   Json toJson() => compact({
     'vehicle_id': vehicleId,
     'outlet_id': outletId,
@@ -821,6 +842,7 @@ class BookingInput {
     'notes': notes,
     'vehicle_size': vehicleSize?.db,
     'addon_service_ids': addonServiceIds.isEmpty ? null : addonServiceIds,
+    'payment_method': paymentMethod?.db,
   });
 
   factory BookingInput.fromJson(Json json) => BookingInput(
@@ -834,5 +856,6 @@ class BookingInput {
         ? null
         : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
     addonServiceIds: asStringList(json['addon_service_ids']),
+    paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
   );
 }

@@ -167,10 +167,28 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                               icon: serviceIcon(b.service?.icon),
                               text: b.isIncluded && b.totalCents == 0
                                   ? '${b.service?.name ?? 'Service'} · included in your plan'
+                                  : b.isCashDue
+                                  ? '${b.service?.name ?? 'Service'} · ${Money.formatZar(amount)}'
                                   : '${b.service?.name ?? 'Service'} · ${paid ? 'paid' : 'due'} ${Money.formatZar(amount)}',
                               actionLabel: paid ? 'Receipt' : null,
                               onAction: () => _showReceipt(b),
                             ),
+                            if (b.isCashDue)
+                              _DetailRow(
+                                key: const ValueKey('cash-due-row'),
+                                icon: Symbols.payments_rounded,
+                                iconColor: context.sparkling.onWarningContainer,
+                                textColor: context.sparkling.onWarningContainer,
+                                text:
+                                    'Cash due on collection · ${Money.formatZar(b.totalCents)}',
+                              )
+                            else if (b.isCashOnCollection && paid)
+                              _DetailRow(
+                                key: const ValueKey('cash-paid-row'),
+                                icon: Symbols.payments_rounded,
+                                iconColor: context.sparkling.success,
+                                text: 'Paid · cash',
+                              ),
                             if (b.membership?.isIncluded ?? false)
                               _DetailRow(
                                 icon: Symbols.workspace_premium_rounded,
@@ -257,9 +275,11 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
 
 class _DetailRow extends StatelessWidget {
   const _DetailRow({
+    super.key,
     required this.icon,
     required this.text,
     this.iconColor,
+    this.textColor,
     this.actionLabel,
     this.onAction,
   });
@@ -267,6 +287,7 @@ class _DetailRow extends StatelessWidget {
   final IconData icon;
   final String text;
   final Color? iconColor;
+  final Color? textColor;
   final String? actionLabel;
   final VoidCallback? onAction;
 
@@ -285,7 +306,7 @@ class _DetailRow extends StatelessWidget {
               style: SparklingTypography.titleMedium.copyWith(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
-                color: cs.onSurface,
+                color: textColor ?? cs.onSurface,
               ),
             ),
           ),

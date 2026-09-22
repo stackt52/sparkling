@@ -236,6 +236,14 @@ class SparklingApi {
 
   Future<j.Json> health() => get('/health', map: _obj, skipAuth: true);
 
+  /// `GET /config` (no auth) → public feature flags
+  /// (`cash_on_collection`, `payments_sandbox`, `whatsapp_enabled`).
+  Future<AppConfig> config() => get(
+    '/config',
+    map: (d) => AppConfig.fromJson(_obj(d), fetchedAt: DateTime.now()),
+    skipAuth: true,
+  );
+
   // ---------------------------------------------------------------------------
   // Auth & profile
   // ---------------------------------------------------------------------------

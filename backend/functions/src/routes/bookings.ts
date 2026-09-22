@@ -143,6 +143,8 @@ const createSchema = z.object({
   vehicle_size: vehicleSize.optional(),
   /** Add-ons (`is_addon`, same group as the service) priced into the booking. */
   addon_service_ids: z.array(uuid).max(10).optional(),
+  /** How the customer intends to pay; `cash` (feature flag `cash_on_collection`) confirms the booking without an online payment. */
+  payment_method: z.enum(['card', 'eft', 'cash']).optional(),
 });
 
 bookingsRouter.post(
@@ -163,6 +165,7 @@ bookingsRouter.post(
       walkIn: body.walk_in,
       vehicleSize: body.vehicle_size,
       addonServiceIds: body.addon_service_ids,
+      paymentMethod: body.payment_method,
     });
     let booking: Booking = created.booking;
     let work_order: WorkOrder | null = null;

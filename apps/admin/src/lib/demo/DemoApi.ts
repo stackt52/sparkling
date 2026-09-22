@@ -178,6 +178,7 @@ export class DemoApi implements AdminApi {
       customer: { id: b.customer_id, full_name: c?.full_name ?? 'Customer', email: c?.email ?? null, phone: c?.phone ?? null },
       work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason } : null,
       payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider } : null,
+      payment_method: b.payment_method ?? null,
       vehicle_size: b.vehicle_size, pricing_mode: b.pricing_mode, vat_mode: b.vat_mode, addon_service_ids: [...b.addon_service_ids], addons_cents: b.addons_cents, vat_cents: b.vat_cents, price_label: b.price_label,
       membership_id: b.membership_id ?? null, entitlement_id: b.entitlement_id ?? null, membership_benefit: b.membership_benefit ?? null, membership: this.bookingMembership(b),
       addons: b.addon_service_ids.map((id) => {
@@ -1005,6 +1006,11 @@ export class DemoApi implements AdminApi {
     const discount = mb?.discount ?? 0;
     const vat = offer.vat_mode === 'excl' ? Math.round((price - discount) * VAT_RATE) : 0;
     const total = price - discount + vat;
+    // Cash on collection needs the `cash_on_collection` flag (same 409 as the API); walk-ins / R 0 bookings are confirmed regardless.
+    const cash = input.payment_method === 'cash' && total > 0;
+    if (cash && !this.flagEnabled('cash_on_collection')) {
+      throw new ApiRequestError(409, { code: 'validation_error', message: 'Cash on collection is not available at the moment — please pay by card or instant EFT', details: { reason: 'cash_disabled' } });
+    }
     const n = 100 + this.bookings.length + 1;
     const ref = `SPK-2026-${String(n).padStart(4, '0')}`;
     const b: RawBooking = {
@@ -1014,11 +1020,12 @@ export class DemoApi implements AdminApi {
       notes: input.notes ?? null, cancel_reason: null, created_at: nowIso(), quotation_id: null, walk_in: true, created_by: this.actorId,
       vehicle_size: size, pricing_mode: offer.pricing_mode, vat_mode: offer.vat_mode, addon_service_ids: addonIds, addons_cents, price_label: priceLabel(offer, base, this.fmtR.bind(this)),
       membership_id: mb?.membership.id ?? null, entitlement_id: mb?.entitlement?.id ?? null, membership_benefit: mb?.benefit ?? null,
+      payment_method: input.payment_method ?? null,
     };
     this.bookings.push(b);
     this.ops.set(`booking:${input.client_op_id}`, b.id);
     if (mb?.benefit === 'included') this.postUsage(b);
-    this.log('booking.create_walk_in', 'booking', b.id, null, { ref, total_cents: total, price_cents: price, discount_cents: discount, discount_label: b.discount_label, membership_benefit: b.membership_benefit ?? null, addons_cents, vat_cents: vat, vehicle_size: size, customer_id: customer.id, slot_start: b.slot_start, status: b.status, walk_in: true, on_behalf: true }, o.id);
+    this.log('booking.create_walk_in', 'booking', b.id, null, { ref, total_cents: total, price_cents: price, discount_cents: discount, discount_label: b.discount_label, membership_benefit: b.membership_benefit ?? null, addons_cents, vat_cents: vat, vehicle_size: size, customer_id: customer.id, slot_start: b.slot_start, status: b.status, payment_method: b.payment_method ?? null, walk_in: true, on_behalf: true }, o.id);
 
     let work_order: WorkOrder | null = null;
     if (input.checkin) {
@@ -1764,6 +1771,7 @@ export class DemoApi implements AdminApi {
     const start = f.cursor ? Number(f.cursor) : 0;
     return { data: clone(rows.slice(start, start + limit)), next_cursor: start + limit < rows.length ? String(start + limit) : null };
   }
+  private flagEnabled(key: string): boolean { return Boolean(this.flags.find((f) => f.key === key)?.enabled); }
   async listFlags(): Promise<FeatureFlag[]> { await delay(60); return clone(this.flags); }
   async updateFlag(key: string, enabled: boolean): Promise<FeatureFlag> {
     await delay(); this.requireRole('admin');
@@ -1776,7 +1784,7 @@ export class DemoApi implements AdminApi {
   }
   async integrations(): Promise<IntegrationStatus[]> {
     await delay(60);
-    const wa = Boolean(this.flags.find((f) => f.key === 'whatsapp_enabled')?.enabled);
+    const wa = this.flagEnabled('whatsapp_enabled');
     return [
       { key: 'supabase', name: 'Supabase Postgres + Realtime', status: 'demo', detail: 'Demo mode · in-memory dataset mirrors seed.sql (project uicqczgpiqkczwyssdft when live)', icon: 'database' },
       { key: 'firebase', name: 'Firebase Auth · sparkling-4e89d', status: 'demo', detail: 'Demo session · email/password + Google when NEXT_PUBLIC_DEMO_MODE=false', icon: 'verified_user' },

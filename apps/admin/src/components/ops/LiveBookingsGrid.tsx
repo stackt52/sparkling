@@ -8,6 +8,7 @@ import type { GridColDef } from '@mui/x-data-grid';
 import SectionCard from '@/components/ui/SectionCard';
 import AdminGrid from '@/components/ui/AdminGrid';
 import StatusChip from '@/components/ui/StatusChip';
+import CashChip from '@/components/bookings/CashChip';
 import { TonalPill } from '@/components/ui/Pills';
 import { EmptyState } from '@/components/ui/States';
 import { fonts, tk } from '@/theme/tokens';
@@ -30,7 +31,16 @@ export const bookingColumns: GridColDef<Booking>[] = [
   { field: 'vehicle', headerName: 'Vehicle', flex: 1.1, minWidth: 130, valueGetter: (_v, r) => r.vehicle.registration_no, renderCell: (p) => <span className="mono">{p.row.vehicle.registration_no}</span> },
   { field: 'service', headerName: 'Service', flex: 1.3, minWidth: 150, valueGetter: (_v, r) => r.service.name, renderCell: (p) => <span>{p.row.quotation_id ? `Quote · ${p.row.service.name}` : p.row.service.name}</span> },
   { field: 'slot', headerName: 'Slot', flex: 0.8, minWidth: 90, valueGetter: (_v, r) => r.slot_start, renderCell: (p) => fmtTime(p.row.slot_start) },
-  { field: 'status', headerName: 'Status', flex: 1, minWidth: 130, renderCell: (p) => <StatusChip status={p.row.status} /> },
+  {
+    field: 'status', headerName: 'Status', flex: 1, minWidth: 150,
+    renderCell: (p) => (
+      <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 0.25, minWidth: 0 }}>
+        <StatusChip status={p.row.status} />
+        {/* Cash on collection: "Cash due R x" until the counter payment is recorded, then "Paid · cash". */}
+        <CashChip booking={p.row} />
+      </Box>
+    ),
+  },
   { field: 'amount', headerName: 'Amount', flex: 0.8, minWidth: 100, align: 'right', headerAlign: 'right', valueGetter: (_v, r) => r.total_cents, renderCell: (p) => <Box component="span" sx={{ fontWeight: 700, fontFamily: fonts.sans }}>{rands(p.row.total_cents)}</Box> },
 ];
 

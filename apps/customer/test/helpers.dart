@@ -10,14 +10,16 @@ import 'package:sparkling_customer/app/session.dart';
 import 'package:sparkling_customer/features/booking/booking_flow.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
-/// Demo repositories backed by a temporary Hive directory.
-Future<Repositories> bootstrapDemo() async {
+/// Demo repositories backed by a temporary Hive directory ([store] swaps in
+/// a custom [DemoStore], e.g. with a feature flag turned off).
+Future<Repositories> bootstrapDemo({DemoStore? store}) async {
   SparklingTypography.useGoogleFonts = false;
   final dir = await Directory.systemTemp.createTemp('sparkling_customer_test');
   final repos = await SparklingCore.bootstrap(
     demo: true,
     clientApp: 'customer',
     hivePath: dir.path,
+    demoStore: store,
   );
   // Hive boxes are shared across tests in one process — start clean.
   await repos.clearLocalState(includeDrafts: true);

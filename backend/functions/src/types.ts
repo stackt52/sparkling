@@ -246,6 +246,8 @@ export interface Booking {
   created_by: string | null;
   /** Staff-created counter booking (migration 0005); starts `confirmed`. */
   walk_in: boolean;
+  /** Customer's chosen payment method at booking time; `cash` = pay at the counter on collection. */
+  payment_method: 'card' | 'eft' | 'cash' | null;
   /** Pricing basis at booking time (migration 0008). */
   vehicle_size: VehicleSize | null;
   pricing_mode: PricingMode | null;

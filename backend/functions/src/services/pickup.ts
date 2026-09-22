@@ -45,6 +45,7 @@ export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp
   const wo = await loadForStaff(ctx, workOrderId);
   if (wo.collected_at) throw ApiError.conflict('Vehicle has already been collected', { collected_at: wo.collected_at });
   if (!wo.pickup_otp) throw ApiError.conflict('No collection OTP has been issued for this work order (it must be verified first)', { status: wo.status });
+  await assertCashSettled(wo.booking_id);
 
   const task = await db.from('tasks').select('id').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle();
   const taskId = (task.data as { id: string } | null)?.id ?? null;
@@ -130,4 +131,23 @@ export async function resendPickupOtp(ctx: RequestContext, workOrderId: string):
   });
   await audit(ctx, { action: 'work_order.pickup_otp_resend', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { channels: notification.map((n) => `${n.channel}:${n.status}`) } });
   return { work_order: redactPickupOtp(ctx.auth, wo), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
+}
+
+/** Cash-on-collection bookings must have their payment recorded at the counter before the vehicle is released. */
+export async function assertCashSettled(bookingId: string | null | undefined): Promise<void> {
+  if (!bookingId) return;
+  const db = getSupabase();
+  const booking = unwrap<{ id: string; payment_method: string | null; total_cents: number } | null>(
+    await db.from('bookings').select('id, payment_method, total_cents').eq('id', bookingId).maybeSingle(),
+    'booking',
+  );
+  if (!booking || booking.payment_method !== 'cash' || booking.total_cents <= 0) return;
+  const paid = unwrap<{ id: string }[]>(await db.from('payments').select('id').eq('booking_id', booking.id).eq('status', 'successful'), 'payments');
+  if (paid.length) return;
+  throw ApiError.validationConflict(`Cash payment of R ${(booking.total_cents / 100).toFixed(2)} is due before the keys are released — record it under Payments first`, {
+    reason: 'payment_due',
+    booking_id: booking.id,
+    amount_cents: booking.total_cents,
+    method: 'cash',
+  });
 }

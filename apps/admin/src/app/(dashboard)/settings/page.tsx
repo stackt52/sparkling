@@ -63,6 +63,40 @@ function WhatsAppCard({ integration, flag, manage, pending, onToggle }: { integr
   );
 }
 
+/**
+ * Payments card: the `cash_on_collection` flag switch. Customers can pick "Cash on collection" in the app; the
+ * booking is confirmed without an online payment and staff record the cash at the counter before hand-over.
+ * Gated exactly like the WhatsApp switch (`flags:manage`).
+ */
+function PaymentsCard({ flag, manage, pending, onToggle }: { flag: FeatureFlag | undefined; manage: boolean; pending: boolean; onToggle: (enabled: boolean) => void }) {
+  const enabled = flag?.enabled ?? false;
+  return (
+    <Paper data-testid="payments-cash-on-collection" sx={{ p: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start', bgcolor: tk.surfaceContainer, border: 'none', borderRadius: '18px' }}>
+      <IconTile icon="payments" tone={enabled ? 'success' : 'neutral'} size={44} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6">Cash on collection</Typography>
+          <StatusChip tone={enabled ? 'success' : 'neutral'} label={enabled ? 'allowed' : 'off'} sx={{ height: 22, fontSize: 11 }} />
+        </Box>
+        <Typography variant="body2" color="text.secondary">
+          Customers can pick cash when booking and pay at the counter on collection. Staff must record the cash payment before releasing the vehicle.
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1.25, flexWrap: 'wrap' }}>
+          <M3Switch checked={enabled} disabled={!manage || pending || !flag} onChange={(e) => onToggle(e.target.checked)} slotProps={{ input: { 'aria-label': 'cash_on_collection' } }} />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" className="mono">cash_on_collection</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {enabled ? 'Cash bookings are confirmed without an online payment; collection is refused until the cash is recorded.' : 'Customers must pay by card or instant EFT when booking.'}
+              {flag ? ` Updated ${fmtDateTime(flag.updated_at)}.` : ' Flag not found.'}
+              {!manage ? ' Admin-only.' : ''}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
+
 export default function SettingsPage() {
   const api = useApi();
   const { role, isDemo } = useAuth();
@@ -73,8 +107,16 @@ export default function SettingsPage() {
   const integrations = useQuery({ queryKey: ['integrations'], queryFn: () => api.integrations() });
   const update = useMutation({
     mutationFn: (v: { key: string; enabled: boolean }) => api.updateFlag(v.key, v.enabled),
-    onSuccess: (f) => { toast.success(`${f.key} ${f.enabled ? 'enabled' : 'disabled'} (audited)`); void qc.invalidateQueries({ queryKey: ['flags'] }); void qc.invalidateQueries({ queryKey: ['integrations'] }); },
-    onError: (e) => toast.error(e),
+    // Optimistic: flip the switch at once, roll back on error.
+    onMutate: async (v) => {
+      await qc.cancelQueries({ queryKey: ['flags'] });
+      const previous = qc.getQueryData<FeatureFlag[]>(['flags']);
+      qc.setQueryData<FeatureFlag[]>(['flags'], (old) => old?.map((f) => (f.key === v.key ? { ...f, enabled: v.enabled } : f)));
+      return { previous };
+    },
+    onSuccess: (f) => { toast.success(`${f.key} ${f.enabled ? 'enabled' : 'disabled'} (audited)`); },
+    onError: (e, _v, ctx) => { if (ctx?.previous) qc.setQueryData(['flags'], ctx.previous); toast.error(e); },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['flags'] }); void qc.invalidateQueries({ queryKey: ['integrations'] }); },
   });
   const manage = can(role, 'flags:manage');
   return (
@@ -126,6 +168,17 @@ export default function SettingsPage() {
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5 }}>
               Mode: <b>{isDemo ? 'demo (in-memory)' : 'live'}</b> · API base <span className="mono">{env.apiBaseUrl || 'not set'}</span> · Supabase <span className="mono">{env.supabaseUrl}</span>
             </Typography>
+          </SectionCard>
+          <SectionCard title="Payments" subtitle={manage ? 'Payment options offered to customers in the app' : 'Read-only — only admins can change payment options'}>
+            {flags.isLoading && <LoadingRows rows={1} height={110} />}
+            {!flags.isLoading && (
+              <PaymentsCard
+                flag={flags.data?.find((f) => f.key === 'cash_on_collection')}
+                manage={manage}
+                pending={update.isPending}
+                onToggle={(enabled) => update.mutate({ key: 'cash_on_collection', enabled })}
+              />
+            )}
           </SectionCard>
           <SectionCard title="Appearance">
             <Box sx={{ display: 'flex', gap: 1 }}>

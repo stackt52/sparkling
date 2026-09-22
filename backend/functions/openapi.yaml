@@ -49,6 +49,46 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /config:
+    get:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flags:
+                    type: object
+                    properties:
+                      cash_on_collection:
+                        type: boolean
+                      payments_sandbox:
+                        type: boolean
+                      whatsapp_enabled:
+                        type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - System
+      operationId: getConfig
+      summary: Public-safe feature flags (no auth)
+      security: []
   /health:
     get:
       responses:
@@ -7758,6 +7798,13 @@ components:
     Booking:
       type: object
       properties:
+        payment_method:
+          type: string
+          enum:
+            - card
+            - eft
+            - cash
+          nullable: true
         id:
           type: string
           format: uuid

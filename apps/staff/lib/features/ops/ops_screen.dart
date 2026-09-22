@@ -107,6 +107,7 @@ class _OpsScreenState extends State<OpsScreen> {
       ref: task.ref,
       customerName: wo?.customerName,
       vehicleLabel: wo?.vehicle?.registrationNo,
+      booking: wo?.booking,
     );
     if (result != null && mounted) {
       StaffHaptics.success(context);

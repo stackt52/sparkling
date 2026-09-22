@@ -10,7 +10,11 @@ import { correlation } from './middleware/correlation.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { idempotency } from './middleware/idempotency.js';
 import { adminRouter } from './routes/admin.js';
+import { asyncHandler } from './middleware/errors.js';
 import { authRouter } from './routes/auth.js';
+import { getFlags } from './services/flags.js';
+
+export const PUBLIC_FLAGS = ['cash_on_collection', 'payments_sandbox', 'whatsapp_enabled'] as const;
 import { bookingsRouter } from './routes/bookings.js';
 import { catalogueRouter } from './routes/catalogue.js';
 import { inventoryRouter } from './routes/inventory.js';
@@ -49,6 +53,11 @@ export function createApp(): Express {
   v1.get('/health', (_req, res) => {
     res.json({ ok: true, version: config.apiVersion, service: 'sparkling-api', time: new Date().toISOString() });
   });
+  /** Public-safe feature flags for the apps (values are not sensitive; read before sign-in). */
+  v1.get('/config', asyncHandler(async (_req, res) => {
+    const flags = await getFlags();
+    res.json({ flags: Object.fromEntries(PUBLIC_FLAGS.map((k) => [k, flags[k] ?? false])) });
+  }));
   v1.use(paymentsWebhookRouter);
   v1.use(twilioStatusRouter);
   // Public quote page (token link; rate-limited per IP + token; no auth).

@@ -204,6 +204,38 @@ enum PaymentStatus implements SparklingEnum {
   bool get isVerified => this == successful;
 }
 
+/// How the customer intends to pay a booking (`bookings.payment_method`).
+///
+/// `cash` = **cash on collection**: the booking is confirmed without an online
+/// payment and staff record the cash at the counter before the keys are
+/// released (feature flag `cash_on_collection`).
+enum PaymentChoice implements SparklingEnum {
+  card('card'),
+  eft('eft'),
+  cash('cash');
+
+  const PaymentChoice(this.db);
+  @override
+  final String db;
+
+  /// `null` for an unknown / missing literal (older bookings carry none).
+  static PaymentChoice? fromDb(String? v) {
+    if (v == null) return null;
+    for (final e in values) {
+      if (e.db == v) return e;
+    }
+    return null;
+  }
+
+  String get label => switch (this) {
+    card => 'Card',
+    eft => 'Instant EFT',
+    cash => 'Cash on collection',
+  };
+
+  bool get isCash => this == cash;
+}
+
 /// Loyalty tier — since membership plans (migration 0009/0010) the tier *is*
 /// the customer's plan: `silver` = no plan, `gold` / `platinum` / `black` =
 /// the live membership's plan tier.

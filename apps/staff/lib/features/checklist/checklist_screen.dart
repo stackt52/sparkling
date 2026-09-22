@@ -182,6 +182,7 @@ class _ChecklistViewState extends State<ChecklistView> {
       ref: wo.ref,
       customerName: wo.customerName ?? card?.customerName,
       vehicleLabel: wo.vehicleRegistration ?? card?.vehicle?.registrationNo,
+      booking: wo.booking ?? card?.booking,
     );
     if (result != null && mounted) {
       StaffSnack.show(context, '${wo.ref}: keys released');
@@ -316,6 +317,20 @@ class _ChecklistViewState extends State<ChecklistView> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (wo.isCashOnCollection || (card?.isCashOnCollection ?? false)) ...[
+                    const SizedBox(height: 6),
+                    StatusChip(
+                      key: const ValueKey('cash-on-collection-chip'),
+                      label: wo.isCashDue || (card?.isCashDue ?? false)
+                          ? 'Cash on collection · ${Money.formatZar((wo.booking ?? card!.booking!).totalCents)} due'
+                          : 'Cash on collection · paid',
+                      tone: wo.isCashDue || (card?.isCashDue ?? false)
+                          ? StatusChipTone.warning
+                          : StatusChipTone.success,
+                      icon: Symbols.payments_rounded,
+                      dense: true,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -396,6 +411,11 @@ class _ChecklistViewState extends State<ChecklistView> {
               const SizedBox(height: 10),
               _HandoverCard(
                 collectedAt: wo.collectedAt,
+                cashDueCents: wo.isCashDue
+                    ? wo.booking!.totalCents
+                    : (card?.isCashDue ?? false)
+                    ? card!.booking!.totalCents
+                    : null,
                 busy: _busy,
                 onHandover: () => _handover(detail),
               ),
@@ -502,11 +522,16 @@ class _HandoverCard extends StatelessWidget {
   const _HandoverCard({
     required this.collectedAt,
     required this.onHandover,
+    this.cashDueCents,
     this.busy = false,
   });
 
   final DateTime? collectedAt;
   final VoidCallback onHandover;
+
+  /// Cash on collection still to be recorded (amber line + first step of
+  /// the hand-over sheet).
+  final int? cashDueCents;
   final bool busy;
 
   @override
@@ -559,6 +584,37 @@ class _HandoverCard extends StatelessWidget {
               color: cs.onSurfaceVariant,
             ),
           ),
+          if (cashDueCents != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('handover-cash-due-line'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: x.warningContainer,
+                borderRadius: BorderRadius.circular(SparklingShapes.tile),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Symbols.payments_rounded,
+                    size: 20,
+                    color: x.onWarningContainer,
+                    fill: 1,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Cash due · ${Money.formatZar(cashDueCents!)} — take the cash and record it before the OTP.',
+                      style: SparklingTypography.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: x.onWarningContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           PillButton(
             label: 'Hand over vehicle',

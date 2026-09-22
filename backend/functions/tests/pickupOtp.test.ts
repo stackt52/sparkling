@@ -285,3 +285,15 @@ describe('OTP visibility over the API', () => {
     expect(collected.body.work_order.collected_at).toBeTruthy();
   });
 });
+
+describe('cash on collection at hand-over', () => {
+  it('refuses the OTP until the cash payment is recorded, then releases the vehicle', async () => {
+    const otp = await verifyWorkOrder();
+    db.rows('bookings')[0].payment_method = 'cash';
+    await expect(verifyPickup(sup(), WO, otp)).rejects.toMatchObject({ code: 'validation_error', details: { reason: 'payment_due', amount_cents: 12000, method: 'cash' } });
+    expect(wo().collected_at ?? null).toBeNull();
+    db.rows('payments').push({ id: 'pay_cash_1', booking_id: BOOKING, customer_id: 'cust_1', provider: 'pos', amount_cents: 12000, currency: 'ZAR', status: 'successful', method: 'cash', idempotency_key: 'cash-1' });
+    const ok = await verifyPickup(sup(), WO, otp);
+    expect(typeof ok.collected_at).toBe('string');
+  });
+});

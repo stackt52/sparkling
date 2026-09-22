@@ -49,6 +49,7 @@ class WorkOrderCard extends Equatable {
     this.customerName,
     this.slotStart,
     this.collectedAt,
+    this.booking,
   });
 
   final String id;
@@ -67,6 +68,13 @@ class WorkOrderCard extends Equatable {
 
   /// Keys released to the customer (pickup OTP verified).
   final DateTime? collectedAt;
+
+  /// Linked booking when the API expands it (payment method / paid) — the
+  /// task list may omit it; the work-order detail always carries it.
+  final WorkOrderBooking? booking;
+
+  bool get isCashOnCollection => booking?.isCashOnCollection ?? false;
+  bool get isCashDue => booking?.isCashDue ?? false;
 
   bool get isCollected => collectedAt != null;
 
@@ -101,6 +109,9 @@ class WorkOrderCard extends Equatable {
     customerName: strOrNull(json['customer_name']),
     slotStart: dtOrNull(json['slot_start']),
     collectedAt: dtOrNull(json['collected_at']),
+    booking: json['booking'] is Map
+        ? WorkOrderBooking.fromJson(asJson(json['booking']))
+        : null,
   );
 
   Json toJson() => compact({
@@ -118,6 +129,7 @@ class WorkOrderCard extends Equatable {
     'customer_name': customerName,
     'slot_start': iso(slotStart),
     'collected_at': iso(collectedAt),
+    'booking': booking?.toJson(),
   });
 
   WorkOrderCard copyWith({
@@ -129,6 +141,7 @@ class WorkOrderCard extends Equatable {
     String? blockedReason,
     DateTime? collectedAt,
     bool clearBlockedReason = false,
+    WorkOrderBooking? booking,
   }) => WorkOrderCard(
     id: id,
     ref: ref,
@@ -146,6 +159,7 @@ class WorkOrderCard extends Equatable {
     customerName: customerName,
     slotStart: slotStart,
     collectedAt: collectedAt ?? this.collectedAt,
+    booking: booking ?? this.booking,
   );
 
   @override
@@ -161,6 +175,7 @@ class WorkOrderCard extends Equatable {
     progress,
     blockedReason,
     collectedAt,
+    booking,
   ];
 }
 

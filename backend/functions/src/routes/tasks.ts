@@ -11,16 +11,20 @@ import type { Task, WorkOrder } from '../types.js';
 export const tasksRouter = Router();
 tasksRouter.use('/tasks', requireProfile, requireStaff);
 
-const TASK_EXPAND = '*, work_order:work_orders(id, ref, status, bay, priority, eta_at, due_at, blocked_reason, started_at, checklist_template_id, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes)), assignee:profiles!tasks_assignee_id_fkey(id, full_name)';
+const TASK_EXPAND = '*, work_order:work_orders(id, ref, status, bay, priority, eta_at, due_at, blocked_reason, started_at, checklist_template_id, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method)), assignee:profiles!tasks_assignee_id_fkey(id, full_name)';
 
 export async function expandTasks(rows: Array<Task & { work_order: (Partial<WorkOrder> & Record<string, unknown>) | null }>) {
   if (!rows.length) return rows;
   const db = getSupabase();
   const woIds = rows.map((r) => r.work_order_id);
-  const [results, templates] = await Promise.all([
+  // Cash-on-collection bookings: tell staff whether the counter payment is recorded yet.
+  const cashBookingIds = rows.map((r) => (r.work_order?.booking as { id?: string; payment_method?: string | null } | null | undefined)).filter((b) => b?.id && b.payment_method === 'cash').map((b) => b!.id as string);
+  const [results, templates, cashPaid] = await Promise.all([
     db.from('checklist_step_results').select('work_order_id, status').in('work_order_id', woIds),
     db.from('checklist_templates').select('id, steps').in('id', [...new Set(rows.map((r) => r.work_order?.checklist_template_id).filter(Boolean))] as string[]),
+    cashBookingIds.length ? db.from('payments').select('booking_id').in('booking_id', cashBookingIds).eq('status', 'successful') : Promise.resolve({ data: [] as Array<{ booking_id: string }> }),
   ]);
+  const paidBookings = new Set(((cashPaid.data ?? []) as Array<{ booking_id: string }>).map((p) => p.booking_id));
   const doneCount = new Map<string, number>();
   for (const r of (results.data ?? []) as Array<{ work_order_id: string; status: string }>) {
     if (r.status === 'done') doneCount.set(r.work_order_id, (doneCount.get(r.work_order_id) ?? 0) + 1);
@@ -31,6 +35,9 @@ export async function expandTasks(rows: Array<Task & { work_order: (Partial<Work
     work_order: t.work_order
       ? {
           ...t.work_order,
+          booking: t.work_order.booking
+            ? { ...(t.work_order.booking as Record<string, unknown>), paid: (t.work_order.booking as { payment_method?: string | null }).payment_method === 'cash' ? paidBookings.has((t.work_order.booking as { id: string }).id) : null }
+            : null,
           progress: {
             steps_done: doneCount.get(t.work_order_id) ?? 0,
             step_count: t.work_order.checklist_template_id ? (stepCount.get(t.work_order.checklist_template_id as string) ?? 0) : 0,

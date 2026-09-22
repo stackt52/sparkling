@@ -127,6 +127,11 @@ the API as **E.164** (`+27821234567`); the API rejects anything else with `400 v
 * Demo API: seed-mirroring rows plus one failed WhatsApp row (`63016 outside
   24h session`) that Resend flips to `sent`.
 
+## Cash on collection (Config → Payments, Bookings)
+
+* **Config → Payments** — the "Cash on collection" card carries the `cash_on_collection` flag switch (`PATCH /admin/flags/:key`, `flags:manage`, optimistic + audited, last updated shown): customers can pick cash when booking and pay at the counter on collection; staff must record the cash before releasing the vehicle.
+* **Bookings / Overview grid + drawer** — `booking.payment_method === 'cash'` shows a `payments` chip under the status: **Cash due R x** (warning) while `payment` is null, **Paid · cash** once `POST /payments/record` (method `cash`) has run; the drawer's Payment section states "Cash on collection — record the payment at the counter before hand-over" with the amount (collection `POST /work-orders/:id/pickup/verify` is refused with 409 `payment_due` until then). Demo: SPK-2026-0097 (Ayanda, 14:00) is a cash booking; `DemoApi.createWalkInBooking` accepts `payment_method` and refuses `cash` with 409 `cash_disabled` while the flag is off.
+
 ## Public quotation page (`/q/<token>`)
 
 The link customers receive on WhatsApp (`quote_ready`) opens **this app's** origin at `/q/<public_token>` — a
@@ -217,6 +222,8 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `staff-add.png` | Add staff member dialog — name, e-mail, phone, role, outlets, "Also generate a reset link" |
 | `staff-credentials.png` | Credentials panel after creation — e-mail, temporary password, reset link, "Send these details"; the new row carries the "Must change password" chip |
 | `change-password.png` | First-sign-in gate (`/change-password`) — rules checklist and strength hint |
+| `config-cash.png` | Config → Payments card — "Cash on collection" switch (`cash_on_collection` flag) next to Integrations |
+| `booking-cash.png` | Bookings — SPK-2026-0097 with the "Cash due R 140" chip and the drawer's cash-on-collection payment note |
 | `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |
 
 ## Branding

@@ -8,6 +8,7 @@ import {
   VAT_RATE,
   vehicleSizeOf,
   type AuditEvent,
+  type BookingPaymentMethod,
   type BookingStatus,
   type ChecklistTemplate,
   type FeatureFlag,
@@ -348,6 +349,8 @@ export interface RawBooking {
   membership_id?: string | null;
   entitlement_id?: string | null;
   membership_benefit?: 'included' | 'discount' | null;
+  /** Cash on collection (feature flag `cash_on_collection`): confirmed without an online payment. */
+  payment_method?: BookingPaymentMethod | null;
 }
 
 /**
@@ -363,7 +366,7 @@ type SeedBenefit =
  * Builds a seed booking priced from the outlet's offer for the vehicle's size (+ add-ons, membership benefit,
  * VAT on `excl` prices). `fixedPrice` (quoted amounts, incl. VAT) bypasses the catalogue price.
  */
-const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, outlet_id: string, service_id: string, start: number, status: BookingStatus, benefit: SeedBenefit, created: string, opts: { addons?: string[]; fixedPrice?: number } = {}): RawBooking => {
+const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, outlet_id: string, service_id: string, start: number, status: BookingStatus, benefit: SeedBenefit, created: string, opts: { addons?: string[]; fixedPrice?: number; payment_method?: BookingPaymentMethod } = {}): RawBooking => {
   const s = serviceById(service_id);
   const size = vehicleSizeOf(vehicleById(vehicle_id));
   const base = opts.fixedPrice !== undefined ? { price: opts.fixedPrice, vat_mode: 'incl' as VatMode, pricing_mode: 'fixed' as PricingMode } : priceAt(outlet_id, service_id, size);
@@ -381,6 +384,7 @@ const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, out
     vehicle_size: size, pricing_mode: base.pricing_mode, vat_mode: base.vat_mode, addon_service_ids: opts.addons ?? [], addons_cents,
     price_label: base.pricing_mode === 'by_quote' ? 'By quote' : base.pricing_mode === 'from' ? `From R ${Math.round(base.price / 100)}` : `R ${Math.round(base.price / 100)}`,
     membership_id: benefit?.membership_id ?? null, entitlement_id: benefit?.kind === 'included' ? benefit.entitlement_id : null, membership_benefit: benefit?.kind ?? null,
+    payment_method: opts.payment_method ?? null,
   };
 };
 const MEM_THABO = 'c4000000-0000-4000-8000-000000000001';
@@ -404,6 +408,8 @@ export const SEED_BOOKINGS: RawBooking[] = [
   bk(11, 'SPK-2026-0088', 'seed_ayanda', 'd0000000-0000-4000-8000-000000000007', OUTLET_MEN, SVC.SPARKLING_WASH, -45, 'completed', null, daysAgo(1)),
   bk(12, 'SPK-2026-0087', 'seed_lindiwe', 'd0000000-0000-4000-8000-000000000008', OUTLET_GLV, SVC.WASH_GO, 30, 'in_service', null, daysAgo(1)),
   bk(13, 'SPK-2026-0086', 'seed_kabelo', 'd0000000-0000-4000-8000-000000000009', OUTLET_POT, SVC.EXT_WASH_TYRE, -120, 'completed', null, daysAgo(2)),
+  // Cash on collection: confirmed with no online payment — staff record the cash at the counter before hand-over.
+  bk(14, 'SPK-2026-0097', 'seed_ayanda', 'd0000000-0000-4000-8000-000000000007', OUTLET_MEN, SVC.SPARKLING_WASH, 240, 'confirmed', null, daysAgo(0, 6), { payment_method: 'cash' }),
 ];
 const totalOf = (ref: string) => SEED_BOOKINGS.find((b) => b.ref === ref)!.total_cents;
 
@@ -545,6 +551,7 @@ export const STAFF_BADGES: Record<string, { code: string; days: number }[]> = {
 export const FLAGS: FeatureFlag[] = [
   { key: 'payments_sandbox', enabled: true, description: 'Use the sandbox payment provider (no real charges)', updated_at: daysAgo(30) },
   { key: 'whatsapp_enabled', enabled: false, description: 'Send WhatsApp Business notifications', updated_at: daysAgo(30) },
+  { key: 'cash_on_collection', enabled: true, description: 'Allow customers to choose "Cash on collection" when booking; the cash payment is recorded at the counter before the vehicle is released', updated_at: daysAgo(3) },
   { key: 'auto_assignment', enabled: true, description: 'Automatically assign queued work orders to available staff', updated_at: daysAgo(12) },
   { key: 'birthday_bonus', enabled: false, description: 'Award birthday loyalty bonus (pending consent review)', updated_at: daysAgo(5) },
 ];

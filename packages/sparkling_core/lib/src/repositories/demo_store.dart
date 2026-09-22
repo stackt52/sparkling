@@ -69,6 +69,37 @@ class DemoStore {
 
   void dispose() => _changes.close();
 
+  /// `GET /config` — the public feature flags.
+  AppConfig publicConfig() => AppConfig(
+    flags: PublicFlags.fromJson({
+      'cash_on_collection': featureFlags['cash_on_collection'] == true,
+      'payments_sandbox': featureFlags['payments_sandbox'] == true,
+      'whatsapp_enabled': featureFlags['whatsapp_enabled'] == true,
+    }),
+    fetchedAt: now,
+  );
+
+  /// Verified (`successful`) payment recorded for [bookingId].
+  bool isBookingPaid(String bookingId) =>
+      payments.any((p) => p.bookingId == bookingId && p.status.isVerified);
+
+  /// The `booking` expansion on work orders / task cards.
+  WorkOrderBooking? _workOrderBooking(String? bookingId) {
+    if (bookingId == null) return null;
+    final b = bookings.where((x) => x.id == bookingId).firstOrNull;
+    if (b == null) return null;
+    return WorkOrderBooking(
+      id: b.id,
+      ref: b.ref,
+      status: b.status,
+      slotStart: b.slotStart,
+      slotEnd: b.slotEnd,
+      totalCents: b.totalCents,
+      paymentMethod: b.paymentMethod,
+      paid: isBookingPaid(b.id),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Ids
   // ---------------------------------------------------------------------------
@@ -906,6 +937,9 @@ class DemoStore {
       'whatsapp_enabled': false,
       'auto_assignment': true,
       'birthday_bonus': false,
+      // Customers may pay cash at the counter on collection (cash bookings
+      // are confirmed at once; staff record the cash before the OTP).
+      'cash_on_collection': true,
     });
 
     // ---- Bookings --------------------------------------------------------------
@@ -997,6 +1031,9 @@ class DemoStore {
         clientOpId: 'seed-op-0098',
         createdAt: n.subtract(const Duration(days: 1)),
         updatedAt: t.subtract(const Duration(minutes: 100)),
+        // Cash on collection, not yet recorded: the staff hand-over demo
+        // (WO-4820) must record R 81 before the OTP is accepted.
+        paymentMethod: PaymentChoice.cash,
       ),
       Booking(
         id: '10000000-0000-4000-8000-000000000004',
@@ -3029,12 +3066,29 @@ class DemoStore {
     }
 
     final total = quote.total;
+    final cash = input.paymentMethod == PaymentChoice.cash && total > 0;
+    if (cash && featureFlags['cash_on_collection'] != true) {
+      throw const ApiException(
+        code: 'validation_error',
+        message:
+            'Cash on collection is not available at the moment — please pay by card or instant EFT',
+        statusCode: 409,
+        data: {
+          'code': 'validation_error',
+          'details': {'reason': 'cash_disabled'},
+        },
+      );
+    }
     final b = Booking(
       id: _newId('1'),
       ref: 'SPK-$_yr-${(_bookingSeq++).toString().padLeft(4, '0')}',
       customerId: uid,
-      // Nothing to pay (service included in the plan) → confirmed at once.
-      status: total == 0 ? BookingStatus.confirmed : BookingStatus.pending,
+      // Nothing to pay (service included in the plan) or cash on collection
+      // → confirmed at once; otherwise pending until the payment verifies.
+      status: total == 0 || cash
+          ? BookingStatus.confirmed
+          : BookingStatus.pending,
+      paymentMethod: input.paymentMethod,
       slotStart: input.slotStart,
       slotEnd: end,
       vehicleId: input.vehicleId,
@@ -3327,6 +3381,14 @@ class DemoStore {
         updatedAt: now,
       );
       _notify('bookings', b.id);
+    }
+    // Cash on collection recorded at the counter: the work order's `booking`
+    // expansion now reports `paid`, unlocking the hand-over OTP.
+    final woForBooking = workOrders.where((w) => w.bookingId == b.id).firstOrNull;
+    if (woForBooking != null) {
+      _notify('work_orders', woForBooking.id);
+      final task = tasks.where((t) => t.workOrderId == woForBooking.id).firstOrNull;
+      if (task != null) _notify('tasks', task.id);
     }
     _pushNotification(
       b.customerId,
@@ -4349,6 +4411,7 @@ class DemoStore {
         customerName: nameOf(wo.customerId),
         slotStart: booking?.slotStart,
         collectedAt: wo.collectedAt,
+        booking: _workOrderBooking(wo.bookingId),
       ),
     );
   }
@@ -4397,6 +4460,7 @@ class DemoStore {
     return WorkOrderDetail(
       workOrder: wo.copyWith(
         assigneeName: wo.assigneeName ?? nameOf(wo.assigneeId),
+        booking: _workOrderBooking(wo.bookingId),
       ),
       template: template,
       results: results,
@@ -4791,6 +4855,24 @@ class DemoStore {
         code: 'invalid_transition',
         message: 'The work must be verified before the vehicle is handed over.',
         statusCode: 409,
+      );
+    }
+    final cashBooking = _workOrderBooking(wo.bookingId);
+    if (cashBooking != null && cashBooking.isCashDue) {
+      throw ApiException(
+        code: 'validation_error',
+        message:
+            'Cash payment of ${Money.formatZar(cashBooking.totalCents)} is due before the keys are released — record it under Payments first',
+        statusCode: 409,
+        data: {
+          'code': 'validation_error',
+          'details': {
+            'reason': 'payment_due',
+            'booking_id': cashBooking.id,
+            'amount_cents': cashBooking.totalCents,
+            'method': 'cash',
+          },
+        },
       );
     }
     final attempts = _otpAttempts[workOrderId] ?? 0;

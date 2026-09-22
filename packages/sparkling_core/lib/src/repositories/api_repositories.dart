@@ -301,6 +301,41 @@ class ApiCustomerRepository extends _ApiRepositoryBase
       refetchOn(realtime?.customerQuotations(uid), quotations);
 }
 
+class ApiConfigRepository extends _ApiRepositoryBase
+    implements ConfigRepository {
+  ApiConfigRepository({required super.api, super.cache})
+    : super(uidProvider: () => null);
+
+  static const String cacheKey = 'app_config';
+
+  AppConfig? _current;
+  Future<AppConfig>? _inFlight;
+
+  @override
+  AppConfig? get current => _current;
+
+  @override
+  Future<AppConfig> config({bool force = false}) {
+    final have = _current;
+    if (have != null && !force) return Future.value(have);
+    return _inFlight ??= _fetch().whenComplete(() => _inFlight = null);
+  }
+
+  Future<AppConfig> _fetch() async {
+    try {
+      final cfg = await api.config();
+      _current = cfg;
+      await cache?.put(cacheKey, cfg.toJson());
+      return cfg;
+    } catch (_) {
+      // Unreachable: last known config from disk, else safe defaults. Not
+      // stored in [_current] so the next call retries the API.
+      final cached = cache?.getObject(cacheKey, AppConfig.fromJson);
+      return cached?.data ?? AppConfig.defaults;
+    }
+  }
+}
+
 class ApiCatalogueRepository extends _ApiRepositoryBase
     implements CatalogueRepository {
   ApiCatalogueRepository({

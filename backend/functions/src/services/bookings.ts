@@ -8,6 +8,7 @@ import { assertOutlet, assertOwner, assertOwnerOrOutletStaff, isStaff } from '..
 import { ApiError } from '../middleware/errors.js';
 import type { Booking, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
+import { flagEnabled } from './flags.js';
 import { assertSlotAvailable, findWalkInSlot } from './availability.js';
 import { listOutletOffers, priceLabel, resolveOfferPrice, resolveVehicleSize } from './catalogue.js';
 import { loadContext, redeemForBooking, releaseForBooking } from './memberships.js';
@@ -28,6 +29,8 @@ export interface CreateBookingInput {
   walkIn?: boolean;
   /** Pricing size; defaults to the vehicle's size_class (null → small). */
   vehicleSize?: VehicleSize | null;
+  /** `cash` = pay at the counter on collection (requires feature flag `cash_on_collection`). */
+  paymentMethod?: 'card' | 'eft' | 'cash' | null;
   /** Add-on services (`is_addon`, same `addon_group_name` as the service's group) priced into the booking. */
   addonServiceIds?: string[] | null;
 }
@@ -55,6 +58,10 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
   const slot = input.slotStart
     ? await assertSlotAvailable(input.outletId, input.serviceId, input.slotStart, outlet.timezone)
     : await findWalkInSlot(outlet, service.id);
+  const cash = input.paymentMethod === 'cash' && quote.total_cents > 0;
+  if (cash && !(await flagEnabled('cash_on_collection'))) {
+    throw ApiError.validationConflict('Cash on collection is not available at the moment — please pay by card or instant EFT', { reason: 'cash_disabled' });
+  }
 
   const res = await db
     .from('bookings')
@@ -66,7 +73,9 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
       slot_start: slot.slot_start,
       slot_end: slot.slot_end,
       // Walk-ins are confirmed at the counter; a booking fully covered by a membership has nothing to pay, so it is confirmed at once too.
-      status: walkIn || quote.total_cents === 0 ? 'confirmed' : 'pending',
+      // Walk-ins, fully covered bookings and cash-on-collection bookings need no online payment → confirmed at once.
+      status: walkIn || quote.total_cents === 0 || cash ? 'confirmed' : 'pending',
+      payment_method: input.paymentMethod ?? null,
       price_cents: quote.price_cents,
       discount_cents: quote.discount_cents,
       total_cents: quote.total_cents,

@@ -14,6 +14,7 @@ import MSymbol from '@/components/MSymbol';
 import DetailDrawer from '@/components/ui/DetailDrawer';
 import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
+import CashChip, { cashDue } from '@/components/bookings/CashChip';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
 import Toast from '@/components/ui/Toast';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
@@ -133,11 +134,24 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               {(b.vat_cents ?? 0) > 0 && <Row label="VAT 15 % (excl. price)" value={rands(b.vat_cents!, { decimals: true })} />}
               <Divider sx={{ my: 0.5, borderStyle: 'dashed' }} />
               <Row label="Total" value={<span style={{ color: tk.primary, fontSize: 18 }}>{rands(b.total_cents, { decimals: true })}</span>} />
-              <Row label="Payment" value={b.payment ? <StatusChip status={b.payment.status} /> : <StatusChip tone="neutral" label="Not started" />} />
-              {b.payment?.method && <Row label="Method" value={b.payment.method === 'cash' ? 'Cash (counter)' : 'Card terminal'} />}
+              <Row label="Payment" value={b.payment ? <StatusChip status={b.payment.status} /> : b.payment_method === 'cash' ? <CashChip booking={b} size="medium" /> : <StatusChip tone="neutral" label="Not started" />} />
+              {b.payment?.method ? (
+                <Row label="Method" value={b.payment.method === 'cash' ? (b.payment_method === 'cash' ? 'Cash on collection (counter)' : 'Cash (counter)') : 'Card terminal'} />
+              ) : b.payment_method ? (
+                <Row label="Method" value={{ cash: 'Cash on collection', card: 'Card (online)', eft: 'Instant EFT' }[b.payment_method]} />
+              ) : null}
               {b.payment?.receipt_no && <Row label="Receipt" value={b.payment.receipt_no} mono />}
               <Row label="Points pending" value={`+${b.points_pending} pts on completion`} />
             </Tile>
+            {cashDue(b) && (
+              <Tile tone="warning" sx={{ mt: 1.5, alignItems: 'flex-start' }} data-testid="cash-due-note">
+                <MSymbol name="payments" filled size={22} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2">Cash on collection — record the payment at the counter before hand-over</Typography>
+                  <Typography variant="body2">{rands(b.total_cents, { decimals: true })} due in cash. Collection is refused until the payment is recorded.</Typography>
+                </Box>
+              </Tile>
+            )}
             {b.cancel_reason && <Typography variant="body2" sx={{ mt: 2, color: tk.error }}>Cancelled: {b.cancel_reason}</Typography>}
           </>
         )}

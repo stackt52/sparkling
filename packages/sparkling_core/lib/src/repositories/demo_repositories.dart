@@ -139,6 +139,19 @@ class DemoCustomerRepository implements CustomerRepository {
       _watch(store, const {'quotations'}, store.myQuotations);
 }
 
+class DemoConfigRepository implements ConfigRepository {
+  DemoConfigRepository(this.store);
+  final DemoStore store;
+  AppConfig? _current;
+
+  @override
+  AppConfig? get current => _current;
+
+  @override
+  Future<AppConfig> config({bool force = false}) =>
+      _later(() => _current = store.publicConfig());
+}
+
 class DemoCatalogueRepository implements CatalogueRepository {
   DemoCatalogueRepository(this.store);
   final DemoStore store;

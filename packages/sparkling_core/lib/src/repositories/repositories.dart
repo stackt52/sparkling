@@ -60,6 +60,17 @@ abstract interface class CustomerRepository {
   Stream<List<Quotation>> watchQuotations();
 }
 
+/// Public app configuration — feature flags from `GET /config`.
+abstract interface class ConfigRepository {
+  /// The public flags, fetched once per session and then served from memory
+  /// (`force` refetches). Live mode falls back to the last known config, or
+  /// [AppConfig.defaults] (every flag off), when the API is unreachable.
+  Future<AppConfig> config({bool force = false});
+
+  /// Last config returned by [config] (null before the first fetch).
+  AppConfig? get current;
+}
+
 /// Outlets, services and availability (public catalogue).
 abstract interface class CatalogueRepository {
   Future<List<Outlet>> outlets({double? lat, double? lng});

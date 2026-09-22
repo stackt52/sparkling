@@ -70,6 +70,7 @@ abstract final class SparklingCore {
         demo: true,
         auth: demoAuth,
         customer: DemoCustomerRepository(store),
+        config: DemoConfigRepository(store),
         catalogue: DemoCatalogueRepository(store),
         loyalty: DemoLoyaltyRepository(store),
         membership: DemoMembershipRepository(store),
@@ -127,6 +128,7 @@ abstract final class SparklingCore {
         connectivity: conn,
         uidProvider: uid,
       ),
+      config: ApiConfigRepository(api: api, cache: cache),
       catalogue: ApiCatalogueRepository(
         api: api,
         cache: cache,

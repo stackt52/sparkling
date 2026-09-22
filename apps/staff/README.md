@@ -325,6 +325,34 @@ offline. Demo: `WO-2026-4822` (Naledi) verifies with `48213`; Thabo's
 `WO-2026-4820` with `73104`. `screenshots/handover-otp.png` shows a
 successful verification.
 
+### Cash on collection
+
+A booking made with `payment_method: 'cash'` (customer app, feature flag
+`cash_on_collection`) is confirmed without an online payment and the cash is
+taken at the counter. The work-order `booking` expansion
+(`WorkOrder.booking` → `WorkOrderBooking.paymentMethod / paid / totalCents`)
+drives the staff UI:
+
+* task cards, the checklist header and the hand-over sheet carry a
+  **Cash on collection · R x due** chip (green **· paid** once recorded);
+  the verified banner's hand-over card adds an amber "Cash due · R x" line;
+* the hand-over sheet starts with **Cash due · R x** and a
+  **Record cash payment · R x** button (`POST /payments/record`
+  `{ booking_id, method:'cash', amount_cents, idempotency_key }` via
+  `staff.recordPayment`, one key per sheet so retries never double-record),
+  then continues to the OTP step ("R x cash recorded · RCP-…");
+* `POST /work-orders/:id/pickup/verify` answers 409 `validation_error
+  {reason:'payment_due', amount_cents, booking_id, method:'cash'}` while the
+  cash is unpaid (`ApiException.isPaymentDue`) — the sheet surfaces the
+  server message with the same button, so callers without the booking
+  expansion (the live task list) still work.
+
+Demo: Thabo's `WO-2026-4820` / `SPK-2026-0098` (R 81) is cash on collection
+and unpaid — record the cash, then `73104` releases the keys.
+`test/handover_cash_test.dart` covers the card chip → record → OTP flow, the
+`payment_due` path and the checklist header. Screenshot:
+`screenshots/handover-cash.png`.
+
 ## Notes
 
 * Disc scanning (`lib/features/scanner/scan_screen.dart`): `mobile_scanner`

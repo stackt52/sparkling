@@ -167,7 +167,8 @@ insert into public.feature_flags (key, enabled, description) values
  ('payments_sandbox', true, 'Use the sandbox payment provider (no real charges)'),
  ('whatsapp_enabled', false, 'Send WhatsApp Business notifications'),
  ('auto_assignment', true, 'Automatically assign queued work orders to available staff'),
- ('birthday_bonus', false, 'Award birthday loyalty bonus (pending consent review)');
+ ('birthday_bonus', false, 'Award birthday loyalty bonus (pending consent review)'),
+ ('cash_on_collection', true, 'Allow customers to choose "Cash on collection" when booking; the cash payment is recorded at the counter before the vehicle is released');
 
 -- ---------- Bookings / work orders / tasks (today-relative) ------------------
 -- Helper: today's 10:00 in Johannesburg

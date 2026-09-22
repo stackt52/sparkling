@@ -18,6 +18,7 @@ class Repositories {
     required this.demo,
     required this.auth,
     required this.customer,
+    required this.config,
     required this.catalogue,
     required this.loyalty,
     required this.membership,
@@ -37,6 +38,9 @@ class Repositories {
   final bool demo;
   final AuthGateway auth;
   final CustomerRepository customer;
+
+  /// Public feature flags (`GET /config`), cached for the session.
+  final ConfigRepository config;
   final CatalogueRepository catalogue;
   final LoyaltyRepository loyalty;
   final MembershipRepository membership;

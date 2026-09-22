@@ -119,6 +119,7 @@ class _TasksScreenState extends State<TasksScreen> {
       ref: task.ref,
       customerName: wo?.customerName,
       vehicleLabel: wo?.vehicle?.registrationNo,
+      booking: wo?.booking,
     );
     if (result != null && mounted) {
       StaffSnack.show(context, '${task.ref}: keys released');

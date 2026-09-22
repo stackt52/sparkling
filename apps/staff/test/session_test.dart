@@ -164,6 +164,7 @@ void main() {
       auth: auth,
       api: api,
       customer: base.customer,
+      config: base.config,
       catalogue: base.catalogue,
       loyalty: base.loyalty,
       membership: base.membership,

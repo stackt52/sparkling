@@ -4,6 +4,7 @@ library;
 export 'admin.dart';
 export 'availability.dart';
 export 'booking.dart';
+export 'config.dart';
 export 'countries.dart';
 export 'customer.dart';
 export 'enums.dart';

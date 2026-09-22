@@ -399,6 +399,78 @@ class TaskEvent extends Equatable {
   ];
 }
 
+/// `booking` expansion on `GET /work-orders/:id` (and on task cards where
+/// the API includes it): `{ id, ref, status, slot_start, slot_end,
+/// total_cents, payment_method, paid }`.
+class WorkOrderBooking extends Equatable {
+  const WorkOrderBooking({
+    required this.id,
+    this.ref,
+    this.status,
+    this.slotStart,
+    this.slotEnd,
+    this.totalCents = 0,
+    this.paymentMethod,
+    this.paid = false,
+  });
+
+  final String id;
+  final String? ref;
+  final BookingStatus? status;
+  final DateTime? slotStart;
+  final DateTime? slotEnd;
+  final int totalCents;
+
+  /// `card` / `eft` / `cash` (cash on collection) / null.
+  final PaymentChoice? paymentMethod;
+
+  /// A verified (`successful`) payment exists for the booking.
+  final bool paid;
+
+  bool get isCashOnCollection => paymentMethod == PaymentChoice.cash;
+
+  /// Cash must be recorded at the counter before the keys are released.
+  bool get isCashDue => isCashOnCollection && totalCents > 0 && !paid;
+
+  factory WorkOrderBooking.fromJson(Json json) => WorkOrderBooking(
+    id: str(json['id']),
+    ref: strOrNull(json['ref']),
+    status: json['status'] == null
+        ? null
+        : BookingStatus.fromDb(strOrNull(json['status'])),
+    slotStart: dtOrNull(json['slot_start']),
+    slotEnd: dtOrNull(json['slot_end']),
+    totalCents: intOf(json['total_cents']),
+    paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
+    paid: boolOf(json['paid']),
+  );
+
+  Json toJson() => compact({
+    'id': id,
+    'ref': ref,
+    'status': status?.db,
+    'slot_start': iso(slotStart),
+    'slot_end': iso(slotEnd),
+    'total_cents': totalCents,
+    'payment_method': paymentMethod?.db,
+    'paid': paid,
+  });
+
+  WorkOrderBooking copyWith({bool? paid}) => WorkOrderBooking(
+    id: id,
+    ref: ref,
+    status: status,
+    slotStart: slotStart,
+    slotEnd: slotEnd,
+    totalCents: totalCents,
+    paymentMethod: paymentMethod,
+    paid: paid ?? this.paid,
+  );
+
+  @override
+  List<Object?> get props => [id, status, totalCents, paymentMethod, paid];
+}
+
 /// `work_orders` row.
 class WorkOrder extends Equatable {
   const WorkOrder({
@@ -432,6 +504,7 @@ class WorkOrder extends Equatable {
     this.vehicleRegistration,
     this.vehicleName,
     this.customerName,
+    this.booking,
   });
 
   final String id;
@@ -472,6 +545,15 @@ class WorkOrder extends Equatable {
   final String? vehicleRegistration;
   final String? vehicleName;
   final String? customerName;
+
+  /// Linked booking (`booking` expansion) — carries the payment method and
+  /// whether it is paid, for the cash-on-collection hand-over.
+  final WorkOrderBooking? booking;
+
+  bool get isCashOnCollection => booking?.isCashOnCollection ?? false;
+
+  /// Cash on collection still to be recorded before the keys are released.
+  bool get isCashDue => booking?.isCashDue ?? false;
 
   bool get isOverdue =>
       dueAt != null && status.isOpen && dueAt!.isBefore(DateTime.now());
@@ -526,6 +608,9 @@ class WorkOrder extends Equatable {
                   vehicle['model'],
                 ].whereType<String>().join(' ')),
       customerName: strOrNull(json['customer_name']),
+      booking: json['booking'] is Map
+          ? WorkOrderBooking.fromJson(asJson(json['booking']))
+          : null,
     );
   }
 
@@ -560,6 +645,7 @@ class WorkOrder extends Equatable {
     'vehicle_registration': vehicleRegistration,
     'vehicle_name': vehicleName,
     'customer_name': customerName,
+    'booking': booking?.toJson(),
   });
 
   WorkOrder copyWith({
@@ -578,6 +664,7 @@ class WorkOrder extends Equatable {
     DateTime? collectedAt,
     DateTime? updatedAt,
     bool clearBlockedReason = false,
+    WorkOrderBooking? booking,
   }) => WorkOrder(
     id: id,
     ref: ref,
@@ -611,6 +698,7 @@ class WorkOrder extends Equatable {
     vehicleRegistration: vehicleRegistration,
     vehicleName: vehicleName,
     customerName: customerName,
+    booking: booking ?? this.booking,
   );
 
   @override
@@ -628,6 +716,7 @@ class WorkOrder extends Equatable {
     pickupOtpVerifiedAt,
     collectedAt,
     updatedAt,
+    booking,
   ];
 }
 

@@ -18,6 +18,12 @@ import 'booking_widgets.dart';
 /// (CUS-022/023) and the payment is only shown as paid after the (sandbox)
 /// webhook confirms it (CUS-041/042). A booking with nothing to pay is
 /// confirmed without a payment.
+///
+/// When the `cash_on_collection` flag (`GET /config`) is on and there is
+/// something to pay, **Cash on collection** is offered beside the saved
+/// methods: `POST /bookings { payment_method: 'cash' }` confirms the booking
+/// at once and the customer pays at the counter when collecting the car (no
+/// payment intent). A 409 `cash_disabled` deselects the option again.
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
 
@@ -25,10 +31,16 @@ class PaymentScreen extends StatefulWidget {
   State<PaymentScreen> createState() => _PaymentScreenState();
 }
 
+/// Saved methods + the public flags the step depends on.
+typedef _PaymentOptions = ({List<PaymentMethod> methods, PublicFlags flags});
+
 class _PaymentScreenState extends State<PaymentScreen> {
-  Future<List<PaymentMethod>>? _data;
+  Future<_PaymentOptions>? _data;
   bool _paying = false;
   String? _stage;
+
+  /// Set after a 409 `cash_disabled`: hides the option for this attempt.
+  bool _cashRefused = false;
 
   BookingFlowController get _flow => context.bookingFlow;
 
@@ -38,21 +50,32 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _data ??= _load();
   }
 
-  Future<List<PaymentMethod>> _load() async {
+  Future<_PaymentOptions> _load() async {
     final repos = context.repos;
     await _flow.loadMembership();
-    final methods = await repos.customer.paymentMethods();
+    final (methods, config) = await (
+      repos.customer.paymentMethods(),
+      repos.config.config(),
+    ).wait;
     if (mounted && _flow.methodId == null && methods.isNotEmpty) {
       final def =
           methods.where((m) => m.isDefault).firstOrNull ?? methods.first;
-      _flow.setMethod(def.id);
+      _flow.setMethod(def.id, choice: _choiceFor(def));
+    } else if (mounted && _flow.paymentChoice == null && _flow.methodId != null) {
+      // Draft restored from disk: derive the choice from the saved method.
+      final saved = methods.where((m) => m.id == _flow.methodId).firstOrNull;
+      if (saved != null) _flow.setMethod(saved.id, choice: _choiceFor(saved));
     }
-    return methods;
+    return (methods: methods, flags: config.flags);
   }
+
+  static PaymentChoice _choiceFor(PaymentMethod m) =>
+      m.isCard ? PaymentChoice.card : PaymentChoice.eft;
 
   Future<void> _pay(int totalCents) async {
     final flow = _flow;
     final repos = context.repos;
+    final cash = flow.payCash && !flow.nothingToPay;
     setState(() {
       _paying = true;
       _stage = 'Confirming slot…';
@@ -60,8 +83,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       final booking = await repos.customer.createBooking(flow.toInput());
       if (!mounted) return;
-      if (booking.totalCents <= 0) {
-        // Included in the plan — nothing to pay, the booking is confirmed.
+      if (booking.totalCents <= 0 || cash) {
+        // Included in the plan (nothing to pay) or cash on collection — the
+        // booking is confirmed without a payment intent.
         final detail = await repos.customer.booking(booking.id);
         if (!mounted) return;
         AppHaptics.success(context);
@@ -105,6 +129,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
         );
         flow.reset();
         context.go(Routes.quoteNew, extra: args);
+      } else if (e.isCashDisabled) {
+        // Flag switched off since the config was fetched: fall back to the
+        // saved method and hide the cash option.
+        showSnack(context, e.message);
+        final methods = (await _data)?.methods ?? const <PaymentMethod>[];
+        if (!mounted) return;
+        final def =
+            methods.where((m) => m.id == flow.methodId).firstOrNull ??
+            methods.where((m) => m.isDefault).firstOrNull ??
+            methods.firstOrNull;
+        flow.setMethod(def?.id, choice: def == null ? null : _choiceFor(def));
+        setState(() => _cashRefused = true);
       } else if (e.isConflict && e.message.toLowerCase().contains('slot')) {
         showSnack(context, '${e.message} Please pick another time.');
         flow.setSlot(null);
@@ -173,18 +209,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 onBack: _paying ? () {} : null,
               ),
               Expanded(
-                child: AsyncView<List<PaymentMethod>>(
+                child: AsyncView<_PaymentOptions>(
                   future: _data!,
                   onRetry: () => setState(() => _data = _load()),
-                  builder: (context, methods) {
+                  builder: (context, options) {
+                    final methods = options.methods;
                     final price = flow.baseCents;
                     final discount = flow.membershipDiscountCents;
                     final vat = flow.estimatedVatCents;
                     final total = flow.estimatedTotalCents;
                     final nothingToPay = flow.nothingToPay;
-                    final selectedMethod = methods
-                        .where((m) => m.id == flow.methodId)
-                        .firstOrNull;
+                    final cashOffered =
+                        options.flags.cashOnCollection &&
+                        !_cashRefused &&
+                        !nothingToPay &&
+                        total > 0;
+                    final payCash = cashOffered && flow.payCash;
+                    final selectedMethod = payCash
+                        ? null
+                        : methods
+                              .where((m) => m.id == flow.methodId)
+                              .firstOrNull;
+                    final canPay =
+                        nothingToPay || payCash || selectedMethod != null;
 
                     return Column(
                       children: [
@@ -213,10 +260,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
                               if (!nothingToPay)
                               for (final m in methods) ...[
                                 RadioCard(
-                                  selected: m.id == flow.methodId,
+                                  selected: !payCash && m.id == flow.methodId,
                                   onChanged: (_) {
                                     AppHaptics.selection(context);
-                                    flow.setMethod(m.id);
+                                    flow.setMethod(m.id, choice: _choiceFor(m));
                                   },
                                   radioPosition:
                                       RadioCardRadioPosition.trailing,
@@ -232,6 +279,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                               ? 'Default card · tokenised'
                                               : 'Tokenised card')
                                         : 'Pay from your bank app',
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                              ],
+                              if (cashOffered) ...[
+                                RadioCard(
+                                  key: const ValueKey('pay-cash'),
+                                  selected: payCash,
+                                  onChanged: (_) {
+                                    AppHaptics.selection(context);
+                                    flow.setPayCash();
+                                  },
+                                  radioPosition:
+                                      RadioCardRadioPosition.trailing,
+                                  leading: TintedIconTile(
+                                    icon: Symbols.payments_rounded,
+                                    size: 48,
+                                    radius: 14,
+                                    background:
+                                        context.sparkling.warningContainer,
+                                    foreground:
+                                        context.sparkling.onWarningContainer,
+                                  ),
+                                  title: Text(
+                                    'Cash on collection',
+                                    style: SparklingTypography.titleLarge
+                                        .copyWith(fontSize: 17),
+                                  ),
+                                  subtitle: Text(
+                                    'Pay ${Money.formatZar(total)} in cash at the counter when you collect your car',
                                   ),
                                 ),
                                 const SizedBox(height: 10),
@@ -310,17 +387,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                 PillButton(
                                   label: nothingToPay
                                       ? 'Confirm booking · included'
+                                      : payCash
+                                      ? 'Confirm booking · pay on collection'
                                       : 'Pay ${Money.formatZar(total)} securely',
-                                  icon: nothingToPay
+                                  icon: nothingToPay || payCash
                                       ? Symbols.check_rounded
                                       : Symbols.lock_rounded,
                                   expand: true,
                                   minHeight: 56,
                                   loading: _paying,
-                                  onPressed: selectedMethod == null &&
-                                          !nothingToPay
-                                      ? null
-                                      : () => _pay(total),
+                                  onPressed: canPay ? () => _pay(total) : null,
                                 ),
                               ],
                             ),
