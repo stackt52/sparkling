@@ -7,7 +7,7 @@ import { clientOpId, parseBody, uuid } from '../lib/validate.js';
 import { assertOwnerOrOutletStaff, requireProfile, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
-import { buildTimeline, loadStepResults, loadTemplateForWorkOrder, progress, recordStep } from '../services/workflow.js';
+import { buildTimeline, checkInWorkOrder, loadStepResults, loadTemplateForWorkOrder, progress, recordStep } from '../services/workflow.js';
 import type { Task, WorkOrder } from '../types.js';
 
 export const workOrdersRouter = Router();
@@ -104,5 +104,19 @@ workOrdersRouter.post(
     const id = uuid.parse(req.params.id);
     const out = await resendPickupOtp(req.ctx, id);
     res.json(out);
+  }),
+);
+
+const checkinSchema = z.object({ bay: z.string().trim().max(32).nullable().optional() });
+
+/** Staff / admin confirm the vehicle is on site (required before the work order can be assigned). */
+workOrdersRouter.post(
+  '/work-orders/:id/checkin',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const body = parseBody(checkinSchema, req.body ?? {});
+    const out = await checkInWorkOrder(req.ctx, id, { bay: body.bay });
+    res.status(out.already ? 200 : 201).json({ work_order: redactPickupOtp(req.auth!, out.work_order), task: out.task, already: out.already });
   }),
 );

@@ -164,6 +164,16 @@ class DemoStore {
   /// Naledi's verified exterior wash (WO-2026-4822) — hand-over OTP.
   static const String woVerified = '30000000-0000-4000-8000-000000000002';
 
+  /// Zanele's bumper repair converted from quotation QT-2026-0039: queued,
+  /// unassigned and **not checked in** (`checked_in_at == null`) — the
+  /// supervisor confirms the check-in before it can be assigned.
+  static const String woAwaitingCheckIn =
+      '30000000-0000-4000-8000-000000000007'; // WO-2026-4819
+  static const String taskAwaitingCheckIn =
+      '40000000-0000-4000-8000-000000000007';
+  static const String quotationConverted =
+      '20000000-0000-4000-8000-000000000004'; // QT-2026-0039
+
   /// Wrong-OTP attempts allowed before `rate_limited` (mirrors the API).
   static const int maxOtpAttempts = 5;
 
@@ -1259,6 +1269,40 @@ class DemoStore {
         vehicleLabel: 'Hilux · DN 07 KX GP',
         outletName: 'Sparkling Auto Care Centre Menlyn',
       ),
+      Quotation(
+        id: quotationConverted,
+        ref: 'QT-$_yr-0039',
+        customerId: 'seed_zanele',
+        vehicleId: vehBmw,
+        outletId: outletMenlyn,
+        category: 'Bumper',
+        description: 'Front bumper scuff, paint chipped on the corner.',
+        status: QuotationStatus.converted,
+        amountCents: 285000,
+        lineItems: const [
+          LineItem(
+            label: 'Bumper scuff repair & respray',
+            amountCents: 285000,
+            category: 'Bumper',
+            serviceId: svcSpotRepair,
+          ),
+        ],
+        assessorId: 'seed_sipho_staff',
+        assessorName: 'Sipho Ndlovu',
+        validUntil: n.add(const Duration(days: 5)),
+        quotedAt: n.subtract(const Duration(days: 5)),
+        decidedAt: n.subtract(const Duration(days: 3)),
+        decisionBy: 'seed_zanele',
+        decisionSource: QuoteDecisionSource.publicLink,
+        decisionByName: 'Zanele Mthembu',
+        customerName: 'Zanele Mthembu',
+        publicUrl: '$publicWebBaseUrl/q/seed-token-qt39',
+        pdfUrl: '/v1/quotations/$quotationConverted/pdf',
+        clientOpId: 'seed-op-qt39',
+        createdAt: n.subtract(const Duration(days: 7)),
+        vehicleLabel: 'BMW 3 Series · BW 33 RG GP',
+        outletName: 'Sparkling Auto Care Centre Menlyn',
+      ),
     ]);
 
     // ---- Work orders / tasks ---------------------------------------------------
@@ -1282,6 +1326,8 @@ class DemoStore {
         startedAt: t.add(const Duration(minutes: 5)),
         dueAt: t.add(const Duration(minutes: 60)),
         createdAt: t.subtract(const Duration(minutes: 20)),
+        checkedInAt: t.subtract(const Duration(minutes: 20)),
+        checkedInBy: 'seed_johan',
       ),
       WorkOrder(
         id: woReady,
@@ -1305,6 +1351,8 @@ class DemoStore {
         verifiedBy: 'seed_johan',
         dueAt: t.subtract(const Duration(minutes: 100)),
         createdAt: t.subtract(const Duration(minutes: 125)),
+        checkedInAt: t.subtract(const Duration(minutes: 125)),
+        checkedInBy: 'seed_johan',
       ),
       WorkOrder(
         id: woVerified,
@@ -1328,6 +1376,8 @@ class DemoStore {
         verifiedBy: 'seed_johan',
         dueAt: t.subtract(const Duration(minutes: 70)),
         createdAt: t.subtract(const Duration(minutes: 95)),
+        checkedInAt: t.subtract(const Duration(minutes: 95)),
+        checkedInBy: 'seed_johan',
       ),
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000003',
@@ -1349,6 +1399,8 @@ class DemoStore {
         blockedReason: 'Out of interior shampoo — substitute stock needed',
         dueAt: t.add(const Duration(minutes: 120)),
         createdAt: t.subtract(const Duration(minutes: 15)),
+        checkedInAt: t.subtract(const Duration(minutes: 15)),
+        checkedInBy: 'seed_johan',
       ),
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000004',
@@ -1365,6 +1417,8 @@ class DemoStore {
         etaAt: t.add(const Duration(hours: 4)),
         dueAt: t.add(const Duration(hours: 4)),
         createdAt: t.subtract(const Duration(minutes: 5)),
+        checkedInAt: t.subtract(const Duration(minutes: 5)),
+        checkedInBy: 'seed_lerato',
       ),
       WorkOrder(
         id: '30000000-0000-4000-8000-000000000005',
@@ -1384,6 +1438,24 @@ class DemoStore {
         etaAt: t.add(const Duration(days: 2)),
         dueAt: t.subtract(const Duration(minutes: 30)),
         createdAt: t.subtract(const Duration(days: 1)),
+        checkedInAt: t.subtract(const Duration(hours: 3)),
+        checkedInBy: 'seed_johan',
+      ),
+      WorkOrder(
+        id: woAwaitingCheckIn,
+        ref: 'WO-$_yr-4819',
+        outletId: outletMenlyn,
+        quotationId: quotationConverted,
+        vehicleId: vehBmw,
+        customerId: 'seed_zanele',
+        serviceId: svcSpotRepair,
+        status: WorkStatus.queued,
+        priority: 2,
+        checklistTemplateId: tplBody,
+        templateVersion: 1,
+        etaAt: t.add(const Duration(days: 1)),
+        dueAt: t.add(const Duration(days: 1)),
+        createdAt: t.subtract(const Duration(minutes: 40)),
       ),
     ]);
 
@@ -1467,7 +1539,26 @@ class DemoStore {
         priority: 2,
         dueAt: t.subtract(const Duration(minutes: 30)),
       ),
+      Task(
+        id: taskAwaitingCheckIn,
+        workOrderId: woAwaitingCheckIn,
+        outletId: outletMenlyn,
+        title: 'Spot repair & blending · BW 33 RG GP',
+        status: WorkStatus.queued,
+        priority: 2,
+        dueAt: t.add(const Duration(days: 1)),
+        createdAt: t.subtract(const Duration(minutes: 40)),
+      ),
     ]);
+    for (final step in templateById(tplBody)?.steps ?? const <ChecklistStep>[]) {
+      stepResults.add(
+        StepResult(
+          id: _newId('5'),
+          workOrderId: woAwaitingCheckIn,
+          stepKey: step.key,
+        ),
+      );
+    }
 
     // WO-4821: 4 of 7 done (mockup 2b)
     for (final (k, v, m) in [
@@ -3439,6 +3530,9 @@ class DemoStore {
         templateVersion: template?.version,
         etaAt: now.add(Duration(minutes: service.durationMinutes)),
         dueAt: now.add(Duration(minutes: service.durationMinutes)),
+        // A booking check-in is the check-in: the car is at the counter.
+        checkedInAt: now,
+        checkedInBy: uid,
         createdAt: now,
         updatedAt: now,
       );
@@ -4411,6 +4505,8 @@ class DemoStore {
         customerName: nameOf(wo.customerId),
         slotStart: booking?.slotStart,
         collectedAt: wo.collectedAt,
+        checkedInAt: wo.checkedInAt,
+        checkedInBy: wo.checkedInBy,
         booking: _workOrderBooking(wo.bookingId),
       ),
     );
@@ -4624,6 +4720,129 @@ class DemoStore {
       role.canSupervise,
       'Only supervisors and managers can assign tasks.',
     );
+    final task = _requireTask(taskId);
+    final wo = _requireWorkOrder(task.workOrderId);
+    if (!wo.isCheckedIn) {
+      throw ApiException(
+        code: 'validation_error',
+        message:
+            'The vehicle has not been checked in yet — confirm the check-in before assigning this work order',
+        statusCode: 409,
+        data: {
+          'code': 'validation_error',
+          'reason': 'not_checked_in',
+          'work_order_id': wo.id,
+        },
+      );
+    }
+    return _assign(
+      taskId,
+      assigneeId: assigneeId,
+      reason: reason,
+      clientOpId: clientOpId,
+      actorId: uid,
+    );
+  }
+
+  /// `POST /work-orders/:id/checkin { bay? }` — any staff of the outlet.
+  /// Stamps `checked_in_at / by` (idempotent: `already` when it was set
+  /// before), records a `checked_in` event and, when the `auto_assignment`
+  /// flag is on and the task is still unassigned, assigns it to the least
+  /// loaded available team member with a matching skill.
+  WorkOrderCheckInResult checkInWorkOrder(String id, {String? bay}) {
+    _requireRole(role.isStaff, 'Only staff can check a vehicle in.');
+    final wi = workOrders.indexWhere((w) => w.id == id);
+    final wo = _requireWorkOrder(id);
+    final myOutlets = staffOutlets[uid] ?? const <String>[];
+    _requireRole(
+      role.canSupervise || myOutlets.contains(wo.outletId),
+      'You can only check vehicles in at your own outlet.',
+    );
+    Task? task() =>
+        tasks.where((t) => t.workOrderId == id).map(expandTask).firstOrNull;
+    if (wo.isCheckedIn) {
+      return WorkOrderCheckInResult(
+        workOrder: workOrderDetail(id).workOrder,
+        task: task(),
+        already: true,
+      );
+    }
+    if (wo.status.isDone) {
+      throw ApiException(
+        code: 'invalid_transition',
+        message: 'This work order is already closed.',
+        statusCode: 409,
+      );
+    }
+    final trimmed = bay?.trim();
+    workOrders[wi] = wo.copyWith(
+      checkedInAt: now,
+      checkedInBy: uid,
+      bay: trimmed == null || trimmed.isEmpty ? null : trimmed,
+      updatedAt: now,
+    );
+    final t = tasks.where((t) => t.workOrderId == id).firstOrNull;
+    taskEvents.add(
+      TaskEvent(
+        id: _newId('8'),
+        taskId: t?.id,
+        workOrderId: id,
+        actorId: uid,
+        actorName: nameOf(uid),
+        event: 'checked_in',
+        metadata: {if (trimmed != null && trimmed.isNotEmpty) 'bay': trimmed},
+        createdAt: now,
+      ),
+    );
+    _notify('work_orders', id);
+    _notify('tasks', t?.id);
+    if (featureFlags['auto_assignment'] == true &&
+        t != null &&
+        t.assigneeId == null &&
+        t.status.isOpen) {
+      final pick = _autoAssignCandidate(workOrders[wi]);
+      if (pick != null) {
+        _assign(
+          t.id,
+          assigneeId: pick.id,
+          reason: 'Auto-assign: skill match, lowest load',
+          actorId: null,
+        );
+      }
+    }
+    return WorkOrderCheckInResult(
+      workOrder: workOrderDetail(id).workOrder,
+      task: task(),
+    );
+  }
+
+  /// Least-loaded available technician at the outlet, preferring a skill
+  /// that matches the service category (`paint`/`panel` for auto-body,
+  /// `wash`/`detail` for car wash). Null when nobody has capacity.
+  StaffMember? _autoAssignCandidate(WorkOrder wo) {
+    final category = serviceById(wo.serviceId)?.category;
+    final wanted = category == ServiceCategory.autoBody
+        ? const {'paint', 'panel'}
+        : const {'wash', 'detail'};
+    final free = teamMembers(wo.outletId)
+        .where(
+          (m) => m.availability == AvailabilityStatus.available && !m.atCapacity,
+        )
+        .toList();
+    if (free.isEmpty) return null;
+    int score(StaffMember m) =>
+        (m.skills.any(wanted.contains) ? 0 : 100) + m.activeTasks;
+    free.sort((a, b) => score(a).compareTo(score(b)));
+    return free.first;
+  }
+
+  Task _assign(
+    String taskId, {
+    required String assigneeId,
+    String? reason,
+    String? clientOpId,
+    required String? actorId,
+  }) {
     final ti = tasks.indexWhere((t) => t.id == taskId);
     final task = _requireTask(taskId);
     final wi = workOrders.indexWhere((w) => w.id == task.workOrderId);
@@ -4663,8 +4882,8 @@ class DemoStore {
         id: _newId('8'),
         taskId: taskId,
         workOrderId: task.workOrderId,
-        actorId: uid,
-        actorName: nameOf(uid),
+        actorId: actorId,
+        actorName: actorId == null ? 'Auto-assignment' : nameOf(actorId),
         event: 'assigned',
         fromStatus: task.status.db,
         toStatus: newStatus.db,

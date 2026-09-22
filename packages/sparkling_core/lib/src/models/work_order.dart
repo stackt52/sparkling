@@ -497,6 +497,8 @@ class WorkOrder extends Equatable {
     this.verifiedBy,
     this.pickupOtpVerifiedAt,
     this.collectedAt,
+    this.checkedInAt,
+    this.checkedInBy,
     this.dueAt,
     this.createdAt,
     this.updatedAt,
@@ -536,6 +538,12 @@ class WorkOrder extends Equatable {
 
   /// When the keys were released to the customer (vehicle collected).
   final DateTime? collectedAt;
+
+  /// When the vehicle was checked in at the outlet (booking check-in / scan
+  /// flow set it at once; work orders converted from quotations wait for
+  /// `POST /work-orders/:id/checkin`). Assignment needs it.
+  final DateTime? checkedInAt;
+  final String? checkedInBy;
   final DateTime? dueAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -559,6 +567,9 @@ class WorkOrder extends Equatable {
       dueAt != null && status.isOpen && dueAt!.isBefore(DateTime.now());
 
   bool get isCollected => collectedAt != null;
+
+  /// The vehicle is on site — the work order may be assigned.
+  bool get isCheckedIn => checkedInAt != null;
 
   /// Verified and still waiting for the customer to collect (hand-over OTP).
   bool get awaitingCollection =>
@@ -591,6 +602,8 @@ class WorkOrder extends Equatable {
       verifiedBy: strOrNull(json['verified_by']),
       pickupOtpVerifiedAt: dtOrNull(json['pickup_otp_verified_at']),
       collectedAt: dtOrNull(json['collected_at']),
+      checkedInAt: dtOrNull(json['checked_in_at']),
+      checkedInBy: strOrNull(json['checked_in_by']),
       dueAt: dtOrNull(json['due_at']),
       createdAt: dtOrNull(json['created_at']),
       updatedAt: dtOrNull(json['updated_at']),
@@ -638,6 +651,8 @@ class WorkOrder extends Equatable {
     'verified_by': verifiedBy,
     'pickup_otp_verified_at': iso(pickupOtpVerifiedAt),
     'collected_at': iso(collectedAt),
+    'checked_in_at': iso(checkedInAt),
+    'checked_in_by': checkedInBy,
     'due_at': iso(dueAt),
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
@@ -662,6 +677,8 @@ class WorkOrder extends Equatable {
     String? verifiedBy,
     DateTime? pickupOtpVerifiedAt,
     DateTime? collectedAt,
+    DateTime? checkedInAt,
+    String? checkedInBy,
     DateTime? updatedAt,
     bool clearBlockedReason = false,
     WorkOrderBooking? booking,
@@ -691,6 +708,8 @@ class WorkOrder extends Equatable {
     verifiedBy: verifiedBy ?? this.verifiedBy,
     pickupOtpVerifiedAt: pickupOtpVerifiedAt ?? this.pickupOtpVerifiedAt,
     collectedAt: collectedAt ?? this.collectedAt,
+    checkedInAt: checkedInAt ?? this.checkedInAt,
+    checkedInBy: checkedInBy ?? this.checkedInBy,
     dueAt: dueAt,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -715,6 +734,7 @@ class WorkOrder extends Equatable {
     verifiedAt,
     pickupOtpVerifiedAt,
     collectedAt,
+    checkedInAt,
     updatedAt,
     booking,
   ];

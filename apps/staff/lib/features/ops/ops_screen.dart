@@ -22,7 +22,10 @@ import 'assign_sheet.dart';
 enum OpsFilter { all, blocked, overdue, stock }
 
 /// Supervisor ops (2c): 4 KPI tiles, "Needs attention" cards with Reassign /
-/// Substitute stock, team load rows. Realtime via `watchOpsSummary`.
+/// Substitute stock, the unassigned **Assignment queue** (work orders that
+/// still await their vehicle check-in carry an "Awaiting check-in" chip and
+/// are assigned through the sheet's **Confirm check-in**), team load rows.
+/// Realtime via `watchOpsSummary` / `watchTasks`.
 class OpsScreen extends StatefulWidget {
   const OpsScreen({super.key});
 
@@ -33,8 +36,10 @@ class OpsScreen extends StatefulWidget {
 class _OpsScreenState extends State<OpsScreen> {
   StreamSubscription<OpsSummary>? _sub;
   StreamSubscription<List<Task>>? _doneSub;
+  StreamSubscription<List<Task>>? _queueSub;
   StreamSubscription<List<Quotation>>? _quotesSub;
   List<Task> _done = const [];
+  List<Task> _queue = const [];
   List<Quotation> _quotes = const [];
   OpsSummary? _summary;
   Object? _error;
@@ -55,6 +60,21 @@ class _OpsScreenState extends State<OpsScreen> {
           },
           onError: (Object _) {
             // The KPI stream surfaces errors; the done list is supplementary.
+          },
+        );
+    _queueSub ??= context.repositories.staff
+        .watchTasks(scope: TaskScope.queue, outletId: context.session.outletId)
+        .listen(
+          (list) {
+            if (!mounted) return;
+            setState(() {
+              _queue = list
+                  .where((t) => t.assigneeId == null && t.status.isOpen)
+                  .toList();
+            });
+          },
+          onError: (Object _) {
+            // Supplementary section; the KPI stream surfaces errors.
           },
         );
     _quotesSub ??= context.repositories.staff
@@ -95,6 +115,7 @@ class _OpsScreenState extends State<OpsScreen> {
   void dispose() {
     _sub?.cancel();
     _doneSub?.cancel();
+    _queueSub?.cancel();
     _quotesSub?.cancel();
     super.dispose();
   }
@@ -154,13 +175,9 @@ class _OpsScreenState extends State<OpsScreen> {
   Future<void> _reassign(AttentionItem item) async {
     final link = item.link;
     if (link == null || link.type != 'task') return;
-    final staff = context.repositories.staff;
-    final outletId = context.session.outletId;
     Task? task;
-    List<StaffMember> team;
     try {
       task = await _findTask(link.id);
-      team = await staff.team(outletId: outletId);
     } catch (e) {
       if (mounted) StaffSnack.error(context, e);
       return;
@@ -170,19 +187,50 @@ class _OpsScreenState extends State<OpsScreen> {
       StaffSnack.show(context, 'Task not found — it may have been completed.');
       return;
     }
+    await _assign(task);
+  }
+
+  /// Opens the assign sheet for [task] and applies the choice. A 409
+  /// `not_checked_in` (vehicle not on site) surfaces the server message and
+  /// refreshes so the queue shows the "Awaiting check-in" state.
+  Future<void> _assign(Task task) async {
+    final staff = context.repositories.staff;
+    List<StaffMember> team;
+    try {
+      team = await staff.team(outletId: context.session.outletId);
+    } catch (e) {
+      if (mounted) StaffSnack.error(context, e);
+      return;
+    }
+    if (!mounted) return;
     final choice = await showAssignSheet(context, task: task, team: team);
     if (choice == null || !mounted) return;
-    final result = await runMutation(
-      context,
-      () => staff.assignTask(
-        task!,
+    try {
+      await staff.assignTask(
+        task,
         assigneeId: choice.member.id,
         reason: choice.reason,
-      ),
-      queuedLabel: 'Assign ${task.ref}',
-      onConflict: _refresh,
-    );
-    if (result != null && mounted) {
+      );
+      if (mounted && context.syncStatus.state != SyncState.synced) {
+        StaffSnack.queued(context, 'Assign ${task.ref}');
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      StaffHaptics.error(context);
+      if (e.isNotCheckedIn) {
+        StaffSnack.show(context, e.message);
+        _refresh();
+      } else if (e.isConflict) {
+        await showConflictDialog(context, e, onRefresh: _refresh);
+      } else {
+        StaffSnack.error(context, e);
+      }
+      return;
+    } catch (e) {
+      if (mounted) StaffSnack.error(context, e);
+      return;
+    }
+    if (mounted) {
       StaffHaptics.success(context);
       StaffSnack.show(
         context,
@@ -399,6 +447,35 @@ class _OpsScreenState extends State<OpsScreen> {
               const SizedBox(height: 12),
             ],
           ];
+          final unchecked = _queue
+              .where((t) => !(t.workOrder?.isCheckedIn ?? true))
+              .length;
+          final queueList = <Widget>[
+            SectionHeader(
+              title: 'Assignment queue',
+              trailing: Text(
+                unchecked > 0
+                    ? '$unchecked awaiting check-in'
+                    : '${_queue.length} unassigned',
+                style: SparklingTypography.bodyLarge.copyWith(
+                  color: unchecked > 0
+                      ? context.sparkling.onWarningContainer
+                      : context.colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (_queue.isEmpty)
+              const ListTileCard(
+                title: Text('Nothing waiting'),
+                subtitle: Text(
+                  'Unassigned work orders show here until someone takes them.',
+                ),
+              ),
+            for (final t in _queue) ...[
+              _QueueRow(task: t, onAssign: () => _assign(t)),
+              const SizedBox(height: 10),
+            ],
+          ];
           final awaiting = _done
               .where((t) => t.workOrder?.awaitingCollection ?? false)
               .toList();
@@ -471,6 +548,8 @@ class _OpsScreenState extends State<OpsScreen> {
                             const SizedBox(height: 24),
                             ...attention,
                             const SizedBox(height: 12),
+                            ...queueList,
+                            const SizedBox(height: 12),
                             ...doneList,
                             const SizedBox(height: 12),
                             ...quotes,
@@ -506,6 +585,8 @@ class _OpsScreenState extends State<OpsScreen> {
                     quickActions,
                     const SizedBox(height: 24),
                     ...attention,
+                    const SizedBox(height: 12),
+                    ...queueList,
                     const SizedBox(height: 12),
                     ...doneList,
                     const SizedBox(height: 12),
@@ -745,6 +826,130 @@ class _TeamRow extends StatelessWidget {
             style: SparklingTypography.titleMedium.copyWith(
               color: available ? x.success : cs.onSurfaceVariant,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Unassigned open work order in the ops "Assignment queue": check-in state
+/// chip ("Awaiting check-in" until the vehicle is on site) and an Assign CTA
+/// that opens the assign sheet.
+class _QueueRow extends StatelessWidget {
+  const _QueueRow({required this.task, required this.onAssign});
+  final Task task;
+  final VoidCallback onAssign;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final x = context.sparkling;
+    final wo = task.workOrder;
+    final checkedInAt = wo?.checkedInAt;
+    final awaiting = wo != null && !wo.isCheckedIn;
+    final detail = [
+      wo?.vehicle?.registrationNo,
+      wo?.customerName,
+      wo?.bay,
+    ].whereType<String>().join(' · ');
+    final at = wo?.slotStart ?? wo?.etaAt ?? task.dueAt;
+    return ListTileCard(
+      key: ValueKey('queue-${task.id}'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      borderColor: awaiting ? x.gold.withValues(alpha: 0.5) : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: awaiting ? x.warningContainer : cs.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  awaiting ? Symbols.login_rounded : Symbols.assignment_ind_rounded,
+                  color: awaiting ? x.onWarningContainer : cs.onPrimaryContainer,
+                  fill: 1,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${task.ref} · ${wo?.serviceName ?? task.title}',
+                      style: SparklingTypography.titleLarge.copyWith(
+                        fontSize: 17,
+                        color: cs.onSurface,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (detail.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        style: SparklingTypography.bodyMedium.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (awaiting)
+                      StatusChip(
+                        key: ValueKey('awaiting-checkin-${task.id}'),
+                        label: 'Awaiting check-in',
+                        tone: StatusChipTone.warning,
+                        icon: Symbols.login_rounded,
+                        dense: true,
+                      )
+                    else if (checkedInAt != null)
+                      StatusChip(
+                        key: ValueKey('checked-in-${task.id}'),
+                        label: 'Checked in ${SparklingDates.hhmm(checkedInAt)}',
+                        tone: StatusChipTone.success,
+                        icon: Symbols.login_rounded,
+                        dense: true,
+                      ),
+                    StatusChip(
+                      label: at == null
+                          ? task.status.label
+                          : '${task.status.label} · ${SparklingDates.hhmm(at)}',
+                      dense: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              PillButton(
+                key: ValueKey('queue-assign-${task.id}'),
+                label: awaiting ? 'Check in & assign' : 'Assign',
+                variant: PillButtonVariant.tonal,
+                minHeight: 48,
+                onPressed: onAssign,
+              ),
+            ],
           ),
         ],
       ),

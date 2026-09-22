@@ -202,6 +202,7 @@ export async function checkInBooking(ctx: RequestContext, id: string, opts: { ba
   }
   const eta = new Date(new Date(current.slot_start).getTime() + service.duration_minutes * 60_000).toISOString();
   const created = await createWorkOrderWithTask(ctx, {
+    checkedIn: true,
     outletId: current.outlet_id,
     bookingId: current.id,
     vehicleId: current.vehicle_id,

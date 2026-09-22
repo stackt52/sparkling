@@ -10,6 +10,7 @@ import type {
   AuditEvent,
   AvailabilitySlot,
   Booking,
+  BookingCheckinResult,
   BookingDetail,
   BookingStatus,
   ChecklistTemplate,
@@ -70,7 +71,9 @@ import type {
   WalkInBookingResult,
   WalkInCustomer,
   WalkInCustomerInput,
+  WalkInPriority,
   WorkOrder,
+  WorkOrderSummary,
   WorkStatus,
 } from './types';
 
@@ -171,6 +174,12 @@ export interface AdminApi {
   listBookings(filters: BookingFilters): Promise<Page<Booking>>;
   getBooking(id: string): Promise<BookingDetail>;
   cancelBooking(id: string, reason: string): Promise<Booking>;
+  /**
+   * Explicit "car checked in" for a `pending` / `confirmed` booking that has no work order yet
+   * (`POST /bookings/:id/checkin { bay?, priority? }`): creates the work order already checked in and
+   * auto-assigns it when the `auto_assignment` flag is on.
+   */
+  checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult>;
   /* quotations */
   listQuotations(filters: QuotationFilters): Promise<Quotation[]>;
   getQuotation(id: string): Promise<Quotation>;
@@ -190,8 +199,14 @@ export interface AdminApi {
   /* work orders */
   listWorkOrders(filters: WorkOrderFilters): Promise<WorkOrder[]>;
   getWorkOrder(id: string): Promise<WorkOrder>;
+  /** Refused with 409 `validation_error` `{ reason: 'not_checked_in', work_order_id }` while `checked_in_at` is null. */
   assignTask(taskId: string, body: { assignee_id: string; reason?: string }): Promise<WorkOrder>;
   transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }): Promise<WorkOrder>;
+  /**
+   * Confirms the car is on site (`POST /work-orders/:id/checkin { bay? }`): records `checked_in_at` / `checked_in_by`
+   * and runs auto-assignment when the flag is on and the work order is unassigned. Idempotent (200 `already: true`).
+   */
+  checkinWorkOrder(id: string, body: { bay?: string | null }): Promise<WorkOrder>;
   team(params: OutletScoped): Promise<TeamMember[]>;
   /* users */
   listUsers(): Promise<StaffUser[]>;
@@ -474,6 +489,15 @@ export class HttpApi implements AdminApi {
   async cancelBooking(id: string, reason: string) {
     return (await this.request<{ booking: Booking }>('POST', `/bookings/${id}/cancel`, { reason })).booking;
   }
+  /** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }`; the bare `work_orders` row is mapped onto the summary shape. */
+  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }) {
+    const res = await this.request<{ booking: Booking; work_order: (Partial<WorkOrderSummary> & { id: string; ref: string; status: WorkStatus }) | null }>('POST', `/bookings/${id}/checkin`, body);
+    const w = res.work_order;
+    const work_order: WorkOrderSummary | null = w
+      ? { id: w.id, ref: w.ref, status: w.status, stage: w.stage ?? 0, stage_count: w.stage_count ?? 0, progress_pct: w.progress_pct ?? 0, assignee_id: w.assignee_id ?? null, assignee_name: w.assignee_name ?? null, bay: w.bay ?? body.bay ?? null, eta_at: w.eta_at ?? null, blocked_reason: w.blocked_reason ?? null }
+      : null;
+    return { booking: res.booking, work_order };
+  }
   listQuotations(f: QuotationFilters) {
     return this.list<Quotation>(`/quotations${qs({ limit: 200, ...f })}`);
   }
@@ -521,6 +545,11 @@ export class HttpApi implements AdminApi {
   async assignTask(taskId: string, body: { assignee_id: string; reason?: string }) {
     const { task } = await this.request<{ task: Task }>('POST', `/tasks/${taskId}/assign`, body);
     return this.getWorkOrder(task.work_order_id);
+  }
+  /** `POST /work-orders/:id/checkin` answers `{ work_order, task, already }`; the board card is re-read from `/admin/work-orders/:id`. */
+  async checkinWorkOrder(id: string, body: { bay?: string | null }) {
+    await this.request<{ work_order: { id: string }; task: Task | null; already: boolean }>('POST', `/work-orders/${id}/checkin`, body);
+    return this.getWorkOrder(id);
   }
   /** Verifying with incomplete required steps needs a supervisor `override.reason` — the drawer's reason doubles as that. */
   async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }) {

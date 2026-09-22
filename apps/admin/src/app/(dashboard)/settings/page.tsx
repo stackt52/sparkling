@@ -97,6 +97,40 @@ function PaymentsCard({ flag, manage, pending, onToggle }: { flag: FeatureFlag |
   );
 }
 
+/**
+ * Operations card: the `auto_assignment` flag switch. When on, a checked-in car's queued work order is handed to
+ * the available technician with the matching skill and the lowest load (booking check-in or "Confirm check-in"
+ * on the Work board); when off, supervisors assign by hand. Gated like the other switches (`flags:manage`).
+ */
+function OperationsCard({ flag, manage, pending, onToggle }: { flag: FeatureFlag | undefined; manage: boolean; pending: boolean; onToggle: (enabled: boolean) => void }) {
+  const enabled = flag?.enabled ?? false;
+  return (
+    <Paper data-testid="operations-auto-assignment" sx={{ p: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start', bgcolor: tk.surfaceContainer, border: 'none', borderRadius: '18px' }}>
+      <IconTile icon="assignment_ind" tone={enabled ? 'success' : 'neutral'} size={44} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6">Auto-assign work orders</Typography>
+          <StatusChip tone={enabled ? 'success' : 'neutral'} label={enabled ? 'on' : 'off'} sx={{ height: 22, fontSize: 11 }} />
+        </Box>
+        <Typography variant="body2" color="text.secondary">
+          When a checked-in car&apos;s work order is queued, assign it automatically to the available technician with the matching skill and lowest load. Off = supervisors assign by hand.
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1.25, flexWrap: 'wrap' }}>
+          <M3Switch checked={enabled} disabled={!manage || pending || !flag} onChange={(e) => onToggle(e.target.checked)} slotProps={{ input: { 'aria-label': 'auto_assignment' } }} />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" className="mono">auto_assignment</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {enabled ? 'Runs at check-in only — a car that is not checked in is never assigned, and manual assignment still works.' : 'Nothing is assigned automatically; every work order waits for a supervisor.'}
+              {flag ? ` Updated ${fmtDateTime(flag.updated_at)}.` : ' Flag not found.'}
+              {!manage ? ' Admin-only.' : ''}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
+
 export default function SettingsPage() {
   const api = useApi();
   const { role, isDemo } = useAuth();
@@ -168,6 +202,17 @@ export default function SettingsPage() {
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5 }}>
               Mode: <b>{isDemo ? 'demo (in-memory)' : 'live'}</b> · API base <span className="mono">{env.apiBaseUrl || 'not set'}</span> · Supabase <span className="mono">{env.supabaseUrl}</span>
             </Typography>
+          </SectionCard>
+          <SectionCard title="Operations" subtitle={manage ? 'How queued work reaches technicians' : 'Read-only — only admins can change operations settings'}>
+            {flags.isLoading && <LoadingRows rows={1} height={110} />}
+            {!flags.isLoading && (
+              <OperationsCard
+                flag={flags.data?.find((f) => f.key === 'auto_assignment')}
+                manage={manage}
+                pending={update.isPending}
+                onToggle={(enabled) => update.mutate({ key: 'auto_assignment', enabled })}
+              />
+            )}
           </SectionCard>
           <SectionCard title="Payments" subtitle={manage ? 'Payment options offered to customers in the app' : 'Read-only — only admins can change payment options'}>
             {flags.isLoading && <LoadingRows rows={1} height={110} />}

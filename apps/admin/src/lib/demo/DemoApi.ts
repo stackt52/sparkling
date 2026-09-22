@@ -7,12 +7,12 @@ import { buildCsv } from '../csv';
 import { ApiRequestError, uuid, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type MembershipFilters, type NotificationFilters, type OutletOfferFilters, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
 import {
   SERVICE_GROUPS, VAT_RATE, priceLabel, vehicleSizeOf,
-  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingDetail, type ChecklistTemplate, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
+  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingCheckinResult, type BookingDetail, type ChecklistTemplate, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
   type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type Outlet, type OutletServiceInput,
   type OutletServiceOffer, type Page, type Payment, type Period, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
   type Profile, type ReportSummary, type ResetPasswordResult, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
-  type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WorkOrder, type WorkStatus,
+  type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WalkInPriority, type WorkOrder, type WorkStatus,
 } from '../types';
 import { applyDemoDecision, demoPhotoUrl, demoSeedToken, pdfInputFromQuotation, registerDemoPhoto, registerDemoPublicQuote, syncDemoPublicQuote, withOutletLegal } from './publicQuotes';
 import { QUOTE_TERMS } from '../quoteTerms';
@@ -33,6 +33,9 @@ const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const delay = (ms = 120) => new Promise<void>((r) => setTimeout(r, ms));
 let seq = 1;
 const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
+
+/** Mirrors the API's 409 `validation_error` `{ reason: 'not_checked_in' }` on `POST /tasks/:id/assign`. */
+const NOT_CHECKED_IN = 'The vehicle has not been checked in yet — confirm the check-in before assigning this work order';
 
 const ALLOWED: Record<WorkStatus, WorkStatus[]> = {
   queued: ['assigned', 'cancelled'],
@@ -321,7 +324,7 @@ export class DemoApi implements AdminApi {
     const exp = this.expandBooking(b);
     const w = this.workOrders.find((x) => x.booking_ref === b.ref);
     const tpl = this.templates.find((t) => t.id === serviceById(b.service_id).checklist_template_id);
-    const timeline: TimelineStage[] = [{ key: 'checked_in', title: 'Checked in', state: w ? 'done' : b.status === 'cancelled' ? 'pending' : 'pending', at: w?.started_at ?? w?.updated_at ?? null }];
+    const timeline: TimelineStage[] = [{ key: 'checked_in', title: 'Checked in', state: w?.checked_in_at ? 'done' : w ? 'current' : 'pending', at: w?.checked_in_at ?? null, actor: w?.checked_in_by_name ?? null }];
     if (tpl) {
       tpl.steps.forEach((s, i) => {
         const done = w ? i < w.steps_done : false;
@@ -540,12 +543,12 @@ export class DemoApi implements AdminApi {
     const q = this.quotations.find((x) => x.id === id);
     if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
     if (q.status !== 'accepted') throw new ApiRequestError(409, { code: 'invalid_transition', message: 'Only accepted quotations can be converted' });
-    const ref = `WO-2026-${4826 + this.workOrders.length - 8}`;
+    const ref = this.nextWoRef();
     const v = VEHICLES.find((x) => x.id === q.vehicle.id)!;
     const cat = q.category.toLowerCase();
     const svc = this.services.find((s) => s.category === 'auto_body' && s.name.toLowerCase().includes(cat)) ?? this.services.find((s) => s.category === 'auto_body')!;
     const tpl = this.templates.find((t) => t.id === svc.checklist_template_id)!;
-    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso() };
+    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso(), checked_in_at: null, checked_in_by_name: null };
     this.workOrders.push(w);
     q.status = 'converted';
     q.work_order_ref = ref;
@@ -573,6 +576,7 @@ export class DemoApi implements AdminApi {
     this.requireRole('supervisor', 'manager', 'admin');
     const w = this.workOrders.find((x) => x.task_id === taskId);
     if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Task not found' });
+    if (!w.checked_in_at) throw new ApiRequestError(409, { code: 'validation_error', message: NOT_CHECKED_IN, details: { reason: 'not_checked_in', work_order_id: w.id } });
     const from = w.assignee_id;
     w.assignee_id = body.assignee_id;
     w.assignee_name = profileName(body.assignee_id);
@@ -583,6 +587,57 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: 'assigned', title: `${w.ref} ${from ? 'reassigned' : 'assigned'} to ${w.assignee_name}`, subtitle: body.reason ?? `By ${this.actor().full_name}`, icon: 'assignment_ind', tone: 'neutral' });
     this.emit('work_orders');
     return clone(w);
+  }
+  /** `POST /work-orders/:id/checkin` — idempotent; records the check-in, then auto-assigns when the flag is on and nobody holds the task. */
+  async checkinWorkOrder(id: string, body: { bay?: string | null }): Promise<WorkOrder> {
+    await delay();
+    this.requireRole('supervisor', 'manager', 'admin');
+    const w = this.workOrders.find((x) => x.id === id || x.ref === id);
+    if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found' });
+    if (['verified', 'cancelled'].includes(w.status)) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Cannot check in a ${w.status} work order` });
+    if (w.checked_in_at) return clone(w); // already: true
+    const bay = body.bay?.trim() || w.bay;
+    this.markCheckedIn(w, bay);
+    this.log('work_order.check_in', 'work_order', w.id, { checked_in_at: null }, { checked_in_at: w.checked_in_at, bay }, w.outlet.id);
+    const assignee = this.autoAssign(w);
+    this.pushActivity({ kind: 'assigned', title: `${w.ref} checked in${assignee ? ` · auto-assigned to ${assignee}` : ''}`, subtitle: `${w.vehicle.registration_no}${bay ? ` · ${bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
+    this.emit('work_orders');
+    return clone(w);
+  }
+  /** Stamps `checked_in_at` / `checked_in_by_name` and the `checked_in` task event (bay in the reason). */
+  private markCheckedIn(w: WorkOrder, bay: string | null) {
+    w.checked_in_at = nowIso();
+    w.checked_in_by_name = this.actor().full_name;
+    w.bay = bay;
+    w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'checked_in', from_status: w.status, to_status: w.status, reason: bay ? `Checked in at ${bay}` : 'Checked in', created_at: nowIso() });
+    w.updated_at = nowIso();
+  }
+  /**
+   * Auto-assignment (feature flag `auto_assignment`): only for a checked-in, unassigned, queued work order —
+   * the available technician at the outlet with the matching skill (`wash` for car-wash, `paint` / `panel` for
+   * auto-body) and the lowest load. Returns the assignee's name, or null when nothing happened.
+   */
+  private autoAssign(w: WorkOrder): string | null {
+    if (!this.flagEnabled('auto_assignment') || !w.checked_in_at || w.assignee_id || w.status !== 'queued') return null;
+    const wanted = w.service.category === 'auto_body' ? ['paint', 'panel'] : ['wash'];
+    const candidates = this.profiles
+      .filter((p) => p.role === 'technician' && p.is_active && p.outlet_ids.includes(w.outlet.id) && (p.availability ?? 'available') === 'available' && p.skills.some((s) => wanted.includes(s)))
+      .map((p) => ({ p, load: this.workOrders.filter((x) => x.assignee_id === p.id && ['assigned', 'in_progress', 'blocked'].includes(x.status)).length }))
+      .filter((c) => c.load < 3)
+      .sort((a, b) => a.load - b.load || a.p.full_name.localeCompare(b.p.full_name));
+    const pick = candidates[0]?.p;
+    if (!pick) return null;
+    w.assignee_id = pick.id;
+    w.assignee_name = pick.full_name;
+    w.status = 'assigned';
+    w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'assigned', from_status: 'queued', to_status: 'assigned', reason: 'Auto-assign: skill match, lowest load', created_at: nowIso() });
+    w.updated_at = nowIso();
+    this.log('task.assign', 'task', w.task_id, { assignee: null }, { assignee: pick.id, reason: 'auto_assignment' }, w.outlet.id);
+    return pick.full_name;
+  }
+  /** Seed refs end at WO-2026-4826; each work order opened in the session takes the next number. */
+  private nextWoRef(): string {
+    return `WO-2026-${4827 + this.workOrders.length - WORK_ORDERS.length}`;
   }
   async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }): Promise<WorkOrder> {
     await delay();
@@ -1027,26 +1082,59 @@ export class DemoApi implements AdminApi {
     if (mb?.benefit === 'included') this.postUsage(b);
     this.log('booking.create_walk_in', 'booking', b.id, null, { ref, total_cents: total, price_cents: price, discount_cents: discount, discount_label: b.discount_label, membership_benefit: b.membership_benefit ?? null, addons_cents, vat_cents: vat, vehicle_size: size, customer_id: customer.id, slot_start: b.slot_start, status: b.status, payment_method: b.payment_method ?? null, walk_in: true, on_behalf: true }, o.id);
 
-    let work_order: WorkOrder | null = null;
-    if (input.checkin) {
-      const tpl = this.templates.find((t) => t.id === s.checklist_template_id && t.status === 'published') ?? this.templates.find((t) => t.id === s.checklist_template_id);
-      const woRef = `WO-2026-${4826 + this.workOrders.length - 8}`;
-      work_order = {
-        id: nextId('wo'), ref: woRef, outlet: { id: o.id, name: o.name }, booking_ref: ref, quotation_ref: null, customer_name: customer.full_name,
-        vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status: 'queued',
-        priority: input.checkin.priority ?? 2, bay: input.checkin.bay?.trim() || null, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
-        started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl?.steps.length ?? 0, task_id: nextId('task'),
-        events: [{ id: nextId('te'), actor_name: this.actor().full_name, event: 'checked_in', from_status: null, to_status: 'queued', reason: input.checkin.bay ? `Checked in at ${input.checkin.bay}` : 'Checked in', created_at: nowIso() }], updated_at: nowIso(),
-      };
-      this.workOrders.push(work_order);
-      b.status = 'in_service';
-      this.log('booking.checkin', 'booking', b.id, { status: 'confirmed' }, { status: 'in_service', work_order: woRef, bay: work_order.bay, priority: work_order.priority }, o.id);
-      this.emit('work_orders');
-    }
+    const work_order = input.checkin ? this.openWorkOrder(b, input.checkin) : null;
     this.pushActivity({ kind: 'assigned', title: `${ref} walk-in · ${s.name}`, subtitle: `${outletShort(o.id)} · ${v.registration_no} · by ${this.actor().full_name}${work_order?.bay ? ` · ${work_order.bay}` : ''}`, icon: 'directions_walk', tone: 'primary' });
     this.emit('bookings');
     const booking = this.expandBooking(b);
     return { booking, duplicate: false, ...(input.checkin ? { work_order: booking.work_order, task: work_order?.task_id ? { id: work_order.task_id, status: work_order.status } : null } : {}) };
+  }
+
+  /** `POST /bookings/:id/checkin` — explicit "car checked in" for a pending / confirmed booking without a work order. */
+  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult> {
+    await delay(260);
+    this.requireStaff();
+    const b = this.bookings.find((x) => x.id === id);
+    if (!b) throw new ApiRequestError(404, { code: 'not_found', message: 'Booking not found' });
+    this.requireOutletAccess(b.outlet_id);
+    if (!['pending', 'confirmed', 'in_service'].includes(b.status)) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Cannot check in a ${b.status} booking` });
+    const existing = this.workOrders.find((x) => x.booking_ref === b.ref);
+    const work_order = existing ?? this.openWorkOrder(b, body);
+    if (existing && !existing.checked_in_at) {
+      this.markCheckedIn(existing, body.bay?.trim() || existing.bay);
+      this.autoAssign(existing);
+      this.emit('work_orders');
+    }
+    if (!existing) this.pushActivity({ kind: 'assigned', title: `${b.ref} checked in${work_order.assignee_name ? ` · auto-assigned to ${work_order.assignee_name}` : ''}`, subtitle: `${outletShort(b.outlet_id)} · ${work_order.vehicle.registration_no}${work_order.bay ? ` · ${work_order.bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
+    this.emit('bookings');
+    const booking = this.expandBooking(b);
+    return { booking, work_order: booking.work_order };
+  }
+  /**
+   * Opens the booking's work order already checked in (what a booking check-in does server-side), moves the
+   * booking to `in_service` and runs auto-assignment when the flag is on.
+   */
+  private openWorkOrder(b: RawBooking, checkin: { bay?: string | null; priority?: WalkInPriority }): WorkOrder {
+    const s = this.services.find((x) => x.id === b.service_id) ?? serviceById(b.service_id);
+    const v = this.vehicle(b.vehicle_id);
+    const customer = this.profile(b.customer_id);
+    const tpl = this.templates.find((t) => t.id === s.checklist_template_id && t.status === 'published') ?? this.templates.find((t) => t.id === s.checklist_template_id);
+    const end = new Date(b.slot_end);
+    const bay = checkin.bay?.trim() || null;
+    const w: WorkOrder = {
+      id: nextId('wo'), ref: this.nextWoRef(), outlet: { id: b.outlet_id, name: outletName(b.outlet_id) }, booking_ref: b.ref, quotation_ref: null, customer_name: customer?.full_name ?? 'Customer',
+      vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status: 'queued',
+      priority: checkin.priority ?? 2, bay, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
+      started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl?.steps.length ?? 0, task_id: nextId('task'), events: [], updated_at: nowIso(),
+      checked_in_at: null, checked_in_by_name: null,
+    };
+    this.markCheckedIn(w, bay);
+    this.workOrders.push(w);
+    const from = b.status;
+    b.status = 'in_service';
+    this.log('booking.checkin', 'booking', b.id, { status: from }, { status: 'in_service', work_order: w.ref, bay: w.bay, priority: w.priority }, b.outlet_id);
+    this.autoAssign(w);
+    this.emit('work_orders');
+    return w;
   }
 
   async recordPayment(input: RecordPaymentInput): Promise<PosPayment> {

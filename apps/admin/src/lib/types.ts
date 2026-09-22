@@ -542,6 +542,20 @@ export interface WorkOrder {
   task_id: string | null;
   events: TaskEvent[];
   updated_at: string;
+  /**
+   * Explicit "car checked in" confirmation (migration 0015). A booking check-in creates the work order already
+   * checked in; work orders converted from quotations start at `null` and stay "Awaiting check-in" until
+   * `POST /work-orders/:id/checkin` runs. Assignment (manual or automatic) is refused until then
+   * (409 `validation_error` `{ reason: 'not_checked_in' }`).
+   */
+  checked_in_at: string | null;
+  checked_in_by_name: string | null;
+}
+
+/** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }` — the dashboard keeps the booking and the work order. */
+export interface BookingCheckinResult {
+  booking: Booking;
+  work_order: WorkOrderSummary | null;
 }
 
 /* ---------- walk-in (staff on behalf of a customer) ---------- */

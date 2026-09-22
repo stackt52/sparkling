@@ -9,6 +9,8 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import MSymbol from '@/components/MSymbol';
 import DetailDrawer from '@/components/ui/DetailDrawer';
@@ -23,7 +25,7 @@ import { useToast } from '@/lib/hooks';
 import { fonts, tk } from '@/theme/tokens';
 import { fmtDateTime, fmtTime, rands } from '@/lib/format';
 import { SIZE_LABEL } from '@/components/catalogue/pricing';
-import type { TimelineStage } from '@/lib/types';
+import type { TimelineStage, WalkInPriority } from '@/lib/types';
 
 function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
@@ -69,6 +71,9 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const toast = useToast();
   const [cancelOpen, setCancelOpen] = React.useState(false);
   const [reason, setReason] = React.useState('');
+  const [checkinOpen, setCheckinOpen] = React.useState(false);
+  const [bay, setBay] = React.useState('');
+  const [priority, setPriority] = React.useState<WalkInPriority>(2);
   const q = useQuery({ queryKey: ['booking', bookingId], queryFn: () => api.getBooking(bookingId!), enabled: Boolean(bookingId) });
   const cancel = useMutation({
     mutationFn: () => api.cancelBooking(bookingId!, reason),
@@ -80,8 +85,23 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
     },
     onError: (e) => toast.error(e),
   });
+  // Explicit "car checked in" (`POST /bookings/:id/checkin`): opens the work order already checked in and auto-assigns it when the flag is on.
+  const checkin = useMutation({
+    mutationFn: () => api.checkinBooking(bookingId!, { bay: bay.trim() || null, priority }),
+    onSuccess: (res) => {
+      const auto = res.work_order?.assignee_name ? ` · auto-assigned to ${res.work_order.assignee_name}` : '';
+      toast.success(`Checked in · ${res.work_order?.ref ?? 'work order'} created${auto}`);
+      setCheckinOpen(false);
+      setBay('');
+      void qc.invalidateQueries({ queryKey: ['bookings'] });
+      void qc.invalidateQueries({ queryKey: ['booking', bookingId] });
+      void qc.invalidateQueries({ queryKey: ['work-orders'] });
+    },
+    onError: (e) => toast.error(e),
+  });
   const b = q.data;
   const canCancel = can(role, 'booking:cancel') && b && ['pending', 'confirmed'].includes(b.status);
+  const canCheckin = can(role, 'work_order:checkin') && b && ['pending', 'confirmed'].includes(b.status) && !b.work_order;
 
   return (
     <>
@@ -103,10 +123,19 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
             {b.walk_in && <> · <Box component="span" sx={{ color: tk.secondary, fontWeight: 600 }}>Walk-in</Box>{b.created_by_name ? ` · created by ${b.created_by_name}` : ''}</>}
           </>
         )}
-        footer={canCancel && (
-          <Button variant="outlined" color="error" fullWidth onClick={() => setCancelOpen(true)} startIcon={<MSymbol name="event_busy" size={20} />}>
-            Cancel booking
-          </Button>
+        footer={(canCheckin || canCancel) && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {canCheckin && (
+              <Button variant="contained" color="secondary" fullWidth onClick={() => setCheckinOpen(true)} startIcon={<MSymbol name="login" size={20} />} data-testid="booking-confirm-checkin">
+                Confirm check-in
+              </Button>
+            )}
+            {canCancel && (
+              <Button variant="outlined" color="error" fullWidth onClick={() => setCancelOpen(true)} startIcon={<MSymbol name="event_busy" size={20} />}>
+                Cancel booking
+              </Button>
+            )}
+          </Box>
         )}
       >
         {q.isLoading && <LoadingRows rows={6} />}
@@ -165,6 +194,33 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
         <DialogActions sx={{ p: 2.5, pt: 0 }}>
           <Button onClick={() => setCancelOpen(false)}>Keep booking</Button>
           <Button variant="contained" color="error" disabled={!reason.trim() || cancel.isPending} onClick={() => cancel.mutate()}>Cancel booking</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={checkinOpen} onClose={() => setCheckinOpen(false)} aria-labelledby="booking-checkin-title" fullWidth maxWidth="xs">
+        <DialogTitle id="booking-checkin-title">Confirm check-in · {b?.ref}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            Confirms that <span className="mono">{b?.vehicle.registration_no}</span> is on site: the booking moves to in service and its work order is opened — assigned automatically when auto-assignment is on, otherwise by a supervisor.
+          </Typography>
+          <TextField label="Bay (optional)" placeholder="e.g. Bay 2" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !checkin.isPending) { e.preventDefault(); checkin.mutate(); } }} />
+          <Box>
+            <Typography component="span" id="booking-checkin-priority" variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Priority</Typography>
+            <ToggleButtonGroup
+              exclusive
+              value={priority}
+              onChange={(_e, v: WalkInPriority | null) => { if (v) setPriority(v); }}
+              aria-labelledby="booking-checkin-priority"
+              sx={{ bgcolor: tk.surfaceContainerHigh, borderRadius: 999, p: 0.5, gap: 0.5, '& .MuiToggleButton-root': { border: 0, borderRadius: '999px !important', px: 1.75, py: 0.6, fontWeight: 600, color: tk.onSurfaceVariant, '&.Mui-selected': { bgcolor: tk.secondary, color: tk.onSecondary, '&:hover': { bgcolor: tk.secondary } } } }}
+            >
+              <ToggleButton value={1}>P1 · urgent</ToggleButton>
+              <ToggleButton value={2}>P2</ToggleButton>
+              <ToggleButton value={3}>P3</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 0 }}>
+          <Button onClick={() => setCheckinOpen(false)}>Not yet</Button>
+          <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={checkin.isPending} onClick={() => checkin.mutate()}>Confirm check-in</Button>
         </DialogActions>
       </Dialog>
       <Toast toast={toast.toast} onClose={toast.close} />

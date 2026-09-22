@@ -45,6 +45,8 @@ export interface CreateWorkOrderInput {
   dueAt?: string | null;
   title?: string;
   clientOpId?: string | null;
+  /** The vehicle is physically at the outlet (booking check-in / walk-in). Quotation conversions leave it false until confirmed. */
+  checkedIn?: boolean;
 }
 
 export async function findTemplate(service: Service, outletId: string): Promise<ChecklistTemplate | null> {
@@ -98,6 +100,8 @@ export async function createWorkOrderWithTask(ctx: RequestContext, input: Create
         template_version: template?.version ?? null,
         eta_at: input.etaAt ?? null,
         due_at: input.dueAt ?? input.etaAt ?? null,
+        checked_in_at: input.checkedIn ? new Date().toISOString() : null,
+        checked_in_by: input.checkedIn ? ctx.auth.uid : null,
       })
       .select('*')
       .single(),
@@ -129,7 +133,8 @@ export async function createWorkOrderWithTask(ctx: RequestContext, input: Create
     );
   }
 
-  if (await flagEnabled('auto_assignment')) {
+  // Auto-assignment only once the car is on site (and the Config switch is on).
+  if (input.checkedIn && (await flagEnabled('auto_assignment'))) {
     const assigned = await autoAssign(ctx, wo, task, input.service);
     if (assigned) task = assigned;
   }
@@ -623,6 +628,7 @@ export async function assignTask(ctx: RequestContext, taskId: string, assigneeId
   assertOutlet(ctx.auth, task.outlet_id);
   if (['verified', 'cancelled'].includes(task.status)) throw ApiError.invalidTransition(task.status, 'assigned', 'task');
   const wo = unwrap<WorkOrder>(await db.from('work_orders').select('*').eq('id', task.work_order_id).single(), 'work order');
+  if (!wo.checked_in_at) throw ApiError.validationConflict('The vehicle has not been checked in yet — confirm the check-in before assigning this work order', { reason: 'not_checked_in', work_order_id: wo.id });
   const assignee = unwrap<{ id: string; role: string; is_active: boolean } | null>(await db.from('profiles').select('id, role, is_active').eq('id', assigneeId).maybeSingle(), 'assignee');
   if (!assignee || !assignee.is_active || assignee.role === 'customer') throw ApiError.validation('Assignee must be an active staff member');
   const member = await db.from('staff_outlets').select('profile_id').eq('profile_id', assigneeId).eq('outlet_id', task.outlet_id).maybeSingle();
@@ -653,4 +659,36 @@ export async function convertQuotation(ctx: RequestContext, quotation: Quotation
   const updated = unwrap<Quotation>(await db.from('quotations').update({ status: 'converted' }).eq('id', quotation.id).select('*').single(), 'quotation');
   await audit(ctx, { action: 'quotation.convert', entity_type: 'quotation', entity_id: quotation.id, outlet_id: quotation.outlet_id, after: { work_order_id: created.work_order.id } });
   return { quotation: updated, work_order: created.work_order, task: created.task };
+}
+
+/**
+ * Confirms the vehicle is on site for a work order that was created without a booking check-in
+ * (e.g. converted from a quotation). Idempotent; runs auto-assignment when the switch is on.
+ */
+export async function checkInWorkOrder(ctx: RequestContext, workOrderId: string, opts: { bay?: string | null } = {}): Promise<{ work_order: WorkOrder; task: Task | null; already: boolean }> {
+  const db = getSupabase();
+  const wo = unwrap<WorkOrder | null>(await db.from('work_orders').select('*').eq('id', workOrderId).maybeSingle(), 'work order');
+  if (!wo) throw ApiError.notFound('Work order');
+  assertOutlet(ctx.auth, wo.outlet_id);
+  if (['verified', 'cancelled'].includes(wo.status)) throw ApiError.invalidTransition(wo.status, 'checked_in', 'work order');
+  const task = unwrap<Task | null>(await db.from('tasks').select('*').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle(), 'task');
+  if (wo.checked_in_at) return { work_order: wo, task, already: true };
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { checked_in_at: now, checked_in_by: ctx.auth.uid };
+  if (opts.bay !== undefined) patch.bay = opts.bay;
+  let updated = unwrap<WorkOrder>(await db.from('work_orders').update(patch).eq('id', wo.id).select('*').single(), 'check in');
+  await db.from('task_events').insert({ task_id: task?.id ?? null, work_order_id: wo.id, actor_id: ctx.auth.uid, event: 'checked_in', from_status: wo.status, to_status: wo.status, metadata: { bay: opts.bay ?? wo.bay ?? null } });
+  await audit(ctx, { action: 'work_order.check_in', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { checked_in_at: now, bay: opts.bay ?? wo.bay ?? null } });
+  let outTask = task;
+  if (task && !task.assignee_id && (await flagEnabled('auto_assignment'))) {
+    const service = unwrap<Service | null>(await db.from('services').select('*').eq('id', wo.service_id).maybeSingle(), 'service');
+    if (service) {
+      const assigned = await autoAssign(ctx, updated, task, service);
+      if (assigned) {
+        outTask = assigned;
+        updated = await reloadWorkOrder(wo.id);
+      }
+    }
+  }
+  return { work_order: updated, task: outTask, already: false };
 }

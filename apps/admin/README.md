@@ -132,6 +132,15 @@ the API as **E.164** (`+27821234567`); the API rejects anything else with `400 v
 * **Config → Payments** — the "Cash on collection" card carries the `cash_on_collection` flag switch (`PATCH /admin/flags/:key`, `flags:manage`, optimistic + audited, last updated shown): customers can pick cash when booking and pay at the counter on collection; staff must record the cash before releasing the vehicle.
 * **Bookings / Overview grid + drawer** — `booking.payment_method === 'cash'` shows a `payments` chip under the status: **Cash due R x** (warning) while `payment` is null, **Paid · cash** once `POST /payments/record` (method `cash`) has run; the drawer's Payment section states "Cash on collection — record the payment at the counter before hand-over" with the amount (collection `POST /work-orders/:id/pickup/verify` is refused with 409 `payment_due` until then). Demo: SPK-2026-0097 (Ayanda, 14:00) is a cash booking; `DemoApi.createWalkInBooking` accepts `payment_method` and refuses `cash` with 409 `cash_disabled` while the flag is off.
 
+## Check-in and auto-assignment (Config → Operations, Work, Bookings)
+
+A work order can only be assigned — by hand or automatically — once the car has been explicitly checked in (`work_orders.checked_in_at` / `checked_in_by`, migration 0015). A booking check-in creates the work order already checked in; work orders converted from quotations start "Awaiting check-in".
+
+* **Config → Operations** — the "Auto-assign work orders" card carries the `auto_assignment` flag switch (`PATCH /admin/flags/auto_assignment`, `flags:manage`, optimistic + audited, last updated shown): when a checked-in car's work order is queued it is assigned automatically to the available technician with the matching skill (`wash` for car-wash, `paint` / `panel` for auto-body) and the lowest load; off = supervisors assign by hand. Manual assignment works either way.
+* **Work** — cards without `checked_in_at` show the **Awaiting check-in** chip (`garage`); in the drawer the Assign button is disabled ("Check the car in first") and a **Confirm check-in** button (optional bay) calls `POST /work-orders/:id/checkin`, refreshes the board and toasts "Checked in · auto-assigned to X" (or plain "Checked in"). The header meta shows "Checked in HH:mm by Name" and the audit trail lists the `checked_in` event. A 409 `not_checked_in` from `POST /tasks/:id/assign` is shown as-is.
+* **Bookings** — the drawer of a `pending` / `confirmed` booking with no work order yet offers **Confirm check-in** (optional bay + priority) → `POST /bookings/:id/checkin`, then "Checked in · WO-… created" and the booking moves to in service. The walk-in flow's "Check in now" switch is unchanged.
+* Demo: WO-2026-4826 (Naledi, converted from QT-2026-0040) is seeded awaiting check-in; `DemoApi.assignTask` refuses it with the same 409, and demo auto-assignment runs only when the flag is on **and** the work order is checked in.
+
 ## Public quotation page (`/q/<token>`)
 
 The link customers receive on WhatsApp (`quote_ready`) opens **this app's** origin at `/q/<public_token>` — a
@@ -224,6 +233,8 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `change-password.png` | First-sign-in gate (`/change-password`) — rules checklist and strength hint |
 | `config-cash.png` | Config → Payments card — "Cash on collection" switch (`cash_on_collection` flag) next to Integrations |
 | `booking-cash.png` | Bookings — SPK-2026-0097 with the "Cash due R 140" chip and the drawer's cash-on-collection payment note |
+| `config-operations.png` | Config → Operations card — "Auto-assign work orders" switch (`auto_assignment` flag) |
+| `work-awaiting-checkin.png` | Work board — WO-2026-4826 "Awaiting check-in" card and drawer: Assign disabled ("Check the car in first"), Confirm check-in |
 | `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |
 
 ## Branding

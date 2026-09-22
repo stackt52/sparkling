@@ -353,6 +353,38 @@ and unpaid — record the cash, then `73104` releases the keys.
 `payment_due` path and the checklist header. Screenshot:
 `screenshots/handover-cash.png`.
 
+## Work-order check-in gate
+
+A work order can only be **assigned once its vehicle is checked in**.
+Booking check-ins (scan flow, walk-in "check in now") stamp
+`checked_in_at / checked_in_by` immediately; work orders converted from
+quotations start with `null` and wait for `POST /work-orders/:id/checkin
+{ bay? }` (any staff of the outlet; 201 `{ work_order, task, already:false }`,
+200 + `already:true` when repeated; runs auto-assignment when the
+`auto_assignment` flag is on). `POST /tasks/:id/assign` answers 409
+`validation_error { reason:'not_checked_in', work_order_id }` until then
+(`ApiException.isNotCheckedIn`). The admin dashboard owns the main
+**Confirm check-in** UI; the staff app mirrors the state:
+
+* `WorkOrder.checkedInAt / checkedInBy / isCheckedIn` (also on the task
+  card's `WorkOrderCard`); task cards, the ops **Assignment queue** rows and
+  the checklist header show an amber **Awaiting check-in** chip while unset,
+  and the checklist header **Checked in HH:MM** once it is;
+* the supervisor ops screen lists unassigned open work in **Assignment
+  queue** (`Check in & assign` / `Assign`); the assign sheet
+  (`lib/features/ops/assign_sheet.dart`) disables **Assign** for an
+  unchecked work order and offers **Confirm check-in** (optional bay) →
+  `staff.checkInWorkOrder(id, bay:)`, then unlocks assignment in place (or
+  reports "Auto-assigned to …" when the flag did it). A stale assign that
+  still gets the 409 shows the server message and refreshes the queue.
+
+Demo: Zanele's `WO-2026-4819` (bumper repair from converted `QT-2026-0039`)
+is queued, unassigned and not checked in. `test/ops_checkin_test.dart`
+covers awaiting chip → confirm check-in → assign, the auto-assign branch and
+the task card / checklist chips. Screenshot:
+`screenshots/ops-awaiting-checkin.png` (queue) and
+`screenshots/ops-confirm-checkin.png` (assign sheet).
+
 ## Notes
 
 * Disc scanning (`lib/features/scanner/scan_screen.dart`): `mobile_scanner`

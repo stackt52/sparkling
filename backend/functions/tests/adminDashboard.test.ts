@@ -464,3 +464,59 @@ describe('PUT /staff/me/availability', () => {
     expect(users.body.data.find((u: any) => u.id === 'tech_1')).toHaveProperty('availability');
   });
 });
+
+describe('check-in gate & auto-assignment', () => {
+  function unchecked() {
+    const wo = db.rows('work_orders').find((w) => w.id === WO_1)!;
+    Object.assign(wo, { status: 'queued', assignee_id: null, checked_in_at: null, checked_in_by: null, service_id: SERVICE_1, started_at: null });
+    const task = db.rows('tasks').find((t) => t.id === TASK_1)!;
+    Object.assign(task, { status: 'queued', assignee_id: null });
+    return { wo, task };
+  }
+
+  it('refuses manual assignment until the car is checked in, then allows it', async () => {
+    unchecked();
+    const denied = await send('POST', `/v1/tasks/${TASK_1}/assign`, 'manager', { assignee_id: 'tech_1' });
+    expect(denied.status).toBe(409);
+    expect(denied.body.error?.details ?? denied.body.details ?? denied.body).toMatchObject({ reason: 'not_checked_in', work_order_id: WO_1 });
+
+    const checkin = await send('POST', `/v1/work-orders/${WO_1}/checkin`, 'manager', { bay: 'Bay 4' });
+    expect(checkin.status).toBe(201);
+    expect(checkin.body).toMatchObject({ already: false, work_order: { id: WO_1, bay: 'Bay 4', checked_in_by: 'uid_manager' } });
+    expect(checkin.body.work_order.checked_in_at).toBeTruthy();
+    expect(db.rows('task_events').some((e) => e.event === 'checked_in' && e.work_order_id === WO_1)).toBe(true);
+    expect(db.rows('audit_events').some((a) => a.action === 'work_order.check_in' && a.entity_id === WO_1)).toBe(true);
+    // auto_assignment is off in this suite's seed → still unassigned
+    expect(checkin.body.task?.assignee_id ?? null).toBeNull();
+
+    const again = await send('POST', `/v1/work-orders/${WO_1}/checkin`, 'manager', {});
+    expect(again.status).toBe(200);
+    expect(again.body.already).toBe(true);
+
+    const ok = await send('POST', `/v1/tasks/${TASK_1}/assign`, 'manager', { assignee_id: 'tech_1' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.task).toMatchObject({ assignee_id: 'tech_1' });
+
+    const rows = await get(`/v1/admin/work-orders?outlet_id=${OUTLET_A}&status=queued,assigned,in_progress,blocked,completed,verified`, 'admin');
+    expect(rows.status).toBe(200);
+    expect(rows.body.data.find((w: any) => w.id === WO_1)).toMatchObject({ checked_in_by_name: 'Musa Manager' });
+  });
+
+  it('auto-assigns on check-in when the Config switch is on (skill match, lowest load)', async () => {
+    unchecked();
+    db.rows('feature_flags').find((f) => f.key === 'auto_assignment')!.enabled = true;
+    const { invalidateFlags } = await import('../src/services/flags.js');
+    invalidateFlags();
+    const r = await send('POST', `/v1/work-orders/${WO_1}/checkin`, 'tech', {});
+    expect(r.status).toBe(201);
+    expect(r.body.task).toMatchObject({ assignee_id: 'tech_1', status: 'assigned' });
+    expect(r.body.work_order.assignee_id).toBe('tech_1');
+  });
+
+  it('is limited to staff of the outlet and to open work orders', async () => {
+    unchecked();
+    expect((await send('POST', `/v1/work-orders/${WO_1}/checkin`, 'customer', {})).status).toBe(403);
+    db.rows('work_orders').find((w) => w.id === WO_1)!.status = 'verified';
+    expect((await send('POST', `/v1/work-orders/${WO_1}/checkin`, 'manager', {})).status).toBe(409);
+  });
+});

@@ -3270,6 +3270,82 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/StepRequest'
+  /work-orders/:id/checkin:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/WorkOrder'
+                  task:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Task'
+                    nullable: true
+                  already:
+                    type: boolean
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/WorkOrder'
+                  task:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Task'
+                    nullable: true
+                  already:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: not allowed in this state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: checkInWorkOrder
+      summary: Confirm the vehicle is on site (required before assignment; runs auto-assignment when enabled)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bay:
+                  type: string
+                  nullable: true
   /work-orders/{id}/pickup/verify:
     post:
       responses:

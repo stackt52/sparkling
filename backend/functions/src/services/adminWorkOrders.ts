@@ -41,6 +41,9 @@ export interface AdminWorkOrder {
   bay: string | null;
   assignee_id: string | null;
   assignee_name: string | null;
+  /** Car confirmed on site; null = awaiting check-in (not assignable yet). */
+  checked_in_at: string | null;
+  checked_in_by_name: string | null;
   eta_at: string | null;
   due_at: string | null;
   started_at: string | null;
@@ -81,7 +84,7 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
     lookup<Row>('checklist_step_results', 'work_order_id, step_key, status', 'work_order_id', ids),
     lookup<Row>('checklist_templates', 'id, steps', 'id', uniq(rows.map((r) => r.checklist_template_id))),
   ]);
-  const profiles = await lookup<Row>('profiles', 'id, full_name', 'id', uniq([...rows.map((r) => r.customer_id), ...rows.map((r) => r.assignee_id), ...events.map((e) => e.actor_id as string | null)]));
+  const profiles = await lookup<Row>('profiles', 'id, full_name', 'id', uniq([...rows.map((r) => r.customer_id), ...rows.map((r) => r.assignee_id), ...rows.map((r) => r.checked_in_by), ...events.map((e) => e.actor_id as string | null)]));
   const byId = <T extends Row>(xs: T[]) => new Map(xs.map((x) => [x.id as string, x]));
   const outletById = byId(outlets);
   const bookingById = byId(bookings);
@@ -141,6 +144,8 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
       bay: w.bay ?? null,
       assignee_id: w.assignee_id ?? null,
       assignee_name: w.assignee_id ? (nameOf.get(w.assignee_id) ?? null) : null,
+      checked_in_at: w.checked_in_at ?? null,
+      checked_in_by_name: w.checked_in_by ? (nameOf.get(w.checked_in_by) ?? null) : null,
       eta_at: w.eta_at ?? null,
       due_at: w.due_at ?? null,
       started_at: w.started_at ?? null,

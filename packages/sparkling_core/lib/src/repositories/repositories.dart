@@ -166,6 +166,15 @@ abstract interface class StaffRepository {
     int? priority,
   });
 
+  /// Confirms the vehicle for [workOrderId] is on site (`POST
+  /// /work-orders/:id/checkin`), which unlocks assignment; work orders
+  /// converted from quotations start unchecked. Idempotent (`already`).
+  /// Never queued offline.
+  Future<WorkOrderCheckInResult> checkInWorkOrder(
+    String workOrderId, {
+    String? bay,
+  });
+
   /// Vehicle hand-over: verifies the customer's 5-digit collection OTP and
   /// releases the keys. Never queued offline. Throws [ApiException]
   /// `invalid_otp` (see `attemptsLeft`) or `rate_limited`.

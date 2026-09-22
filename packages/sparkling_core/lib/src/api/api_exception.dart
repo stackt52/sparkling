@@ -63,6 +63,15 @@ class ApiException implements Exception {
   /// the cash-on-collection booking is unpaid — record the cash first.
   bool get isPaymentDue => _reason == 'payment_due';
 
+  /// 409 `validation_error` `{ reason: 'not_checked_in', work_order_id }`
+  /// from `POST /tasks/:id/assign`: the vehicle has not been checked in yet
+  /// — confirm the check-in (`POST /work-orders/:id/checkin`) first.
+  bool get isNotCheckedIn => _reason == 'not_checked_in';
+
+  /// `work_order_id` carried by a [isNotCheckedIn] error.
+  String? get notCheckedInWorkOrderId =>
+      (_detail('work_order_id') ?? data?['work_order_id'])?.toString();
+
   /// `amount_cents` carried by a [isPaymentDue] error.
   int? get paymentDueCents {
     final v = _detail('amount_cents') ?? data?['amount_cents'];

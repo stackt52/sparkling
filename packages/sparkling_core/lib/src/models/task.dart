@@ -49,6 +49,8 @@ class WorkOrderCard extends Equatable {
     this.customerName,
     this.slotStart,
     this.collectedAt,
+    this.checkedInAt,
+    this.checkedInBy,
     this.booking,
   });
 
@@ -69,6 +71,11 @@ class WorkOrderCard extends Equatable {
   /// Keys released to the customer (pickup OTP verified).
   final DateTime? collectedAt;
 
+  /// Vehicle checked in at the outlet (null until `POST
+  /// /work-orders/:id/checkin` for work converted from a quotation).
+  final DateTime? checkedInAt;
+  final String? checkedInBy;
+
   /// Linked booking when the API expands it (payment method / paid) — the
   /// task list may omit it; the work-order detail always carries it.
   final WorkOrderBooking? booking;
@@ -77,6 +84,9 @@ class WorkOrderCard extends Equatable {
   bool get isCashDue => booking?.isCashDue ?? false;
 
   bool get isCollected => collectedAt != null;
+
+  /// The vehicle is on site — the task may be assigned.
+  bool get isCheckedIn => checkedInAt != null;
 
   /// Verified work waiting for the customer to collect the vehicle.
   bool get awaitingCollection =>
@@ -109,6 +119,8 @@ class WorkOrderCard extends Equatable {
     customerName: strOrNull(json['customer_name']),
     slotStart: dtOrNull(json['slot_start']),
     collectedAt: dtOrNull(json['collected_at']),
+    checkedInAt: dtOrNull(json['checked_in_at']),
+    checkedInBy: strOrNull(json['checked_in_by']),
     booking: json['booking'] is Map
         ? WorkOrderBooking.fromJson(asJson(json['booking']))
         : null,
@@ -129,6 +141,8 @@ class WorkOrderCard extends Equatable {
     'customer_name': customerName,
     'slot_start': iso(slotStart),
     'collected_at': iso(collectedAt),
+    'checked_in_at': iso(checkedInAt),
+    'checked_in_by': checkedInBy,
     'booking': booking?.toJson(),
   });
 
@@ -140,6 +154,8 @@ class WorkOrderCard extends Equatable {
     StepProgress? progress,
     String? blockedReason,
     DateTime? collectedAt,
+    DateTime? checkedInAt,
+    String? checkedInBy,
     bool clearBlockedReason = false,
     WorkOrderBooking? booking,
   }) => WorkOrderCard(
@@ -159,6 +175,8 @@ class WorkOrderCard extends Equatable {
     customerName: customerName,
     slotStart: slotStart,
     collectedAt: collectedAt ?? this.collectedAt,
+    checkedInAt: checkedInAt ?? this.checkedInAt,
+    checkedInBy: checkedInBy ?? this.checkedInBy,
     booking: booking ?? this.booking,
   );
 
@@ -175,6 +193,7 @@ class WorkOrderCard extends Equatable {
     progress,
     blockedReason,
     collectedAt,
+    checkedInAt,
     booking,
   ];
 }
@@ -365,6 +384,36 @@ class TaskTransitionInput {
     reason: strOrNull(json['reason']),
     overrideReason: strOrNull(asJsonOrNull(json['override'])?['reason']),
   );
+}
+
+/// `POST /work-orders/:id/checkin` → `{ work_order, task, already }`:
+/// 201 with `already: false` on the first check-in, 200 + `already: true`
+/// when the vehicle was checked in before (idempotent).
+class WorkOrderCheckInResult extends Equatable {
+  const WorkOrderCheckInResult({
+    required this.workOrder,
+    this.task,
+    this.already = false,
+  });
+
+  final WorkOrder workOrder;
+  final Task? task;
+  final bool already;
+
+  factory WorkOrderCheckInResult.fromJson(Json json) => WorkOrderCheckInResult(
+    workOrder: WorkOrder.fromJson(asJson(json['work_order'])),
+    task: json['task'] is Map ? Task.fromJson(asJson(json['task'])) : null,
+    already: boolOf(json['already']),
+  );
+
+  Json toJson() => compact({
+    'work_order': workOrder.toJson(),
+    'task': task?.toJson(),
+    'already': already,
+  });
+
+  @override
+  List<Object?> get props => [workOrder, task, already];
 }
 
 /// `GET /work-orders/:id` → `{ work_order, template{steps[]}, results[], events[], task }`.

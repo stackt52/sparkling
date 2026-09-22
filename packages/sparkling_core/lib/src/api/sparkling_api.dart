@@ -714,6 +714,21 @@ class SparklingApi {
     map: (d) => Task.fromJson(_entity(d, 'task')),
   );
 
+  /// `POST /work-orders/:id/checkin { bay? }` — confirms the vehicle is on
+  /// site (any staff of the outlet). 201 `{ work_order, task, already:false }`
+  /// or 200 + `already: true` when it was checked in before. Runs
+  /// auto-assignment server-side when the `auto_assignment` flag is on.
+  Future<WorkOrderCheckInResult> checkInWorkOrder(
+    String id, {
+    String? bay,
+    String? idempotencyKey,
+  }) => post(
+    '/work-orders/$id/checkin',
+    body: j.compact({'bay': bay}),
+    idempotencyKey: idempotencyKey,
+    map: (d) => WorkOrderCheckInResult.fromJson(_obj(d)),
+  );
+
   /// `POST /work-orders/:id/steps/:key`
   Future<StepResult> submitStep(
     String workOrderId,

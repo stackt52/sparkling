@@ -278,6 +278,9 @@ export interface WorkOrder {
   template_version: number | null;
   assignee_id: string | null;
   eta_at: string | null;
+  /** Car confirmed on site (booking check-in, or POST /work-orders/:id/checkin). Assignment requires it. */
+  checked_in_at: string | null;
+  checked_in_by: string | null;
   started_at: string | null;
   blocked_reason: string | null;
   completed_at: string | null;

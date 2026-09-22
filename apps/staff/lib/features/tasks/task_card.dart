@@ -36,9 +36,13 @@ class TaskCard extends StatelessWidget {
     final status = task.status;
     final blocked = status == WorkStatus.blocked;
     final reg = wo?.vehicle?.registrationNo;
+    final awaitingCheckIn = wo != null && !wo.isCheckedIn && status.isOpen;
     final detail = [
       ?reg,
-      wo?.bay ?? (status == WorkStatus.queued ? 'awaiting arrival' : null),
+      wo?.bay ??
+          (status == WorkStatus.queued && !awaitingCheckIn
+              ? 'awaiting arrival'
+              : null),
     ].whereType<String>().join('  ·  ');
     final progress = wo?.progress;
     final showProgress =
@@ -96,6 +100,19 @@ class TaskCard extends StatelessWidget {
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.8,
                 color: cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+          if (awaitingCheckIn) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                key: ValueKey('awaiting-checkin-${task.id}'),
+                label: 'Awaiting check-in',
+                tone: StatusChipTone.warning,
+                icon: Symbols.login_rounded,
+                dense: true,
               ),
             ),
           ],

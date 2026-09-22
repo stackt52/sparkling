@@ -11,6 +11,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Avatar from '@mui/material/Avatar';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageHeader from '@/components/layout/PageHeader';
@@ -23,6 +24,7 @@ import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { LoadingRows } from '@/components/ui/States';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
+import { conflictDetail } from '@/lib/api';
 import { useFilters } from '@/lib/filters';
 import { useLive, useNow, useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
@@ -48,6 +50,7 @@ function WoCard({ w, onOpen, now }: { w: WorkOrder; onOpen: () => void; now: num
         <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} sx={{ height: 22, fontSize: 11 }} />
       </Box>
       <Typography variant="h5">{w.service.name}</Typography>
+      {!w.checked_in_at && <AwaitingCheckinChip />}
       <Typography variant="body2" color="text.secondary"><span className="mono">{w.vehicle.registration_no}</span>{w.bay ? ` · ${w.bay}` : ''} · {w.customer_name.split(' ')[0]}</Typography>
       {w.step_count > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -72,6 +75,65 @@ function WoCard({ w, onOpen, now }: { w: WorkOrder; onOpen: () => void; now: num
   );
 }
 
+/** Shown while `checked_in_at` is null — the car is not on site yet, so the work order cannot be assigned. */
+function AwaitingCheckinChip({ size = 'small' }: { size?: 'small' | 'medium' }) {
+  return (
+    <StatusChip
+      tone="warning"
+      label="Awaiting check-in"
+      icon={<MSymbol name="garage" filled size={size === 'small' ? 15 : 18} />}
+      data-testid="awaiting-checkin"
+      sx={{ alignSelf: 'flex-start', ...(size === 'small' && { height: 22, fontSize: 11 }), '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }}
+    />
+  );
+}
+
+/**
+ * "Confirm check-in" — the explicit "car is on site" step (`POST /work-orders/:id/checkin`). The bay is optional.
+ * After success the board is refreshed; the toast names the auto-assigned technician when the flag handed it out.
+ */
+function CheckinDialog({ w, onClose, onDone }: { w: WorkOrder | null; onClose: () => void; onDone: (message: string) => void }) {
+  return (
+    <Dialog open={Boolean(w)} onClose={onClose} aria-labelledby="checkin-title" fullWidth maxWidth="xs">
+      {w && <CheckinForm w={w} onClose={onClose} onDone={onDone} />}
+    </Dialog>
+  );
+}
+
+/** `onDone` carries the success message to the page's toast — the dialog (and its own toast) unmounts on close. */
+function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void; onDone: (message: string) => void }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [bay, setBay] = React.useState(w.bay ?? '');
+  const m = useMutation({
+    mutationFn: () => api.checkinWorkOrder(w.id, { bay: bay.trim() || null }),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['work-orders'] });
+      void qc.invalidateQueries({ queryKey: ['bookings'] });
+      onClose();
+      onDone(res.assignee_name && !w.assignee_name ? `Checked in · auto-assigned to ${res.assignee_name}` : 'Checked in');
+    },
+    onError: (e) => toast.error(e),
+  });
+  return (
+    <>
+      <DialogTitle id="checkin-title">Confirm check-in · {w.ref}</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Typography variant="body2" color="text.secondary">
+          Confirms that <b>{w.vehicle.registration_no}</b> is on site. The work order can then be assigned — automatically when auto-assignment is on, otherwise by a supervisor.
+        </Typography>
+        <TextField label="Bay (optional)" placeholder="e.g. Body 1" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !m.isPending) { e.preventDefault(); m.mutate(); } }} />
+      </DialogContent>
+      <DialogActions sx={{ p: 2.5, pt: 0 }}>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={m.isPending} onClick={() => m.mutate()}>Confirm check-in</Button>
+      </DialogActions>
+      <Toast toast={toast.toast} onClose={toast.close} />
+    </>
+  );
+}
+
 function AssignDialog({ w, onClose }: { w: WorkOrder | null; onClose: () => void }) {
   return (
     <Dialog open={Boolean(w)} onClose={onClose} aria-labelledby="assign-title" fullWidth maxWidth="xs">
@@ -90,7 +152,8 @@ function AssignForm({ w, onClose }: { w: WorkOrder; onClose: () => void }) {
   const m = useMutation({
     mutationFn: () => api.assignTask(w.task_id!, { assignee_id: assignee, reason: reason || undefined }),
     onSuccess: (res) => { toast.success(`${res.ref} assigned to ${res.assignee_name}`); void qc.invalidateQueries({ queryKey: ['work-orders'] }); onClose(); },
-    onError: (e) => toast.error(e),
+    // 409 `not_checked_in`: the API refuses assignment until the car is checked in — surface its message and refresh the card.
+    onError: (e) => { toast.error(e); if (conflictDetail<string>(e, 'reason') === 'not_checked_in') void qc.invalidateQueries({ queryKey: ['work-orders'] }); },
   });
   return (
     <>
@@ -131,7 +194,7 @@ const NEXT: Partial<Record<WorkStatus, { to: WorkStatus; label: string; icon: st
   completed: [{ to: 'verified', label: 'Verify', icon: 'verified' }],
 };
 
-function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () => void; onAssign: () => void }) {
+function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; onClose: () => void; onAssign: () => void; onCheckin: () => void }) {
   const api = useApi();
   const { role } = useAuth();
   const qc = useQueryClient();
@@ -146,8 +209,10 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
   // Actions act on the work order's task; legacy rows without one are read-only.
   const canAct = can(role, 'task:transition') && Boolean(w?.task_id);
   const canAssign = can(role, 'task:assign') && Boolean(w?.task_id);
+  const checkedIn = Boolean(w?.checked_in_at);
+  const canCheckin = can(role, 'work_order:checkin') && Boolean(w) && !checkedIn && !['verified', 'cancelled'].includes(w!.status);
   const transitions = w ? NEXT[w.status] ?? [] : [];
-  const hasFooter = Boolean(w) && (canAssign || (canAct && transitions.length > 0) || Boolean(reasonFor));
+  const hasFooter = Boolean(w) && (canAssign || canCheckin || (canAct && transitions.length > 0) || Boolean(reasonFor));
   return (
     <DetailDrawer
       open={Boolean(w)}
@@ -159,13 +224,26 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
           <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{w.ref}</Typography>
           <StatusChip status={w.status} />
           <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} />
+          {!w.checked_in_at && <AwaitingCheckinChip size="medium" />}
         </>
       )}
-      subtitle={w && <>{w.service.name} · {w.vehicle.make} {w.vehicle.model} · <span className="mono">{w.vehicle.registration_no}</span></>}
+      subtitle={w && (
+        <>
+          {w.service.name} · {w.vehicle.make} {w.vehicle.model} · <span className="mono">{w.vehicle.registration_no}</span>
+          {w.checked_in_at && <> · Checked in {fmtTime(w.checked_in_at)}{w.checked_in_by_name ? ` by ${w.checked_in_by_name}` : ''}</>}
+        </>
+      )}
       footer={w && hasFooter && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          {canCheckin && (
+            <Button variant="contained" color="secondary" fullWidth onClick={onCheckin} startIcon={<MSymbol name="login" size={20} />} data-testid="confirm-checkin">Confirm check-in</Button>
+          )}
           {canAssign && (
-            <Button variant="outlined" fullWidth onClick={onAssign} startIcon={<MSymbol name="assignment_ind" size={20} />}>{w.assignee_id ? 'Reassign' : 'Assign'}</Button>
+            <Tooltip title={checkedIn ? '' : 'Check the car in first'} placement="left">
+              <span style={{ display: 'block' }}>
+                <Button variant="outlined" fullWidth disabled={!checkedIn} onClick={onAssign} startIcon={<MSymbol name="assignment_ind" size={20} />} data-testid="assign-button">{w.assignee_id ? 'Reassign' : 'Assign'}</Button>
+              </span>
+            </Tooltip>
           )}
           {canAct && transitions.length > 0 && (
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -205,9 +283,11 @@ function WoDrawer({ w, onClose, onAssign }: { w: WorkOrder | null; onClose: () =
             {w.events.length === 0 && <Typography variant="body2" color="text.secondary">No events yet.</Typography>}
             {[...w.events].reverse().map((e) => (
               <Box component="li" key={e.id} sx={{ display: 'flex', gap: 1.5 }}>
-                <MSymbol name={e.event === 'assigned' ? 'assignment_ind' : 'swap_horiz'} size={20} style={{ color: tk.onSurfaceVariant, marginTop: 2 }} />
+                <MSymbol name={e.event === 'assigned' ? 'assignment_ind' : e.event === 'checked_in' ? 'login' : 'swap_horiz'} size={20} style={{ color: tk.onSurfaceVariant, marginTop: 2 }} />
                 <Box>
-                  <Typography variant="body2"><b>{e.actor_name}</b> {e.event === 'assigned' ? 'assigned' : `moved ${statusLabel(e.from_status ?? '')} → ${statusLabel(e.to_status ?? '')}`}</Typography>
+                  <Typography variant="body2">
+                    {e.event === 'checked_in' ? <>Checked in · <b>{e.actor_name ?? 'staff'}</b></> : <><b>{e.actor_name}</b> {e.event === 'assigned' ? 'assigned' : `moved ${statusLabel(e.from_status ?? '')} → ${statusLabel(e.to_status ?? '')}`}</>}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">{fmtDateTime(e.created_at)}{e.reason ? ` · ${e.reason}` : ''}</Typography>
                 </Box>
               </Box>
@@ -228,6 +308,8 @@ export default function WorkOrdersPage() {
   const now = useNow();
   const [focusId, setFocusId] = React.useState<string | null>(params.get('focus'));
   const [assigning, setAssigning] = React.useState(false);
+  const [checkingIn, setCheckingIn] = React.useState(false);
+  const toast = useToast();
   const [status, setStatus] = React.useState<WorkStatus | 'all'>('all');
   const q = useQuery({ queryKey: ['work-orders', outletId], queryFn: () => api.listWorkOrders({ outlet_id: outletId }) });
   const rows = q.data ?? [];
@@ -258,8 +340,10 @@ export default function WorkOrdersPage() {
           );
         })}
       </Box>
-      <WoDrawer w={focus} onClose={() => setFocusId(null)} onAssign={() => setAssigning(true)} />
+      <WoDrawer w={focus} onClose={() => setFocusId(null)} onAssign={() => setAssigning(true)} onCheckin={() => setCheckingIn(true)} />
       <AssignDialog w={assigning ? focus : null} onClose={() => setAssigning(false)} />
+      <CheckinDialog w={checkingIn ? focus : null} onClose={() => setCheckingIn(false)} onDone={(message) => toast.success(message)} />
+      <Toast toast={toast.toast} onClose={toast.close} />
     </>
   );
 }

@@ -272,6 +272,7 @@ class _ChecklistViewState extends State<ChecklistView> {
       wo.vehicleRegistration ?? card?.vehicle?.registrationNo,
       wo.bay ?? card?.bay,
     ].whereType<String>().join('  ·  ');
+    final checkedInAt = wo.checkedInAt ?? card?.checkedInAt;
     final interactive =
         status == WorkStatus.inProgress ||
         status == WorkStatus.completed ||
@@ -317,6 +318,25 @@ class _ChecklistViewState extends State<ChecklistView> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (checkedInAt != null) ...[
+                    const SizedBox(height: 6),
+                    StatusChip(
+                      key: const ValueKey('checked-in-chip'),
+                      label: 'Checked in ${SparklingDates.hhmm(checkedInAt)}',
+                      tone: StatusChipTone.success,
+                      icon: Symbols.login_rounded,
+                      dense: true,
+                    ),
+                  ] else if (status.isOpen) ...[
+                    const SizedBox(height: 6),
+                    const StatusChip(
+                      key: ValueKey('awaiting-checkin-chip'),
+                      label: 'Awaiting check-in',
+                      tone: StatusChipTone.warning,
+                      icon: Symbols.login_rounded,
+                      dense: true,
+                    ),
+                  ],
                   if (wo.isCashOnCollection || (card?.isCashOnCollection ?? false)) ...[
                     const SizedBox(height: 6),
                     StatusChip(

@@ -689,6 +689,22 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   );
 
   @override
+  Future<WorkOrderCheckInResult> checkInWorkOrder(
+    String workOrderId, {
+    String? bay,
+  }) async {
+    final result = await api.checkInWorkOrder(
+      workOrderId,
+      bay: bay,
+      idempotencyKey: SparklingApi.newOpId(),
+    );
+    // The cached detail carries the old `checked_in_at`; drop it so the next
+    // open reflects the check-in even before realtime catches up.
+    await cache?.remove('work_order:$workOrderId');
+    return result;
+  }
+
+  @override
   Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
       api.verifyPickupOtp(workOrderId, otp);
 

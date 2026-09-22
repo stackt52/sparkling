@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
+import '../../widgets/async_view.dart';
 import '../../widgets/avatar_tile.dart';
+import '../../widgets/feedback.dart';
 
 /// Outcome of the assign sheet.
 class AssignChoice {
@@ -14,6 +16,11 @@ class AssignChoice {
 /// Modal bottom sheet (2d, r32 + drag handle) listing outlet staff as radio
 /// cards with availability + skill chips; at-capacity rows render at 55%.
 /// Returns the chosen member (and optional audited reason) or null.
+///
+/// Work orders whose vehicle has not been checked in yet cannot be assigned
+/// (`POST /tasks/:id/assign` → 409 `not_checked_in`): the sheet disables
+/// **Assign** and offers **Confirm check-in** (optional bay), which calls
+/// `POST /work-orders/:id/checkin` and unlocks assignment in place.
 Future<AssignChoice?> showAssignSheet(
   BuildContext context, {
   required Task task,
@@ -41,12 +48,29 @@ class _AssignSheet extends StatefulWidget {
 class _AssignSheetState extends State<_AssignSheet> {
   StaffMember? _selected;
   final _reason = TextEditingController();
+  final _bay = TextEditingController();
+
+  /// The task as last seen — replaced by the server copy after a check-in.
+  late Task _task = widget.task;
+  bool _checkingIn = false;
+  String? _checkInError;
+
+  /// Set once this sheet confirmed the check-in (drives the success banner).
+  DateTime? _checkedInHere;
+  String? _autoAssignedTo;
+
+  /// Unknown card (no `work_order` expansion) → let the server decide.
+  bool get _checkedIn => _task.workOrder?.isCheckedIn ?? true;
 
   @override
   void initState() {
     super.initState();
+    _pickDefault();
+  }
+
+  void _pickDefault() {
     final candidates = widget.team.where(
-      (m) => !m.atCapacity && m.id != widget.task.assigneeId,
+      (m) => !m.atCapacity && m.id != _task.assigneeId,
     );
     _selected = candidates.isEmpty ? null : candidates.first;
   }
@@ -54,13 +78,69 @@ class _AssignSheetState extends State<_AssignSheet> {
   @override
   void dispose() {
     _reason.dispose();
+    _bay.dispose();
     super.dispose();
+  }
+
+  Future<void> _confirmCheckIn() async {
+    setState(() {
+      _checkingIn = true;
+      _checkInError = null;
+    });
+    final bay = _bay.text.trim();
+    try {
+      final result = await context.repositories.staff.checkInWorkOrder(
+        _task.workOrderId,
+        bay: bay.isEmpty ? null : bay,
+      );
+      if (!mounted) return;
+      final wo = result.workOrder;
+      final updated = result.task ?? _task;
+      final card = (updated.workOrder ?? _task.workOrder)?.copyWith(
+        checkedInAt: wo.checkedInAt,
+        checkedInBy: wo.checkedInBy,
+        bay: wo.bay,
+        status: updated.status,
+      );
+      setState(() {
+        _task = updated.copyWith(
+          assigneeName: updated.assigneeName ?? _task.assigneeName,
+          workOrder: card,
+        );
+        _checkingIn = false;
+        _checkedInHere = wo.checkedInAt ?? DateTime.now();
+        final assignee = _task.assigneeId;
+        _autoAssignedTo =
+            assignee == null || assignee == widget.task.assigneeId
+            ? null
+            : (_task.assigneeName ??
+                  widget.team
+                      .where((m) => m.id == assignee)
+                      .firstOrNull
+                      ?.fullName ??
+                  'a team member');
+        if (_selected == null || _selected!.id == assignee) _pickDefault();
+      });
+      StaffHaptics.success(context);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _checkingIn = false;
+        _checkInError = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _checkingIn = false;
+        _checkInError = ErrorState.messageFor(e);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = context.colors;
-    final task = widget.task;
+    final task = _task;
     final wo = task.workOrder;
     final subtitle = [
       wo?.title ?? task.title,
@@ -89,7 +169,7 @@ class _AssignSheetState extends State<_AssignSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
                 children: [
                   Text(
-                    'Reassign ${task.ref}',
+                    '${widget.task.assigneeId == null ? 'Assign' : 'Reassign'} ${task.ref}',
                     style: SparklingTypography.headlineMedium.copyWith(
                       fontSize: 26,
                       color: cs.onSurface,
@@ -104,6 +184,61 @@ class _AssignSheetState extends State<_AssignSheet> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  if (!_checkedIn) ...[
+                    const InfoBanner(
+                      key: ValueKey('awaiting-checkin-banner'),
+                      tone: InfoTone.warning,
+                      icon: Symbols.login_rounded,
+                      title: 'Awaiting check-in',
+                      text:
+                          'The vehicle has not been checked in yet. Confirm the '
+                          'check-in once it is on site to unlock assignment.',
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey('check-in-bay'),
+                      controller: _bay,
+                      textCapitalization: TextCapitalization.words,
+                      enabled: !_checkingIn,
+                      decoration: const InputDecoration(
+                        hintText: 'Bay (optional)',
+                        prefixIcon: Icon(Symbols.garage_rounded),
+                      ),
+                    ),
+                    if (_checkInError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _checkInError!,
+                        style: SparklingTypography.bodyMedium.copyWith(
+                          color: cs.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    PillButton(
+                      key: const ValueKey('confirm-check-in'),
+                      label: 'Confirm check-in',
+                      icon: Symbols.login_rounded,
+                      variant: PillButtonVariant.tonal,
+                      expand: true,
+                      minHeight: 52,
+                      loading: _checkingIn,
+                      onPressed: _checkingIn ? null : _confirmCheckIn,
+                    ),
+                    const SizedBox(height: 18),
+                  ] else if (_checkedInHere != null) ...[
+                    InfoBanner(
+                      key: const ValueKey('checked-in-banner'),
+                      tone: InfoTone.success,
+                      icon: Symbols.check_circle_rounded,
+                      title: 'Checked in ${SparklingDates.hhmm(_checkedInHere!)}',
+                      text: _autoAssignedTo == null
+                          ? 'The vehicle is on site — pick who takes it.'
+                          : 'Auto-assigned to $_autoAssignedTo. Pick someone '
+                                'else below to reassign, or cancel to keep it.',
+                    ),
+                    const SizedBox(height: 18),
+                  ],
                   for (final m in sorted) ...[
                     _StaffRadioCard(
                       member: m,
@@ -152,12 +287,13 @@ class _AssignSheetState extends State<_AssignSheet> {
                   Expanded(
                     flex: 3,
                     child: PillButton(
-                      label: _selected == null
+                      key: const ValueKey('assign-submit'),
+                      label: _selected == null || !_checkedIn
                           ? 'Assign'
                           : 'Assign to ${_selected!.firstName}',
                       expand: true,
                       minHeight: 56,
-                      onPressed: _selected == null
+                      onPressed: _selected == null || !_checkedIn
                           ? null
                           : () => Navigator.of(context).pop(
                               AssignChoice(
