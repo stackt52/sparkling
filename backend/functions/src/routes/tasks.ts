@@ -11,7 +11,7 @@ import type { Task, WorkOrder } from '../types.js';
 export const tasksRouter = Router();
 tasksRouter.use('/tasks', requireProfile, requireStaff);
 
-const TASK_EXPAND = '*, work_order:work_orders(id, ref, status, bay, priority, eta_at, due_at, blocked_reason, started_at, checklist_template_id, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method)), assignee:profiles!tasks_assignee_id_fkey(id, full_name)';
+export const TASK_EXPAND = '*, work_order:work_orders(id, ref, status, bay, priority, eta_at, due_at, blocked_reason, started_at, checked_in_at, checked_in_by, collected_at, checklist_template_id, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method)), assignee:profiles!tasks_assignee_id_fkey(id, full_name)';
 
 export async function expandTasks(rows: Array<Task & { work_order: (Partial<WorkOrder> & Record<string, unknown>) | null }>) {
   if (!rows.length) return rows;

@@ -82,10 +82,17 @@ class Repositories {
     }
     if (!a.isConfigured) throw ApiException.unreachable();
     try {
-      return await SessionBootstrap(
+      final profile = await SessionBootstrap(
         api: a,
         auth: auth,
       ).run(app: app, fullName: fullName, phone: phone);
+      // Claims may have been re-minted: give the realtime socket the new token.
+      try {
+        await realtime?.refreshAuth();
+      } catch (_) {
+        // Non-fatal — channels re-authenticate on their next (re)connect.
+      }
+      return profile;
     } on ApiException catch (e) {
       if (e.isNetwork) throw ApiException.unreachable();
       rethrow;

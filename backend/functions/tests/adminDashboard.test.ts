@@ -496,6 +496,10 @@ describe('check-in gate & auto-assignment', () => {
     const ok = await send('POST', `/v1/tasks/${TASK_1}/assign`, 'manager', { assignee_id: 'tech_1' });
     expect(ok.status).toBe(200);
     expect(ok.body.task).toMatchObject({ assignee_id: 'tech_1' });
+    // The staff app's task cards read the nested work order from GET /tasks — its explicit column list must
+    // carry the check-in stamp (the fake Supabase cannot resolve embedded selects, so assert the select itself).
+    const { TASK_EXPAND } = await import('../src/routes/tasks.js');
+    expect(TASK_EXPAND).toMatch(/work_order:work_orders\([^)]*checked_in_at, checked_in_by/);
 
     const rows = await get(`/v1/admin/work-orders?outlet_id=${OUTLET_A}&status=queued,assigned,in_progress,blocked,completed,verified`, 'admin');
     expect(rows.status).toBe(200);

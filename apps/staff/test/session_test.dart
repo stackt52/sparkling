@@ -13,7 +13,7 @@ import 'test_harness.dart';
 /// [forceRefreshClaims] (mirrors Firebase: no custom claims until the API
 /// minted them and the ID token was refreshed).
 class _FakeAuth implements AuthGateway {
-  _FakeAuth({this.signInClaims = const {}});
+  _FakeAuth({this.signInClaims = const {}, AuthUser? initialUser}) : _user = initialUser;
 
   /// Claims the API "mints" (visible only after [forceRefreshClaims]).
   static const Map<String, dynamic> mintedClaims = {'role': 'technician'};
@@ -205,6 +205,50 @@ void main() {
     expect(req.uri.path, '/v1/auth/session');
     expect(req.headers['Authorization'], 'Bearer tok');
     expect(jsonDecode(jsonEncode(req.data))['app'], 'staff');
+  });
+
+  test('launch with a cached user re-runs POST /auth/session and refreshes '
+      'the claims (no sign-out needed)', () async {
+    auth = _FakeAuth(
+      initialUser: const AuthUser(
+        uid: 'uid_tech',
+        email: 'tech@sparkling.co.za',
+        providerIds: ['password'],
+        claims: {'role': 'technician', 'outlet_ids': ['a0000000-0000-4000-8000-000000000001']},
+      ),
+      signInClaims: const {'app_role': 'technician', 'outlet_ids': ['a0000000-0000-4000-8000-000000000002']},
+    );
+    adapter.handler = (o) async =>
+        _json({'profile': _profile('technician'), 'claims_updated': true});
+    final session = SessionController(live());
+    addTearDown(session.dispose);
+    for (var i = 0; i < 100 && auth.calls.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(session.isSignedIn, isTrue, reason: session.error);
+    expect(adapter.requests.single.uri.path, '/v1/auth/session');
+    expect(auth.calls, ['forceRefreshClaims']);
+    expect(session.outletId, 'a0000000-0000-4000-8000-000000000002');
+  });
+
+  test('launch offline keeps the cached staff session', () async {
+    auth = _FakeAuth(
+      initialUser: const AuthUser(
+        uid: 'uid_tech',
+        email: 'tech@sparkling.co.za',
+        providerIds: ['password'],
+        claims: {'app_role': 'technician', 'outlet_ids': ['a0000000-0000-4000-8000-000000000001']},
+      ),
+    );
+    adapter.handler = (o) async => throw DioException.connectionError(requestOptions: o, reason: 'offline');
+    final session = SessionController(live());
+    addTearDown(session.dispose);
+    for (var i = 0; i < 100 && adapter.requests.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(session.isSignedIn, isTrue);
+    expect(auth.calls, isEmpty);
   });
 
   test('a customer profile is signed out with the not-staff message', () async {

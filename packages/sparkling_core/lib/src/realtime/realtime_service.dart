@@ -54,7 +54,8 @@ class RealtimeService {
     required String anonKey,
     required Future<String?> Function() accessToken,
     SupabaseClient? client,
-  }) : client =
+  }) : _accessToken = accessToken,
+       client =
            client ??
            SupabaseClient(
              supabaseUrl,
@@ -65,7 +66,17 @@ class RealtimeService {
              ),
            );
 
+  final Future<String?> Function() _accessToken;
   final SupabaseClient client;
+
+  /// Re-authenticates the realtime socket with a fresh ID token — call after
+  /// custom claims were re-minted (`POST /auth/session` → `claims_updated`)
+  /// so open channels stop using the stale JWT.
+  Future<void> refreshAuth() async {
+    final token = await _accessToken();
+    await client.realtime.setAuth(token);
+  }
+
   int _seq = 0;
 
   /// Stream of changes on [table] (schema `public`), optionally filtered by

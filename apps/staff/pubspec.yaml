@@ -1,5 +1,5 @@
 name: sparkling_staff
-description: "Sparkling Outlet Staff app — tasks, checklists, disc scanning, supervisor ops, leaderboard and inventory (SRS STF-*)."
+description: "Sparkling Outlet Staff app — tasks, checklists, disc scanning, supervisor ops, leaderboard and inventory."
 publish_to: 'none'
 version: 0.1.0+1
 

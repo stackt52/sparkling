@@ -51,6 +51,8 @@ export async function attachWorkOrders(rows: Array<Booking & Record<string, unkn
         assignee_id: w.assignee_id ?? null,
         assignee_name: w.assignee?.full_name ?? null,
         bay: w.bay,
+        checked_in_at: w.checked_in_at ?? null,
+        checked_in_by: w.checked_in_by ?? null,
         blocked_reason: w.blocked_reason,
         verified_at: w.verified_at ?? null,
         pickup_otp_verified_at: w.pickup_otp_verified_at ?? null,

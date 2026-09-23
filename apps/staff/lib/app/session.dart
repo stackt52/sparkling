@@ -17,6 +17,10 @@ class SessionController extends ChangeNotifier {
   }) : _clock = clock ?? DateTime.now {
     _user = repositories.auth.currentUser;
     _mustChangePassword = _loadGate(_user?.uid);
+    // A returning user: re-establish the API session on launch so claims that
+    // were re-minted server-side (role → app_role, outlet scope) reach this
+    // device without a sign-out, and the realtime socket gets a fresh token.
+    if (_user != null) unawaited(_resumeSession());
     _sub = repositories.auth.authStateChanges.listen(_onAuth);
     _touch();
   }
@@ -37,6 +41,7 @@ class SessionController extends ChangeNotifier {
   bool _locked = false;
   bool _busy = false;
   bool _authenticating = false;
+  bool _disposed = false;
   String? _error;
   DateTime? _lastActivity;
   Timer? _idleTimer;
@@ -237,6 +242,41 @@ class SessionController extends ChangeNotifier {
   /// claims *during* the session call, so a first-time staff sign-in has no
   /// claims yet. Anything that fails after Firebase sign-in signs out again so
   /// a non-staff (or unverifiable) account never reaches the task list.
+  /// Launch with a cached Firebase user: `POST /auth/session` again (silently).
+  /// Offline / API down keeps the cached claims; a non-staff or revoked
+  /// account is signed out with the usual message.
+  Future<void> _resumeSession() async {
+    final current = _user;
+    if (current == null || repositories.demo) return;
+    // Deliberately not `_authenticating`: the cached session stays usable
+    // (and the router stays on the task list) while the claims are refreshed.
+    try {
+      final (user, gate) = await _verifyStaff(current);
+      if (_user?.uid != current.uid) return; // signed out / switched meanwhile
+      _user = user;
+      _mustChangePassword = gate;
+      _saveGate();
+    } on AuthException catch (e) {
+      // Offline with no cached role: keep the session, verify next time.
+      if (e.message == notStaffOfflineMessage) return;
+      _error = e.message;
+      await repositories.auth.signOut();
+      _user = null;
+      _mustChangePassword = false;
+    } on ApiException catch (e) {
+      if (e.isUnauthenticated || e.isForbidden) {
+        _error = e.message;
+        await repositories.auth.signOut();
+        _user = null;
+      }
+      // Any other failure (offline, 5xx): keep the cached session.
+    } catch (_) {
+      // Keep the cached session.
+    } finally {
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   Future<bool> _authenticate(
     Future<AuthUser> Function() method, {
     String? password,
@@ -370,6 +410,7 @@ class SessionController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _idleTimer?.cancel();
     _sub?.cancel();
     super.dispose();
