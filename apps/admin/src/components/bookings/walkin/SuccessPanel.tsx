@@ -64,7 +64,7 @@ export default function SuccessPanel({ result, onOpenBooking, onNew, onDone }: {
         <Row icon="event" label="Slot" value={`${fmtDateTime(b.slot_start)} – ${fmtTime(b.slot_end)} · ${b.outlet.name}`} />
         <Row icon="local_car_wash" label="Service" value={`${b.service.name} · ${payment ? `paid ${rands(payment.amount_cents, { decimals: true })} (${methodLabel})` : `${rands(b.total_cents, { decimals: true })} · ${methodLabel}`}`} />
         {b.discount_cents > 0 && <Row icon="sell" label="Discount" value={`${b.discount_label ?? 'Discount'} · −${rands(b.discount_cents, { decimals: true })}`} />}
-        {wo && <Row icon="checklist" label="Work order" value={<><span style={{ fontFamily: fonts.mono }}>{wo.ref}</span>{wo.bay ? ` · ${wo.bay}` : ''} · {wo.assignee_name ?? 'unassigned'}</>} />}
+        {wo && <Row icon="checklist" label="Work order" value={<><span style={{ fontFamily: fonts.mono }}>{wo.ref}</span>{wo.bay ? ` · ${wo.bay}` : ''} · {wo.checked_in_at === null ? 'awaiting check-in' : (wo.assignee_name ?? 'unassigned')}</>} />}
         <Row icon="loyalty" label="Points" value={`+${b.points_pending} pts pending completion`} />
       </Tile>
 

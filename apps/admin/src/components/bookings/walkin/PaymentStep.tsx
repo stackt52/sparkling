@@ -91,7 +91,7 @@ export default function PaymentStep({ draft, patch, onSuccess, onConflict, onErr
       void qc.invalidateQueries({ queryKey: ['bookings'] });
       void qc.invalidateQueries({ queryKey: ['kpis'] });
       void qc.invalidateQueries({ queryKey: ['activity'] });
-      void qc.invalidateQueries({ queryKey: ['work_orders'] });
+      void qc.invalidateQueries({ queryKey: ['work-orders'] });
       onSuccess(r);
     },
     onError: (e) => {

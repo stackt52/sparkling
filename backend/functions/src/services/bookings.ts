@@ -13,7 +13,7 @@ import { assertSlotAvailable, findWalkInSlot } from './availability.js';
 import { listOutletOffers, priceLabel, resolveOfferPrice, resolveVehicleSize } from './catalogue.js';
 import { loadContext, redeemForBooking, releaseForBooking } from './memberships.js';
 import { priceService } from './pricing.js';
-import { createWorkOrderWithTask } from './workflow.js';
+import { checkInWorkOrder, createWorkOrderWithTask } from './workflow.js';
 
 export interface CreateBookingInput {
   vehicleId: string;
@@ -109,6 +109,9 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
     const allowance = membership.allowances.find((a) => a.entitlement_id === booking.entitlement_id);
     if (allowance) await redeemForBooking(booking, { period_start: allowance.period_start, period_end: allowance.period_end }, ctx.auth.uid);
   }
+  // A confirmed booking is visible on the work-order board straight away (awaiting check-in);
+  // pending (unpaid) bookings get theirs when the payment succeeds.
+  if (booking.status === 'confirmed') await ensureWorkOrderForBooking(ctx, booking);
   await audit(ctx, {
     action: walkIn ? 'booking.create_walk_in' : 'booking.create',
     entity_type: 'booking',
@@ -186,6 +189,32 @@ export async function rescheduleBooking(ctx: RequestContext, id: string, slotSta
   return updated;
 }
 
+/**
+ * Every confirmed booking has a work order on the board (awaiting check-in until the car is confirmed on site).
+ * Idempotent: returns the existing work order when one is already linked to the booking.
+ */
+export async function ensureWorkOrderForBooking(
+  ctx: RequestContext,
+  booking: Booking,
+  opts: { checkedIn?: boolean; bay?: string | null; priority?: number } = {},
+): Promise<{ work_order: WorkOrder; task: Task; created: boolean }> {
+  const db = getSupabase();
+  const service = unwrap<import('../types.js').Service>(await db.from('services').select('*').eq('id', booking.service_id).single(), 'service');
+  const eta = new Date(new Date(booking.slot_start).getTime() + service.duration_minutes * 60_000).toISOString();
+  return createWorkOrderWithTask(ctx, {
+    checkedIn: !!opts.checkedIn,
+    outletId: booking.outlet_id,
+    bookingId: booking.id,
+    vehicleId: booking.vehicle_id,
+    customerId: booking.customer_id,
+    service,
+    bay: opts.bay ?? null,
+    priority: opts.priority,
+    etaAt: eta,
+    dueAt: eta,
+  });
+}
+
 export async function checkInBooking(ctx: RequestContext, id: string, opts: { bay?: string | null; priority?: number }): Promise<{ booking: Booking; work_order: WorkOrder; task: Task; created: boolean }> {
   const db = getSupabase();
   const booking = await getBookingOrThrow(id);
@@ -199,6 +228,18 @@ export async function checkInBooking(ctx: RequestContext, id: string, opts: { ba
   if (current.status !== 'in_service') {
     if (!canTransitionBooking(current.status, 'in_service')) throw ApiError.invalidTransition(current.status, 'in_service', 'booking');
     current = unwrap<Booking>(await db.from('bookings').update({ status: 'in_service' }).eq('id', id).select('*').single(), 'check in');
+  }
+  const existing = unwrap<WorkOrder | null>(await db.from('work_orders').select('*').eq('booking_id', current.id).maybeSingle(), 'work order');
+  if (existing) {
+    // The work order was created when the booking was confirmed; confirming the check-in marks the car on site.
+    if (opts.priority && opts.priority !== existing.priority) {
+      await db.from('work_orders').update({ priority: opts.priority }).eq('id', existing.id);
+      await db.from('tasks').update({ priority: opts.priority }).eq('work_order_id', existing.id);
+    }
+    const checked = await checkInWorkOrder(ctx, existing.id, { bay: opts.bay ?? existing.bay ?? null });
+    const task = checked.task ?? unwrap<Task>(await db.from('tasks').select('*').eq('work_order_id', existing.id).order('seq').limit(1).single(), 'task');
+    await audit(ctx, { action: 'booking.checkin', entity_type: 'booking', entity_id: current.id, outlet_id: current.outlet_id, after: { work_order_id: existing.id, bay: opts.bay ?? existing.bay ?? null, priority: opts.priority ?? existing.priority, already_checked_in: checked.already } });
+    return { booking: current, work_order: checked.work_order, task, created: false };
   }
   const eta = new Date(new Date(current.slot_start).getTime() + service.duration_minutes * 60_000).toISOString();
   const created = await createWorkOrderWithTask(ctx, {

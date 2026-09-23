@@ -164,15 +164,25 @@ class DemoStore {
   /// Naledi's verified exterior wash (WO-2026-4822) — hand-over OTP.
   static const String woVerified = '30000000-0000-4000-8000-000000000002';
 
-  /// Zanele's bumper repair converted from quotation QT-2026-0039: queued,
-  /// unassigned and **not checked in** (`checked_in_at == null`) — the
-  /// supervisor confirms the check-in before it can be assigned.
+  /// Zanele's bumper repair from **accepted** quotation QT-2026-0039: the
+  /// work order was created on acceptance, is queued, unassigned, unpaid and
+  /// **not checked in** (`checked_in_at == null`) — confirming the check-in
+  /// marks the quotation `converted` and unlocks assignment.
   static const String woAwaitingCheckIn =
       '30000000-0000-4000-8000-000000000007'; // WO-2026-4819
   static const String taskAwaitingCheckIn =
       '40000000-0000-4000-8000-000000000007';
-  static const String quotationConverted =
+  static const String quotationAccepted =
       '20000000-0000-4000-8000-000000000004'; // QT-2026-0039
+
+  /// Sipho's scratch repair QT-2026-0038: accepted via the public link, its
+  /// work order WO-2026-4818 was checked in and assigned → `converted`.
+  static const String quotationConverted =
+      '20000000-0000-4000-8000-000000000003'; // QT-2026-0038
+
+  /// Thabo's next booking (SPK-2026-0094, Glen Village, paid by card) — its
+  /// work order WO-2026-4817 is on the board awaiting check-in.
+  static const String woNext = '30000000-0000-4000-8000-000000000008';
 
   /// Wrong-OTP attempts allowed before `rate_limited` (mirrors the API).
   static const int maxOtpAttempts = 5;
@@ -1243,7 +1253,8 @@ class DemoStore {
         outletId: outletMenlyn,
         category: 'Scratch',
         description: 'Key scratch along passenger side.',
-        status: QuotationStatus.accepted,
+        // Accepted via the link; WO-2026-4818 was checked in → converted.
+        status: QuotationStatus.converted,
         amountCents: 210000,
         lineItems: const [
           LineItem(
@@ -1270,14 +1281,15 @@ class DemoStore {
         outletName: 'Sparkling Auto Care Centre Menlyn',
       ),
       Quotation(
-        id: quotationConverted,
+        id: quotationAccepted,
         ref: 'QT-$_yr-0039',
         customerId: 'seed_zanele',
         vehicleId: vehBmw,
         outletId: outletMenlyn,
         category: 'Bumper',
         description: 'Front bumper scuff, paint chipped on the corner.',
-        status: QuotationStatus.converted,
+        // Accepted via the link: WO-2026-4819 waits for the car (unpaid).
+        status: QuotationStatus.accepted,
         amountCents: 285000,
         lineItems: const [
           LineItem(
@@ -1297,7 +1309,7 @@ class DemoStore {
         decisionByName: 'Zanele Mthembu',
         customerName: 'Zanele Mthembu',
         publicUrl: '$publicWebBaseUrl/q/seed-token-qt39',
-        pdfUrl: '/v1/quotations/$quotationConverted/pdf',
+        pdfUrl: '/v1/quotations/$quotationAccepted/pdf',
         clientOpId: 'seed-op-qt39',
         createdAt: n.subtract(const Duration(days: 7)),
         vehicleLabel: 'BMW 3 Series · BW 33 RG GP',
@@ -1442,10 +1454,26 @@ class DemoStore {
         checkedInBy: 'seed_johan',
       ),
       WorkOrder(
+        id: woNext,
+        ref: 'WO-$_yr-4817',
+        outletId: outletGlenVillage,
+        bookingId: bookingNext,
+        vehicleId: vehPolo,
+        customerId: 'seed_thabo',
+        serviceId: svcExecWash,
+        status: WorkStatus.queued,
+        priority: 2,
+        checklistTemplateId: tplValet,
+        templateVersion: 3,
+        etaAt: t.add(const Duration(hours: 23, minutes: 30)),
+        dueAt: t.add(const Duration(hours: 23, minutes: 30)),
+        createdAt: n.subtract(const Duration(hours: 3)),
+      ),
+      WorkOrder(
         id: woAwaitingCheckIn,
         ref: 'WO-$_yr-4819',
         outletId: outletMenlyn,
-        quotationId: quotationConverted,
+        quotationId: quotationAccepted,
         vehicleId: vehBmw,
         customerId: 'seed_zanele',
         serviceId: svcSpotRepair,
@@ -1548,6 +1576,16 @@ class DemoStore {
         priority: 2,
         dueAt: t.add(const Duration(days: 1)),
         createdAt: t.subtract(const Duration(minutes: 40)),
+      ),
+      Task(
+        id: '40000000-0000-4000-8000-000000000008',
+        workOrderId: woNext,
+        outletId: outletGlenVillage,
+        title: 'Executive Wash · CJ 12 PZ GP',
+        status: WorkStatus.queued,
+        priority: 2,
+        dueAt: t.add(const Duration(hours: 23, minutes: 30)),
+        createdAt: n.subtract(const Duration(hours: 3)),
       ),
     ]);
     for (final step in templateById(tplBody)?.steps ?? const <ChecklistStep>[]) {
@@ -3028,6 +3066,7 @@ class DemoStore {
         pickupOtp: exposeOtp ? pickupOtps[wo.id] : null,
         pickupOtpVerifiedAt: wo.pickupOtpVerifiedAt,
         collectedAt: wo.collectedAt,
+        checkedInAt: wo.checkedInAt,
       );
       if (detail) timeline = d.toTimeline();
     }
@@ -3208,6 +3247,10 @@ class DemoStore {
     bookings.add(b);
     _idempotencyKeys.add(input.clientOpId);
     _redeemMembershipUsage(b);
+    // Confirmed at once (nothing to pay / cash on collection): on the board
+    // straight away, awaiting check-in. Card bookings get theirs when the
+    // payment verifies (`sandboxConfirm`).
+    if (b.status == BookingStatus.confirmed) _ensureWorkOrderForBooking(b);
     _notify('bookings', b.id);
     return expandBooking(b, detail: true);
   }
@@ -3398,26 +3441,31 @@ class DemoStore {
     bookings.add(b);
     _idempotencyKeys.add(input.clientOpId);
     _redeemMembershipUsage(b);
+    // Walk-ins are confirmed: the work order is on the board at once and
+    // `checkin` confirms the car on that same row (no duplicate).
+    _ensureWorkOrderForBooking(b);
     _notify('bookings', b.id);
     final checkin = input.checkin;
     if (checkin == null) return expandBooking(b, detail: true);
     return _checkin(b.id, bay: checkin.bay, priority: checkin.priority);
   }
 
-  /// `POST /payments/record` — staff-attested cash / card-terminal payment.
+  /// `POST /payments/record` — staff-attested cash / card-terminal payment
+  /// for a booking (`booking_id`) or an accepted quotation (`quotation_id`).
   Payment recordPayment(RecordPaymentInput input) {
     _requireRole(role.isStaff);
     final existing = payments
         .where((p) => p.idempotencyKey == input.idempotencyKey)
         .firstOrNull;
     if (existing != null) return existing;
+    if (input.isForQuotation) return _recordQuotationPayment(input);
     // Queued behind an offline walk-in: resolve the booking by its op id.
     final byOp = input.bookingClientOpId == null
         ? null
         : bookings
               .where((b) => b.clientOpId == input.bookingClientOpId)
               .firstOrNull;
-    final b = byOp ?? _requireBooking(input.bookingId);
+    final b = byOp ?? _requireBooking(input.bookingId ?? '');
     final myOutlets = staffOutlets[uid] ?? const <String>[];
     if (!myOutlets.contains(b.outletId) && !role.isManager) {
       throw ApiException(
@@ -3448,6 +3496,7 @@ class DemoStore {
       customerId: b.customerId,
       provider: 'pos',
       providerRef: input.reference,
+      method: input.method.db,
       amountCents: b.totalCents,
       status: PaymentStatus.successful,
       receiptNo: receiptNo,
@@ -3471,6 +3520,7 @@ class DemoStore {
         status: BookingStatus.confirmed,
         updatedAt: now,
       );
+      _ensureWorkOrderForBooking(bookings[bi]);
       _notify('bookings', b.id);
     }
     // Cash on collection recorded at the counter: the work order's `booking`
@@ -3488,6 +3538,89 @@ class DemoStore {
       '${Money.formatZar(p.amountCents)} received (${input.method.label.toLowerCase()}). Receipt $receiptNo.',
       {'type': 'payment', 'id': p.id},
     );
+    _notify('payments', p.id);
+    return p;
+  }
+
+  /// Counter payment settling an accepted / converted quotation: the amount
+  /// must equal `amount_cents`, once only, receipt + customer notification
+  /// like a booking payment. `GET /quotations/:id` then carries `payment`.
+  Payment _recordQuotationPayment(RecordPaymentInput input) {
+    final q = _requireQuotation(input.quotationId!);
+    final myOutlets = staffOutlets[uid] ?? const <String>[];
+    if (!myOutlets.contains(q.outletId) && !role.isManager) {
+      throw ApiException(
+        code: 'forbidden',
+        message: 'This quotation belongs to another outlet.',
+        statusCode: 403,
+      );
+    }
+    if (q.status != QuotationStatus.accepted &&
+        q.status != QuotationStatus.converted) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'Only accepted quotations can be paid.',
+        statusCode: 409,
+        data: {'quotation_id': q.id, 'status': q.status.db},
+      );
+    }
+    final total = q.amountCents ?? q.itemsTotalCents;
+    if (input.amountCents != total) {
+      throw ApiException(
+        code: 'validation_error',
+        message:
+            'Amount must equal the quotation total (${Money.formatZar(total)}).',
+        statusCode: 400,
+      );
+    }
+    if (payments.any((p) => p.quotationId == q.id && p.status.isVerified)) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'This quotation is already paid.',
+        statusCode: 409,
+      );
+    }
+    final receiptNo = 'RCP-${_receiptSeq++}';
+    final p = Payment(
+      id: _newId('6'),
+      quotationId: q.id,
+      customerId: q.customerId,
+      provider: 'pos',
+      providerRef: input.reference,
+      method: input.method.db,
+      amountCents: total,
+      status: PaymentStatus.successful,
+      receiptNo: receiptNo,
+      idempotencyKey: input.idempotencyKey,
+      verifiedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      receipt: {
+        'receipt_no': receiptNo,
+        'amount_cents': total,
+        'method': input.method.db,
+        'reference': input.reference,
+        'quotation_id': q.id,
+        'quotation_ref': q.ref,
+        'recorded_by': nameOf(uid),
+        'paid_at': j.iso(now),
+      },
+    );
+    payments.add(p);
+    final wo = workOrders.where((w) => w.quotationId == q.id).firstOrNull;
+    if (wo != null) {
+      _notify('work_orders', wo.id);
+      final task = tasks.where((t) => t.workOrderId == wo.id).firstOrNull;
+      if (task != null) _notify('tasks', task.id);
+    }
+    _pushNotification(
+      q.customerId,
+      'payment_successful',
+      'Payment received',
+      '${Money.formatZar(p.amountCents)} received for ${q.ref} (${input.method.label.toLowerCase()}). Receipt $receiptNo.',
+      {'type': 'quotation', 'id': q.id},
+    );
+    _notify('quotations', q.id);
     _notify('payments', p.id);
     return p;
   }
@@ -3510,53 +3643,19 @@ class DemoStore {
         statusCode: 409,
       );
     }
-    var wo = workOrders.where((w) => w.bookingId == id).firstOrNull;
-    if (wo == null) {
-      final service = serviceById(b.serviceId!)!;
-      final vehicle = vehicleById(b.vehicleId!)!;
-      final template = templateById(service.checklistTemplateId);
-      wo = WorkOrder(
-        id: _newId('3'),
-        ref: 'WO-$_yr-${_workOrderSeq++}',
-        outletId: b.outletId!,
-        bookingId: id,
-        vehicleId: b.vehicleId!,
-        customerId: b.customerId,
-        serviceId: b.serviceId!,
-        status: WorkStatus.queued,
-        priority: priority ?? 2,
-        bay: bay,
-        checklistTemplateId: template?.id,
-        templateVersion: template?.version,
-        etaAt: now.add(Duration(minutes: service.durationMinutes)),
-        dueAt: now.add(Duration(minutes: service.durationMinutes)),
-        // A booking check-in is the check-in: the car is at the counter.
-        checkedInAt: now,
-        checkedInBy: uid,
-        createdAt: now,
-        updatedAt: now,
-      );
-      workOrders.add(wo);
-      for (final s in template?.steps ?? const <ChecklistStep>[]) {
-        stepResults.add(
-          StepResult(id: _newId('5'), workOrderId: wo.id, stepKey: s.key),
-        );
-      }
-      tasks.add(
-        Task(
-          id: _newId('4'),
-          workOrderId: wo.id,
-          outletId: wo.outletId,
-          title: '${service.name} · ${vehicle.registrationNo}',
-          status: WorkStatus.queued,
-          priority: wo.priority,
-          dueAt: wo.dueAt,
-          createdAt: now,
-        ),
-      );
-      _notify('work_orders', wo.id);
-      _notify('tasks');
-    }
+    // The work order exists since the booking was confirmed; a booking
+    // check-in confirms the car on that same row (no duplicate). Pending
+    // bookings checked in at the counter get theirs here.
+    final existing = workOrders.where((w) => w.bookingId == id).firstOrNull;
+    final wo =
+        existing ??
+        _ensureWorkOrderForBooking(
+          b,
+          checkedIn: true,
+          bay: bay,
+          priority: priority,
+        )!;
+    if (!wo.isCheckedIn) _stampCheckIn(wo, bay: bay, priority: priority);
     bookings[i] = b.copyWith(status: BookingStatus.inService, updatedAt: now);
     _pushNotification(
       b.customerId,
@@ -3567,6 +3666,199 @@ class DemoStore {
     );
     _notify('bookings', id);
     return expandBooking(bookings[i], detail: true);
+  }
+
+  /// Creates the work order (+ empty checklist results + task) for a
+  /// confirmed booking or an accepted quotation. Every confirmed job is on
+  /// the board at once; `checkedIn: false` leaves it **awaiting check-in**
+  /// (`checked_in_at` null) until the car is confirmed on site. Idempotent
+  /// per booking / quotation: the existing row is returned.
+  WorkOrder _openWorkOrder({
+    required String outletId,
+    String? bookingId,
+    String? quotationId,
+    required String vehicleId,
+    required String customerId,
+    required Service service,
+    required DateTime eta,
+    bool checkedIn = false,
+    String? bay,
+    int? priority,
+  }) {
+    final existing = workOrders
+        .where(
+          (w) =>
+              (bookingId != null && w.bookingId == bookingId) ||
+              (quotationId != null && w.quotationId == quotationId),
+        )
+        .firstOrNull;
+    if (existing != null) return existing;
+    final template = templateById(service.checklistTemplateId);
+    final vehicle = vehicleById(vehicleId);
+    final trimmedBay = bay?.trim();
+    final wo = WorkOrder(
+      id: _newId('3'),
+      ref: 'WO-$_yr-${_workOrderSeq++}',
+      outletId: outletId,
+      bookingId: bookingId,
+      quotationId: quotationId,
+      vehicleId: vehicleId,
+      customerId: customerId,
+      serviceId: service.id,
+      status: WorkStatus.queued,
+      priority: priority ?? 2,
+      bay: trimmedBay == null || trimmedBay.isEmpty ? null : trimmedBay,
+      checklistTemplateId: template?.id,
+      templateVersion: template?.version,
+      etaAt: eta,
+      dueAt: eta,
+      checkedInAt: checkedIn ? now : null,
+      checkedInBy: checkedIn ? uid : null,
+      createdAt: now,
+      updatedAt: now,
+    );
+    workOrders.add(wo);
+    for (final s in template?.steps ?? const <ChecklistStep>[]) {
+      stepResults.add(
+        StepResult(id: _newId('5'), workOrderId: wo.id, stepKey: s.key),
+      );
+    }
+    tasks.add(
+      Task(
+        id: _newId('4'),
+        workOrderId: wo.id,
+        outletId: wo.outletId,
+        title: [
+          service.name,
+          vehicle?.registrationNo,
+        ].whereType<String>().join(' · '),
+        status: WorkStatus.queued,
+        priority: wo.priority,
+        dueAt: wo.dueAt,
+        createdAt: now,
+      ),
+    );
+    _notify('work_orders', wo.id);
+    _notify('tasks');
+    return wo;
+  }
+
+  /// The board entry of a confirmed booking (slot start + service duration
+  /// as ETA). Null when the booking is missing its service / vehicle.
+  WorkOrder? _ensureWorkOrderForBooking(
+    Booking b, {
+    bool checkedIn = false,
+    String? bay,
+    int? priority,
+  }) {
+    final service = serviceById(b.serviceId ?? '');
+    final vehicleId = b.vehicleId;
+    final outletId = b.outletId;
+    if (service == null || vehicleId == null || outletId == null) return null;
+    return _openWorkOrder(
+      outletId: outletId,
+      bookingId: b.id,
+      vehicleId: vehicleId,
+      customerId: b.customerId,
+      service: service,
+      eta: b.slotStart.add(Duration(minutes: service.durationMinutes)),
+      checkedIn: checkedIn,
+      bay: bay,
+      priority: priority,
+    );
+  }
+
+  /// Auto-body service for a quotation: a line item's `service_id`, else the
+  /// category's usual service code, else spot repair.
+  Service _serviceForQuotation(Quotation q) {
+    final linked = q.lineItems
+        .map((i) => i.serviceId)
+        .whereType<String>()
+        .map(serviceById)
+        .whereType<Service>()
+        .firstOrNull;
+    final code = QuoteCategories.serviceCodeFor(
+      q.category.split(',').first.trim(),
+    );
+    return linked ??
+        services.where((s) => s.code == code).firstOrNull ??
+        serviceById(svcSpotRepair)!;
+  }
+
+  /// The board entry of an accepted quotation (created on acceptance,
+  /// awaiting check-in).
+  WorkOrder _ensureWorkOrderForQuotation(Quotation q) {
+    final service = _serviceForQuotation(q);
+    return _openWorkOrder(
+      outletId: q.outletId,
+      quotationId: q.id,
+      vehicleId: q.vehicleId,
+      customerId: q.customerId,
+      service: service,
+      eta: now.add(Duration(minutes: service.durationMinutes)),
+    );
+  }
+
+  /// Confirms the car on site on an existing work order: stamps
+  /// `checked_in_at / by`, applies the bay / priority, records the
+  /// `checked_in` task event and — for a quotation work order — marks the
+  /// quotation `converted`. Auto-assigns when the flag is on.
+  WorkOrder _stampCheckIn(WorkOrder wo, {String? bay, int? priority}) {
+    final wi = workOrders.indexWhere((w) => w.id == wo.id);
+    final trimmed = bay?.trim();
+    final updated = wo.copyWith(
+      checkedInAt: now,
+      checkedInBy: uid,
+      bay: trimmed == null || trimmed.isEmpty ? null : trimmed,
+      priority: priority,
+      updatedAt: now,
+    );
+    workOrders[wi] = updated;
+    final ti = tasks.indexWhere((t) => t.workOrderId == wo.id);
+    if (ti >= 0 && priority != null && tasks[ti].priority != priority) {
+      tasks[ti] = tasks[ti].copyWith(priority: priority, updatedAt: now);
+    }
+    final task = ti >= 0 ? tasks[ti] : null;
+    taskEvents.add(
+      TaskEvent(
+        id: _newId('8'),
+        taskId: task?.id,
+        workOrderId: wo.id,
+        actorId: uid,
+        actorName: nameOf(uid),
+        event: 'checked_in',
+        metadata: {if (trimmed != null && trimmed.isNotEmpty) 'bay': trimmed},
+        createdAt: now,
+      ),
+    );
+    final quotationId = wo.quotationId;
+    if (quotationId != null) {
+      final qi = quotations.indexWhere((q) => q.id == quotationId);
+      if (qi >= 0 && quotations[qi].status == QuotationStatus.accepted) {
+        quotations[qi] = quotations[qi].copyWith(
+          status: QuotationStatus.converted,
+          updatedAt: now,
+        );
+        _notify('quotations', quotationId);
+      }
+    }
+    _notify('work_orders', wo.id);
+    _notify('tasks', task?.id);
+    if (featureFlags['auto_assignment'] == true &&
+        task != null &&
+        task.assigneeId == null &&
+        task.status.isOpen) {
+      final pick = _autoAssignCandidate(updated);
+      if (pick != null) {
+        _assign(
+          task.id,
+          assigneeId: pick.id,
+          reason: 'Auto-assign: skill match, lowest load',
+          actorId: null,
+        );
+      }
+    }
+    return workOrders[wi];
   }
 
   // ---------------------------------------------------------------------------
@@ -3599,11 +3891,40 @@ class DemoStore {
     return _expandQuotation(q);
   }
 
-  /// `public_url` is a staff-only field; every response carries `pdf_url`.
-  Quotation _expandQuotation(Quotation q) => q.copyWith(
-    clearPublicUrl: !role.isStaff,
-    pdfUrl: q.pdfUrl ?? '/v1/quotations/${q.id}/pdf',
-  );
+  /// `public_url` is a staff-only field; every response carries `pdf_url`,
+  /// the `work_order` summary (created on acceptance), the successful
+  /// counter `payment` and `amount_due_cents`.
+  Quotation _expandQuotation(Quotation q) {
+    final wo = workOrders.where((w) => w.quotationId == q.id).firstOrNull;
+    final paid = payments
+        .where((p) => p.quotationId == q.id && p.status.isVerified)
+        .firstOrNull;
+    final payment = paid == null
+        ? null
+        : PaymentSummary(
+            id: paid.id,
+            status: paid.status,
+            amountCents: paid.amountCents,
+            receiptNo: paid.receiptNo,
+            method: paid.method ?? paid.receipt?['method'] as String?,
+            verifiedAt: paid.verifiedAt,
+          );
+    return q.copyWith(
+      clearPublicUrl: !role.isStaff,
+      pdfUrl: q.pdfUrl ?? '/v1/quotations/${q.id}/pdf',
+      workOrder: wo == null
+          ? null
+          : QuotationWorkOrder(
+              id: wo.id,
+              ref: wo.ref,
+              status: wo.status,
+              checkedInAt: wo.checkedInAt,
+            ),
+      workOrderRef: wo?.ref,
+      payment: payment,
+      amountDueCents: payment != null ? 0 : (q.amountCents ?? 0),
+    );
+  }
 
   int _publicTokenSeq = 0;
   String _newPublicToken() =>
@@ -4078,6 +4399,9 @@ class DemoStore {
       decisionByName: nameOf(uid),
       updatedAt: now,
     );
+    // Accepted → on the board at once, awaiting the car; the quotation stays
+    // `accepted` until the check-in is confirmed.
+    if (accept) _ensureWorkOrderForQuotation(quotations[i]);
     _pushNotification(
       q.assessorId ?? 'seed_johan',
       'quote_decided',
@@ -4103,61 +4427,19 @@ class DemoStore {
         statusCode: 409,
       );
     }
-    final linked = q.lineItems
-        .map((i) => i.serviceId)
-        .whereType<String>()
-        .map(serviceById)
-        .whereType<Service>()
-        .firstOrNull;
-    final code = QuoteCategories.serviceCodeFor(q.category.split(',').first.trim());
-    final service =
-        linked ??
-        services.where((s) => s.code == code).firstOrNull ??
-        serviceById(svcSpotRepair)!;
-    final template = templateById(service.checklistTemplateId);
-    final vehicle = vehicleById(q.vehicleId)!;
-    final wo = WorkOrder(
-      id: _newId('3'),
-      ref: 'WO-$_yr-${_workOrderSeq++}',
-      outletId: q.outletId,
-      quotationId: id,
-      vehicleId: q.vehicleId,
-      customerId: q.customerId,
-      serviceId: service.id,
-      status: WorkStatus.queued,
-      priority: 2,
-      checklistTemplateId: template?.id,
-      templateVersion: template?.version,
-      etaAt: now.add(Duration(minutes: service.durationMinutes)),
-      dueAt: now.add(Duration(minutes: service.durationMinutes)),
-      createdAt: now,
-    );
-    workOrders.add(wo);
-    for (final s in template?.steps ?? const <ChecklistStep>[]) {
-      stepResults.add(
-        StepResult(id: _newId('5'), workOrderId: wo.id, stepKey: s.key),
+    // The work order exists since acceptance (awaiting check-in); the manual
+    // convert confirms the car on site on that same row and marks the
+    // quotation `converted` (no duplicate work order).
+    final wo = _ensureWorkOrderForQuotation(q);
+    if (!wo.isCheckedIn) _stampCheckIn(wo);
+    if (quotations[i].status != QuotationStatus.converted) {
+      quotations[i] = quotations[i].copyWith(
+        status: QuotationStatus.converted,
+        updatedAt: now,
       );
     }
-    tasks.add(
-      Task(
-        id: _newId('4'),
-        workOrderId: wo.id,
-        outletId: wo.outletId,
-        title: '${service.name} · ${vehicle.registrationNo}',
-        status: WorkStatus.queued,
-        priority: 2,
-        dueAt: wo.dueAt,
-        createdAt: now,
-      ),
-    );
-    quotations[i] = q.copyWith(
-      status: QuotationStatus.converted,
-      updatedAt: now,
-    );
     _notify('quotations', id);
-    _notify('work_orders', wo.id);
-    _notify('tasks');
-    return quotations[i];
+    return _expandQuotation(quotations[i]);
   }
 
   // ---------------------------------------------------------------------------
@@ -4261,6 +4543,8 @@ class DemoStore {
         updatedAt: now,
       );
       final b = bookings[bi];
+      // Card bookings join the board once the payment verifies.
+      _ensureWorkOrderForBooking(b);
       _pushNotification(
         b.customerId,
         'booking_confirmed',
@@ -4751,7 +5035,6 @@ class DemoStore {
   /// loaded available team member with a matching skill.
   WorkOrderCheckInResult checkInWorkOrder(String id, {String? bay}) {
     _requireRole(role.isStaff, 'Only staff can check a vehicle in.');
-    final wi = workOrders.indexWhere((w) => w.id == id);
     final wo = _requireWorkOrder(id);
     final myOutlets = staffOutlets[uid] ?? const <String>[];
     _requireRole(
@@ -4774,42 +5057,7 @@ class DemoStore {
         statusCode: 409,
       );
     }
-    final trimmed = bay?.trim();
-    workOrders[wi] = wo.copyWith(
-      checkedInAt: now,
-      checkedInBy: uid,
-      bay: trimmed == null || trimmed.isEmpty ? null : trimmed,
-      updatedAt: now,
-    );
-    final t = tasks.where((t) => t.workOrderId == id).firstOrNull;
-    taskEvents.add(
-      TaskEvent(
-        id: _newId('8'),
-        taskId: t?.id,
-        workOrderId: id,
-        actorId: uid,
-        actorName: nameOf(uid),
-        event: 'checked_in',
-        metadata: {if (trimmed != null && trimmed.isNotEmpty) 'bay': trimmed},
-        createdAt: now,
-      ),
-    );
-    _notify('work_orders', id);
-    _notify('tasks', t?.id);
-    if (featureFlags['auto_assignment'] == true &&
-        t != null &&
-        t.assigneeId == null &&
-        t.status.isOpen) {
-      final pick = _autoAssignCandidate(workOrders[wi]);
-      if (pick != null) {
-        _assign(
-          t.id,
-          assigneeId: pick.id,
-          reason: 'Auto-assign: skill match, lowest load',
-          actorId: null,
-        );
-      }
-    }
+    _stampCheckIn(wo, bay: bay);
     return WorkOrderCheckInResult(
       workOrder: workOrderDetail(id).workOrder,
       task: task(),

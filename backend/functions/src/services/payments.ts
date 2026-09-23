@@ -13,7 +13,8 @@ import { canTransitionBooking, canTransitionPayment } from '../domain/stateMachi
 import { assertOutlet } from '../middleware/auth.js';
 import type { Booking, Payment, PaymentStatus, PosPaymentMethod, RequestContext } from '../types.js';
 import { audit } from './audit.js';
-import { getBookingOrThrow } from './bookings.js';
+import { ensureWorkOrderForBooking, getBookingOrThrow } from './bookings.js';
+import { systemContext } from '../lib/systemContext.js';
 import { applyMembershipInvoicePaid } from './memberships.js';
 import { formatRand, notify } from './notifications.js';
 
@@ -189,6 +190,11 @@ async function runSideEffects(payment: Payment, target: PaymentStatus): Promise<
     if (payment.membership_invoice_id) await applyMembershipInvoicePaid(payment);
     if (booking && booking.status === 'pending' && canTransitionBooking(booking.status, 'confirmed')) {
       await db.from('bookings').update({ status: 'confirmed' }).eq('id', booking.id);
+      try {
+        await ensureWorkOrderForBooking(systemContext(`payment:${payment.id}`), { ...booking, status: 'confirmed' });
+      } catch (err) {
+        logger.warn({ err, booking_id: booking.id }, 'could not create the work order for the paid booking');
+      }
       const [outlet, service] = await Promise.all([
         db.from('outlets').select('name').eq('id', booking.outlet_id).maybeSingle(),
         db.from('services').select('name').eq('id', booking.service_id).maybeSingle(),
@@ -252,7 +258,9 @@ export const POS_PROVIDER = 'pos';
 export const POS_EVENT_TYPE = 'pos.recorded';
 
 export interface RecordPosPaymentInput {
-  bookingId: string;
+  /** Exactly one of bookingId / quotationId. */
+  bookingId?: string | null;
+  quotationId?: string | null;
   method: PosPaymentMethod;
   reference?: string | null;
   amountCents: number;
@@ -278,6 +286,8 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
   const replay = unwrap<Payment | null>(await db.from('payments').select('*').eq('idempotency_key', key).maybeSingle(), 'payment');
   if (replay) return { payment: replay, duplicate: true };
 
+  if (input.quotationId) return recordQuotationPayment(ctx, input, key);
+  if (!input.bookingId) throw ApiError.validation('booking_id or quotation_id is required');
   const booking = await getBookingOrThrow(input.bookingId);
   assertOutlet(ctx.auth, booking.outlet_id);
   if (booking.status === 'cancelled') throw ApiError.conflict('Booking is cancelled', { booking_id: booking.id, status: booking.status });
@@ -349,5 +359,48 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
     outlet_id: booking.outlet_id,
     after: { booking_id: booking.id, booking_ref: booking.ref, amount_cents: payment.amount_cents, method: input.method, reference: payment.provider_ref, receipt_no: payment.receipt_no },
   });
+  return { payment, duplicate: false };
+}
+
+/** Counter payment settling an accepted / converted quotation (auto-body job); receipt + payment_events like a booking. */
+async function recordQuotationPayment(ctx: RequestContext, input: RecordPosPaymentInput, key: string): Promise<{ payment: Payment; duplicate: boolean }> {
+  const db = getSupabase();
+  const q = unwrap<{ id: string; ref: string; outlet_id: string; customer_id: string; status: string; amount_cents: number | null } | null>(
+    await db.from('quotations').select('id, ref, outlet_id, customer_id, status, amount_cents').eq('id', input.quotationId!).maybeSingle(),
+    'quotation',
+  );
+  if (!q) throw ApiError.notFound('Quotation');
+  assertOutlet(ctx.auth, q.outlet_id);
+  if (!['accepted', 'converted'].includes(q.status)) throw ApiError.conflict('Only accepted quotations can be paid', { quotation_id: q.id, status: q.status });
+  if (q.amount_cents == null || input.amountCents !== q.amount_cents) {
+    throw ApiError.validation('amount_cents must equal the quotation total', [{ path: 'amount_cents', message: `Expected ${q.amount_cents ?? 0}`, expected: q.amount_cents, received: input.amountCents }]);
+  }
+  const paid = unwrap<Payment[]>(await db.from('payments').select('*').eq('quotation_id', q.id).eq('status', 'successful'), 'payments');
+  if (paid.length) throw ApiError.conflict('Quotation is already paid', { payment: paid[0], payment_id: paid[0].id });
+
+  const now = new Date().toISOString();
+  let payment: Payment | null = null;
+  for (let attempt = 0; attempt < 3 && !payment; attempt++) {
+    const receipt = await nextReceiptNo(db);
+    const res = await db
+      .from('payments')
+      .insert({ booking_id: null, quotation_id: q.id, customer_id: q.customer_id, provider: POS_PROVIDER, method: input.method, provider_ref: input.reference?.trim() || null, amount_cents: input.amountCents, currency: 'ZAR', status: 'successful', receipt_no: receipt, idempotency_key: key, verified_at: now, recorded_by: ctx.auth.uid })
+      .select('*')
+      .single();
+    if (!res.error) {
+      payment = res.data as Payment;
+      break;
+    }
+    if (res.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(res.error, 'record pos payment');
+    if (`${res.error.message} ${res.error.details ?? ''}`.includes('idempotency_key')) {
+      const dup = unwrap<Payment | null>(await db.from('payments').select('*').eq('idempotency_key', key).maybeSingle(), 'payment');
+      if (dup) return { payment: dup, duplicate: true };
+    }
+  }
+  if (!payment) throw ApiError.internal('Could not allocate a receipt number');
+  const event = await db.from('payment_events').insert({ payment_id: payment.id, provider: POS_PROVIDER, provider_event_id: key, event_type: POS_EVENT_TYPE, signature_ok: true, payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, quotation_id: q.id } });
+  if (event.error && event.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(event.error, 'pos payment event');
+  await audit(ctx, { action: 'payment.record', entity_type: 'payment', entity_id: payment.id, outlet_id: q.outlet_id, after: { quotation_id: q.id, ref: q.ref, method: input.method, amount_cents: payment.amount_cents, receipt_no: payment.receipt_no } });
+  await runSideEffects(payment, 'successful');
   return { payment, duplicate: false };
 }

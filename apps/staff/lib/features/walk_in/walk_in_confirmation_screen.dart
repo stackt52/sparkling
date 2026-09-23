@@ -95,7 +95,9 @@ class _WalkInConfirmationScreenState extends State<WalkInConfirmationScreen> {
               final b = o.booking;
               final pay = o.payment;
               final queued = o.queued;
-              final checkedIn = b.workOrder != null;
+              // Every confirmed walk-in has its work order at once; only a
+              // stamped check-in means the car is in the bay.
+              final checkedIn = b.workOrder?.isCheckedIn ?? false;
               final paid =
                   (pay?.status.isVerified ?? false) ||
                   (b.payment?.status.isVerified ?? false);
@@ -259,6 +261,12 @@ class _WalkInConfirmationScreenState extends State<WalkInConfirmationScreen> {
                                   icon: Symbols.garage_rounded,
                                   text:
                                       '${b.workOrder!.ref}${b.workOrder!.bay == null ? '' : ' · ${b.workOrder!.bay}'} · ${b.workOrder!.status.label}',
+                                )
+                              else if (b.workOrder != null && !queued)
+                                _DetailRow(
+                                  icon: Symbols.garage_rounded,
+                                  text:
+                                      '${b.workOrder!.ref} · awaiting check-in',
                                 ),
                               if (b.pointsPending > 0)
                                 _DetailRow(

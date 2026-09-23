@@ -10,6 +10,21 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../widgets/common.dart';
 
+/// "Booked in · WO-2026-4819 awaiting your car" while the accepted quote's
+/// work order waits for the check-in, "WO-2026-4819 · checked in" (or the
+/// work status) once the car is on site. Null before acceptance.
+String? quoteWorkOrderLabel(Quotation q) {
+  final wo = q.workOrder;
+  final ref = wo?.ref ?? q.workOrderRef;
+  if (ref == null) return null;
+  if (wo == null) return 'Booked in · $ref';
+  if (wo.awaitingCheckIn) return 'Booked in · $ref awaiting your car';
+  if (wo.status == WorkStatus.queued || wo.status == WorkStatus.assigned) {
+    return '$ref · checked in';
+  }
+  return '$ref · ${wo.status.label.toLowerCase()}';
+}
+
 /// Glyph for an attention category.
 IconData categoryIcon(String? category) => switch (category) {
   'Dent' => Symbols.compress_rounded,

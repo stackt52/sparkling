@@ -770,15 +770,18 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   Future<Payment> recordPayment(RecordPaymentInput raw) {
     // A booking id of `pending_<op>` means the walk-in itself is still in the
     // queue — carry its op id so the batch can resolve the server row.
-    final input = raw.bookingId.startsWith('pending_')
+    // Quotation payments (`quotation_id`) always target a server row.
+    final bookingId = raw.bookingId;
+    final input = bookingId != null && bookingId.startsWith('pending_')
         ? raw.copyWith(
-            bookingClientOpId: raw.bookingId.substring('pending_'.length),
+            bookingClientOpId: bookingId.substring('pending_'.length),
           )
         : raw;
     final now = DateTime.now();
     final optimistic = Payment(
       id: 'pending_${input.idempotencyKey}',
       bookingId: input.bookingId,
+      quotationId: input.quotationId,
       customerId: '',
       provider: 'pos',
       amountCents: input.amountCents,

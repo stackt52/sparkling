@@ -495,18 +495,25 @@ class WorkOrderDetail extends Equatable {
   );
 
   /// Builds the customer-facing timeline (checked-in → stages → ready).
+  /// "Checked in" keys off `checked_in_at` (the car confirmed on site) and
+  /// falls back to `started_at` for rows without it; until then no stage is
+  /// current — the work order is only waiting on the board.
   List<TimelineEntry> toTimeline() {
+    final checkedInAt = workOrder.checkedInAt ?? workOrder.startedAt;
     final entries = <TimelineEntry>[
       TimelineEntry(
         key: 'checked_in',
         title: 'Checked in',
-        state: workOrder.startedAt == null
+        state: checkedInAt == null
             ? TimelineEntryState.pending
             : TimelineEntryState.done,
-        at: workOrder.startedAt,
+        at: checkedInAt,
+        note: checkedInAt == null && workOrder.status.isOpen
+            ? 'Waiting for your car'
+            : null,
       ),
     ];
-    var currentAssigned = false;
+    var currentAssigned = checkedInAt == null;
     for (final s in steps) {
       final r = resultFor(s.key);
       TimelineEntryState state;

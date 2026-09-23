@@ -7685,6 +7685,9 @@ components:
         booking_id:
           type: string
           format: uuid
+        quotation_id:
+          type: string
+          format: uuid
         method:
           type: string
           enum:
@@ -7696,11 +7699,10 @@ components:
           nullable: true
         amount_cents:
           type: integer
-          description: Must equal bookings.total_cents
+          description: Must equal bookings.total_cents / quotations.amount_cents
         idempotency_key:
           type: string
       required:
-        - booking_id
         - method
         - amount_cents
         - idempotency_key

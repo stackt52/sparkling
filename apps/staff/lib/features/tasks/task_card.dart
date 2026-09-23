@@ -5,8 +5,9 @@ import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
 /// Task card (2a/2g): priority chip + mono WO ref + status chip, title,
-/// vehicle + bay in mono, checklist progress bar and a ≥48px primary action
-/// with a timer tile. Blocked tasks get an error border and reason line.
+/// vehicle + booking ref + bay in mono, checklist progress bar and a ≥48px
+/// primary action with a timer tile. Blocked tasks get an error border and
+/// reason line.
 class TaskCard extends StatelessWidget {
   const TaskCard({
     super.key,
@@ -39,6 +40,8 @@ class TaskCard extends StatelessWidget {
     final awaitingCheckIn = wo != null && !wo.isCheckedIn && status.isOpen;
     final detail = [
       ?reg,
+      // Booking-backed work: the booking ref the customer knows.
+      ?wo?.bookingRef,
       wo?.bay ??
           (status == WorkStatus.queued && !awaitingCheckIn
               ? 'awaiting arrival'

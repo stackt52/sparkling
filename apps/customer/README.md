@@ -120,6 +120,11 @@ while the booking is `completed` and `collected_at` is null.
   your keys", and notes that it was also sent by WhatsApp / push. Tapping the
   digits copies them. Once staff verify the code the card disappears, the
   timeline gains a "Keys released" entry and the detail shows **Collected**.
+* **Timeline check-in** — every confirmed booking has its work order at
+  once (`booking.work_order` with `checked_in_at: null`); the tracking
+  screen keeps "Waiting for check-in" until staff confirm the car on site,
+  and the "Checked in" step then keys off `work_order.checked_in_at`
+  (`test/checkin_timeline_test.dart`).
 * **Notifications inbox** — rows whose provider reported delivery
   (`status=delivered`, `provider_status`, `delivered_at`) show a green
   double-tick; `pickup_otp` messages use a key icon.
@@ -248,9 +253,17 @@ the expired state), the damage-photo grid (`AuthedImage` fetches
 note). After the decision the screen locks — "Accepted on 12 Sep in app" /
 "… via link" — with no buttons; a `409 conflict` (decided elsewhere) shows
 "Already decided" and refreshes the quote; `410 gone` explains the expiry.
+Accepting books the job in at once: `GET /quotations/:id` carries
+`work_order { id, ref, status, checked_in_at }`, `payment` and
+`amount_due_cents`, so the detail shows **Work order · Booked in · WO-…
+awaiting your car** (then `WO-… · checked in` once staff confirm the car,
+which turns the quote `converted`) and **Payment · R x due at the counter**
+→ **Paid · cash · RCP-…** once staff record the counter payment
+(`POST /payments/record { quotation_id }`).
 Demo: Thabo's `QT-2026-0041` (R 3 850, two items, two photos).
 `test/quote_detail_test.dart` covers the list chip, accept → locked, the
-409 path and decline with a note. Screenshots:
+accepted state (work order awaiting the car, amount due → paid), the 409
+path and decline with a note. Screenshots:
 `screenshots/quote-detail-{quoted,accepted}.png`.
 
 ## Structure

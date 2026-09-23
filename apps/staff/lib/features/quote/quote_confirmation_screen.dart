@@ -7,6 +7,7 @@ import '../../app/router.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/feedback.dart';
 import 'quote_actions.dart';
+import 'quote_widgets.dart';
 import 'raise_quote_controller.dart';
 
 /// Quote raised (1g style): confetti blob, ref in mono, total, "Sent to
@@ -169,6 +170,23 @@ class _QuoteConfirmationScreenState extends State<QuoteConfirmationScreen> {
                               ? '$firstName also got a push notification. They accept or decline in the app or on the public page — once.'
                               : 'Share the public link below or resend from the quote screen when ready.',
                         ),
+                        // Work order state: created the moment the customer
+                        // accepts, awaiting check-in until the car arrives.
+                        const SizedBox(height: 10),
+                        if (q.workOrder != null || quotePaymentLabel(q) != null)
+                          QuoteStateChips(
+                            quotation: q,
+                            alignment: WrapAlignment.center,
+                          )
+                        else if (!queued)
+                          Text(
+                            'Work order · created the moment $firstName accepts, then on the board awaiting check-in until the car arrives.',
+                            key: const ValueKey('quote-work-order-note'),
+                            textAlign: TextAlign.center,
+                            style: SparklingTypography.bodyMedium.copyWith(
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
                         if (o.failedUploads > 0) ...[
                           const SizedBox(height: 10),
                           InfoBanner(

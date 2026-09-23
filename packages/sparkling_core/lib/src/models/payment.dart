@@ -119,6 +119,7 @@ class Payment extends Equatable {
     this.provider = 'sandbox',
     this.providerRef,
     this.methodId,
+    this.method,
     this.currency = 'ZAR',
     this.receiptNo,
     this.idempotencyKey,
@@ -140,6 +141,9 @@ class Payment extends Equatable {
   final String provider;
   final String? providerRef;
   final String? methodId;
+
+  /// `cash` / `card_terminal` for counter payments (`POST /payments/record`).
+  final String? method;
   final int amountCents;
   final String currency;
   final PaymentStatus status;
@@ -170,6 +174,7 @@ class Payment extends Equatable {
     provider: str(json['provider'], 'sandbox'),
     providerRef: strOrNull(json['provider_ref']),
     methodId: strOrNull(json['method_id']),
+    method: strOrNull(json['method']),
     amountCents: intOf(json['amount_cents']),
     currency: str(json['currency'], 'ZAR'),
     status: PaymentStatus.fromDb(strOrNull(json['status'])),
@@ -192,6 +197,7 @@ class Payment extends Equatable {
     'provider': provider,
     'provider_ref': providerRef,
     'method_id': methodId,
+    'method': method,
     'amount_cents': amountCents,
     'currency': currency,
     'status': status.db,
@@ -221,6 +227,7 @@ class Payment extends Equatable {
     provider: provider,
     providerRef: providerRef,
     methodId: methodId,
+    method: method,
     amountCents: amountCents,
     currency: currency,
     status: status ?? this.status,

@@ -150,12 +150,14 @@ paymentsRouter.post(
 );
 
 const recordSchema = z.object({
-  booking_id: uuid,
+  booking_id: uuid.optional(),
+  /** Alternative target: an accepted quotation (auto-body job). */
+  quotation_id: uuid.optional(),
   method: z.enum(['cash', 'card_terminal']),
   reference: z.string().trim().max(64).nullable().optional(),
   amount_cents: z.number().int().min(0),
   idempotency_key: z.string().min(6).max(128),
-});
+}).refine((b) => !!b.booking_id !== !!b.quotation_id, { message: 'Provide exactly one of booking_id or quotation_id', path: ['booking_id'] });
 
 /** STF-012: staff-attested in-person payment (audited; no provider webhook). */
 paymentsRouter.post(
@@ -165,7 +167,8 @@ paymentsRouter.post(
   asyncHandler(async (req, res) => {
     const body = parseBody(recordSchema, req.body);
     const { payment, duplicate } = await recordPosPayment(req.ctx, {
-      bookingId: body.booking_id,
+      bookingId: body.booking_id ?? null,
+      quotationId: body.quotation_id ?? null,
       method: body.method,
       reference: body.reference ?? null,
       amountCents: body.amount_cents,

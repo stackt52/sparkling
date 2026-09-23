@@ -180,6 +180,9 @@ void main() {
         expect(find.text('Sent to Lindiwe on WhatsApp'), findsOneWidget);
         expect(find.byType(ConfettiBlob), findsOneWidget);
         expect(find.byKey(const ValueKey('quote-public-url')), findsOneWidget);
+        // The work-order note sits above the link card; bring the copy
+        // button into the viewport before tapping.
+        await scrollTo(tester, find.byKey(const ValueKey('quote-copy-link')));
         await tester.tap(find.byKey(const ValueKey('quote-copy-link')));
         await settle(tester);
         expect(find.text('Link copied'), findsOneWidget);
@@ -276,14 +279,18 @@ void main() {
       expect(find.byKey(const ValueKey('ops-raise-quote')), findsOneWidget);
       await scrollTo(tester, find.text('Quotes'), scrollable: page);
       expect(find.text('1 awaiting'), findsOneWidget);
-      // QT-0038 (Sipho) is accepted via the public link → convertible.
+      // QT-0039 (Zanele) is accepted via the public link: its work order
+      // WO-4819 exists already (awaiting check-in, unpaid).
       final accepted = find.byKey(
-        const ValueKey('ops-quote-20000000-0000-4000-8000-000000000003'),
+        ValueKey('ops-quote-${DemoStore.quotationAccepted}'),
       );
       await scrollTo(tester, accepted, scrollable: page);
       await tester.tap(accepted);
       await settle(tester, frames: 8);
-      expect(find.text('Accepted via link by Sipho Dlamini'), findsWidgets);
+      expect(find.text('Accepted via link by Zanele Mthembu'), findsWidgets);
+      final year = DateTime.now().year;
+      expect(find.text('WO-$year-4819 · awaiting check-in'), findsOneWidget);
+      expect(find.text('R 2 850.00 due'), findsOneWidget);
       // The public-link SelectableText carries its own Scrollable; target
       // the detail ListView.
       final detail = find
@@ -297,10 +304,23 @@ void main() {
         find.byKey(const ValueKey('quote-convert')),
         scrollable: detail,
       );
+      expect(find.text('Confirm check-in · WO-$year-4819'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('quote-convert')));
       await settle(tester, frames: 8);
       expect(find.textContaining('converted'), findsWidgets);
       expect(find.text('Converted'), findsOneWidget);
+      // Same work order, now checked in (auto-assigned in the demo).
+      final woDetail = await pumpUntil(
+        tester,
+        h.repos.staff.workOrder(DemoStore.woAwaitingCheckIn),
+      );
+      expect(woDetail.workOrder.isCheckedIn, isTrue);
+      expect(
+        (h.repos.staff as DemoStaffRepository).store.workOrders
+            .where((w) => w.quotationId == DemoStore.quotationAccepted),
+        hasLength(1),
+      );
+      expect(find.byKey(const ValueKey('quote-convert')), findsNothing);
       await flushIo(tester);
     });
   });

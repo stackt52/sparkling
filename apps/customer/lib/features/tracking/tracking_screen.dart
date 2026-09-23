@@ -181,8 +181,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
                           PickupOtpCard(booking: b),
                         ],
                         const SizedBox(height: 20),
-                        if (b.timeline.isEmpty)
+                        // A confirmed booking is on the board straight away
+                        // (work order awaiting check-in): the timeline only
+                        // starts once the car is checked in.
+                        if (b.timeline.isEmpty || b.isAwaitingCheckIn)
                           InfoBanner(
+                            key: const ValueKey('awaiting-checkin-banner'),
                             tone: InfoTone.info,
                             icon: Symbols.schedule_rounded,
                             title: b.status == BookingStatus.cancelled

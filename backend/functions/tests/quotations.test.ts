@@ -601,6 +601,13 @@ describe('public quote page', () => {
     expect(r.status).toBe(200);
     expect(r.body.quotation).toMatchObject({ status: 'accepted', decision_source: 'app', decision_by_name: 'naledi mokoena' });
     expect(r.body.quotation.public_token).toBeUndefined();
+    // Acceptance creates the work order (awaiting the car); the quotation stays `accepted` until check-in.
+    const wo = db.rows('work_orders').find((w) => w.quotation_id === q.id)!;
+    expect(wo).toMatchObject({ status: 'queued', service_id: SVC_BODY });
+    expect(wo.checked_in_at ?? null).toBeNull();
+    expect(r.body.quotation.work_order_ref).toBe(wo.ref);
+    expect(r.body.quotation.payment).toBeNull();
+    expect(r.body.quotation.amount_due_cents).toBe(r.body.quotation.amount_cents);
     const pub = await call(`/v1/public/quotations/${token}/decision`, null, { method: 'POST', body: JSON.stringify({ decision: 'accept' }) });
     expect(pub.status).toBe(409);
     expect(pub.body.error.details.status).toBe('accepted');
@@ -658,5 +665,33 @@ describe('POST /quotations/:id/quote (supervisor quoting a request) also issues 
     const pub = await call(`/v1/public/quotations/${token}/decision`, null, { method: 'POST', body: JSON.stringify({ decision: 'accept', accepted_by_name: 'N. Mokoena' }) });
     expect(pub.status).toBe(200);
     expect(pub.body.status).toBe('accepted');
+  });
+});
+
+describe('accepted quotation → cash payment → check-in', () => {
+  it('records a cash payment for an accepted quotation and converts it on check-in', async () => {
+    const q = await raise();
+    const acc = await call(`/v1/quotations/${q.id}/decision`, 'cust', { method: 'POST', body: JSON.stringify({ decision: 'accept' }) });
+    expect(acc.status).toBe(200);
+    const amount = acc.body.quotation.amount_cents as number;
+    const wrong = await call('/v1/payments/record', 'tech', { method: 'POST', body: JSON.stringify({ quotation_id: q.id, method: 'cash', amount_cents: amount + 1, idempotency_key: 'q-cash-wrong' }) });
+    expect(wrong.status).toBe(400);
+    const pay = await call('/v1/payments/record', 'tech', { method: 'POST', body: JSON.stringify({ quotation_id: q.id, method: 'cash', amount_cents: amount, idempotency_key: 'q-cash-0001' }) });
+    expect(pay.status).toBe(201);
+    expect(pay.body.payment).toMatchObject({ quotation_id: q.id, booking_id: null, method: 'cash', status: 'successful', amount_cents: amount });
+    expect(pay.body.payment.receipt_no).toMatch(/^RCP-/);
+    const twice = await call('/v1/payments/record', 'tech', { method: 'POST', body: JSON.stringify({ quotation_id: q.id, method: 'cash', amount_cents: amount, idempotency_key: 'q-cash-0002' }) });
+    expect(twice.status).toBe(409);
+    const both = await call('/v1/payments/record', 'tech', { method: 'POST', body: JSON.stringify({ quotation_id: q.id, booking_id: q.id, method: 'cash', amount_cents: amount, idempotency_key: 'q-cash-0003' }) });
+    expect(both.status).toBe(400);
+    const shown = await call(`/v1/quotations/${q.id}`, 'tech');
+    expect(shown.body.payment).toMatchObject({ receipt_no: pay.body.payment.receipt_no, amount_cents: amount, method: 'cash' });
+    expect(shown.body.amount_due_cents).toBe(0);
+
+    const wo = db.rows('work_orders').find((w) => w.quotation_id === q.id)!;
+    const checkin = await call(`/v1/work-orders/${wo.id}/checkin`, 'tech', { method: 'POST', body: JSON.stringify({ bay: 'Body 1' }) });
+    expect(checkin.status).toBe(201);
+    expect(dbQuote(q.id).status).toBe('converted');
+    expect(db.rows('work_orders').filter((w) => w.quotation_id === q.id)).toHaveLength(1);
   });
 });

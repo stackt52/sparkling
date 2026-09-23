@@ -16,7 +16,9 @@ import '../../widgets/feedback.dart';
 /// "Cash due · R x" with **Record cash payment** (`POST /payments/record`,
 /// method `cash`, full amount) and only then the OTP step; a 409
 /// `payment_due` from the verify (when the caller had no booking expansion)
-/// surfaces the same banner and button.
+/// surfaces the same banner and button. A **quotation** work order whose
+/// quote is still unpaid ([quotation] with `isPaymentDue`) starts with the
+/// same step as "Quote · R x due" (`POST /payments/record { quotation_id }`).
 ///
 /// Returns the [PickupVerifyResult] when the keys were released, otherwise
 /// `null` (dismissed).
@@ -27,6 +29,7 @@ Future<PickupVerifyResult?> showHandoverSheet(
   String? customerName,
   String? vehicleLabel,
   WorkOrderBooking? booking,
+  Quotation? quotation,
 }) {
   return showModalBottomSheet<PickupVerifyResult>(
     context: context,
@@ -39,8 +42,229 @@ Future<PickupVerifyResult?> showHandoverSheet(
       customerName: customerName,
       vehicleLabel: vehicleLabel,
       booking: booking,
+      quotation: quotation,
     ),
   );
+}
+
+/// `POST /payments/record { method: 'cash', amount_cents }` for the full
+/// booking total ([bookingId]) or the quoted total ([quotationId]).
+Future<Payment> recordCounterPayment(
+  BuildContext context, {
+  String? bookingId,
+  String? quotationId,
+  required int amountCents,
+  required String idempotencyKey,
+}) => context.repositories.staff.recordPayment(
+  RecordPaymentInput(
+    bookingId: quotationId == null ? bookingId : null,
+    quotationId: quotationId,
+    method: PaymentMethodKind.cash,
+    amountCents: amountCents,
+    idempotencyKey: idempotencyKey,
+  ),
+);
+
+/// Opens the counter-payment sheet for an accepted quotation (the same cash
+/// step as the hand-over sheet, targeting the quotation). Pops with the
+/// recorded [Payment], or `null` when dismissed / already paid elsewhere.
+Future<Payment?> showRecordCashSheet(
+  BuildContext context, {
+  required Quotation quotation,
+}) {
+  return showModalBottomSheet<Payment>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    showDragHandle: false,
+    builder: (ctx) => RecordCashSheet(quotation: quotation),
+  );
+}
+
+/// Bottom-sheet body of [showRecordCashSheet].
+class RecordCashSheet extends StatefulWidget {
+  const RecordCashSheet({super.key, required this.quotation});
+
+  final Quotation quotation;
+
+  @override
+  State<RecordCashSheet> createState() => _RecordCashSheetState();
+}
+
+class _RecordCashSheetState extends State<RecordCashSheet> {
+  bool _recording = false;
+
+  /// One idempotency key per sheet so a retried record never double-charges.
+  String? _opId;
+
+  Future<void> _record() async {
+    if (_recording) return;
+    final q = widget.quotation;
+    setState(() => _recording = true);
+    try {
+      final payment = await recordCounterPayment(
+        context,
+        quotationId: q.id,
+        amountCents: q.amountDueCents,
+        idempotencyKey: _opId ??= SparklingApi.newOpId(),
+      );
+      if (!mounted) return;
+      StaffHaptics.success(context);
+      Navigator.of(context).pop(payment);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.isConflict && e.message.toLowerCase().contains('already paid')) {
+        StaffSnack.show(context, '${q.ref} is already paid');
+        Navigator.of(context).pop(null);
+      } else {
+        StaffHaptics.error(context);
+        StaffSnack.error(context, e);
+      }
+    } catch (e) {
+      if (mounted) StaffSnack.error(context, e);
+    } finally {
+      if (mounted) setState(() => _recording = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final q = widget.quotation;
+    final subtitle = [
+      q.ref,
+      q.workOrderRef,
+      q.customerName,
+      q.vehicleLabel,
+    ].whereType<String>().where((s) => s.isNotEmpty).join('  ·  ');
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(child: DragHandle()),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Record payment',
+                          style: SparklingTypography.headlineSmall.copyWith(
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: SparklingTypography.mono(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.5,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconTileButton(
+                    icon: Symbols.close_rounded,
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(null),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              CashDueStep(
+                amountCents: q.amountDueCents,
+                quotation: true,
+                recording: _recording,
+                onRecord: _record,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The cash step shared by the hand-over sheet and [RecordCashSheet]:
+/// "Cash due · R x" (cash-on-collection booking) or "Quote · R x due"
+/// (accepted quotation) banner, the **Record cash payment** button and the
+/// audit note.
+class CashDueStep extends StatelessWidget {
+  const CashDueStep({
+    super.key,
+    required this.amountCents,
+    required this.onRecord,
+    this.quotation = false,
+    this.message,
+    this.recording = false,
+  });
+
+  final int amountCents;
+
+  /// The amount settles an accepted quotation rather than a booking.
+  final bool quotation;
+
+  /// Server message to show instead of the default explanation.
+  final String? message;
+  final bool recording;
+  final VoidCallback onRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = Money.formatZar(amountCents);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InfoBanner(
+          key: const ValueKey('handover-cash-due'),
+          tone: InfoTone.warning,
+          icon: Symbols.payments_rounded,
+          bordered: true,
+          title: quotation ? 'Quote · $amount due' : 'Cash due · $amount',
+          text:
+              message ??
+              (quotation
+                  ? 'This job was quoted at $amount and is settled at the '
+                        'counter. Take the cash and record it — a receipt is '
+                        'issued and the customer is notified.'
+                  : 'This booking is paid in cash at the counter. Take the '
+                        'cash and record it — the collection OTP is only '
+                        'accepted once the payment is on file.'),
+        ),
+        const SizedBox(height: 16),
+        PillButton(
+          key: const ValueKey('handover-record-cash'),
+          label: 'Record cash payment · $amount',
+          icon: Symbols.point_of_sale_rounded,
+          expand: true,
+          minHeight: 56,
+          loading: recording,
+          onPressed: recording ? null : onRecord,
+        ),
+        const SizedBox(height: 8),
+        const AuditNote(
+          icon: Symbols.receipt_long_rounded,
+          text:
+              'A receipt is issued and the customer is notified; the payment is recorded against your ID.',
+        ),
+      ],
+    );
+  }
 }
 
 /// Bottom-sheet body (public so the tablet detail pane and tests can host it).
@@ -52,6 +276,7 @@ class HandoverSheet extends StatefulWidget {
     this.customerName,
     this.vehicleLabel,
     this.booking,
+    this.quotation,
     this.resendCooldown = const Duration(seconds: 60),
   });
 
@@ -64,6 +289,10 @@ class HandoverSheet extends StatefulWidget {
   /// unpaid the sheet starts with the cash step.
   final WorkOrderBooking? booking;
 
+  /// Linked quotation (quotation work orders) — when the quote is still
+  /// unpaid the sheet starts with the cash step targeting the quotation.
+  final Quotation? quotation;
+
   /// Client-side cooldown before "Resend OTP" is offered again.
   final Duration resendCooldown;
 
@@ -73,8 +302,9 @@ class HandoverSheet extends StatefulWidget {
 
 enum _Phase { input, busy, released, locked }
 
-/// Cash still to be recorded before the OTP is accepted.
-typedef _CashDue = ({String? bookingId, int amountCents});
+/// Cash still to be recorded before the OTP is accepted — for the booking
+/// (cash on collection) or the quotation (auto-body job).
+typedef _CashDue = ({String? bookingId, String? quotationId, int amountCents});
 
 class _HandoverSheetState extends State<HandoverSheet> {
   final _controller = TextEditingController();
@@ -103,8 +333,15 @@ class _HandoverSheetState extends State<HandoverSheet> {
   void initState() {
     super.initState();
     final b = widget.booking;
+    final q = widget.quotation;
     if (b != null && b.isCashDue) {
-      _cashDue = (bookingId: b.id, amountCents: b.totalCents);
+      _cashDue = (bookingId: b.id, quotationId: null, amountCents: b.totalCents);
+    } else if (q != null && q.isPaymentDue) {
+      _cashDue = (
+        bookingId: null,
+        quotationId: q.id,
+        amountCents: q.amountDueCents,
+      );
     }
     _controller.addListener(() {
       if (_error != null) setState(() => _error = null);
@@ -159,6 +396,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
           _error = null;
           _cashDue = (
             bookingId: e.paymentDueBookingId ?? widget.booking?.id,
+            quotationId: null,
             amountCents:
                 e.paymentDueCents ?? widget.booking?.totalCents ?? 0,
           );
@@ -196,12 +434,12 @@ class _HandoverSheetState extends State<HandoverSheet> {
   String? _paymentDueMessage;
 
   /// `POST /payments/record { method: 'cash', amount_cents }` for the full
-  /// booking total, then on to the OTP step.
+  /// booking total (or the quoted total of a quotation work order), then on
+  /// to the OTP step.
   Future<void> _recordCash() async {
     final due = _cashDue;
     if (due == null || _recording) return;
-    final bookingId = due.bookingId;
-    if (bookingId == null) {
+    if (due.bookingId == null && due.quotationId == null) {
       StaffSnack.show(
         context,
         'Record the cash under Payments first, then verify the OTP.',
@@ -210,13 +448,12 @@ class _HandoverSheetState extends State<HandoverSheet> {
     }
     setState(() => _recording = true);
     try {
-      final payment = await context.repositories.staff.recordPayment(
-        RecordPaymentInput(
-          bookingId: bookingId,
-          method: PaymentMethodKind.cash,
-          amountCents: due.amountCents,
-          idempotencyKey: _cashOpId ??= SparklingApi.newOpId(),
-        ),
+      final payment = await recordCounterPayment(
+        context,
+        bookingId: due.bookingId,
+        quotationId: due.quotationId,
+        amountCents: due.amountCents,
+        idempotencyKey: _cashOpId ??= SparklingApi.newOpId(),
       );
       if (!mounted) return;
       StaffHaptics.success(context);
@@ -354,6 +591,22 @@ class _HandoverSheetState extends State<HandoverSheet> {
                             icon: Symbols.payments_rounded,
                             dense: true,
                           ),
+                        ] else if (widget.quotation case final q?
+                            when q.isPaymentDue || q.isPaid) ...[
+                          const SizedBox(height: 6),
+                          StatusChip(
+                            key: const ValueKey('handover-quote-chip'),
+                            label: q.isPaid
+                                ? 'Paid · ${q.payment!.receiptNo ?? 'receipt pending'}'
+                                : _cashDue == null
+                                ? 'Quote · paid'
+                                : 'Quote · ${Money.formatZar(q.amountDueCents)} due',
+                            tone: _cashDue == null
+                                ? StatusChipTone.success
+                                : StatusChipTone.warning,
+                            icon: Symbols.payments_rounded,
+                            dense: true,
+                          ),
                         ],
                       ],
                     ),
@@ -386,33 +639,12 @@ class _HandoverSheetState extends State<HandoverSheet> {
                   ),
                 )
               else if (_cashDue != null) ...[
-                InfoBanner(
-                  key: const ValueKey('handover-cash-due'),
-                  tone: InfoTone.warning,
-                  icon: Symbols.payments_rounded,
-                  bordered: true,
-                  title: 'Cash due · ${Money.formatZar(_cashDue!.amountCents)}',
-                  text:
-                      _paymentDueMessage ??
-                      'This booking is paid in cash at the counter. Take the '
-                          'cash and record it — the collection OTP is only '
-                          'accepted once the payment is on file.',
-                ),
-                const SizedBox(height: 16),
-                PillButton(
-                  key: const ValueKey('handover-record-cash'),
-                  label:
-                      'Record cash payment · ${Money.formatZar(_cashDue!.amountCents)}',
-                  icon: Symbols.point_of_sale_rounded,
-                  expand: true,
-                  minHeight: 56,
-                  loading: _recording,
-                  onPressed: _recording ? null : _recordCash,
-                ),
-                const SizedBox(height: 8),
-                const AuditNote(
-                  icon: Symbols.receipt_long_rounded,
-                  text: 'A receipt is issued and the customer is notified; the payment is recorded against your ID.',
+                CashDueStep(
+                  amountCents: _cashDue!.amountCents,
+                  quotation: _cashDue!.quotationId != null,
+                  message: _paymentDueMessage,
+                  recording: _recording,
+                  onRecord: _recordCash,
                 ),
               ] else ...[
                 if (_cashRecorded != null) ...[

@@ -50,8 +50,14 @@ function WoCard({ w, onOpen, now }: { w: WorkOrder; onOpen: () => void; now: num
         <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} sx={{ height: 22, fontSize: 11 }} />
       </Box>
       <Typography variant="h5">{w.service.name}</Typography>
+      {/* Both booking- and quote-based orders start awaiting check-in; the chip clears once the car is confirmed on site. */}
       {!w.checked_in_at && <AwaitingCheckinChip />}
       <Typography variant="body2" color="text.secondary"><span className="mono">{w.vehicle.registration_no}</span>{w.bay ? ` · ${w.bay}` : ''} · {w.customer_name.split(' ')[0]}</Typography>
+      {(w.booking_ref || w.quotation_ref) && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }} data-testid="wo-source-ref">
+          {w.booking_ref ? 'Booking ' : 'Quote '}<span className="mono">{w.booking_ref ?? w.quotation_ref}</span>
+        </Typography>
+      )}
       {w.step_count > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <LevelBar value={w.steps_done} max={w.step_count} tone={w.status === 'blocked' ? 'error' : 'primary'} height={6} label={`${w.steps_done} of ${w.step_count} steps`} />
@@ -111,8 +117,13 @@ function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['work-orders'] });
       void qc.invalidateQueries({ queryKey: ['bookings'] });
+      void qc.invalidateQueries({ queryKey: ['booking'] });
+      // A quote-based order's check-in marks its quotation `converted`.
+      void qc.invalidateQueries({ queryKey: ['quotations'] });
+      void qc.invalidateQueries({ queryKey: ['quotation'] });
       onClose();
-      onDone(res.assignee_name && !w.assignee_name ? `Checked in · auto-assigned to ${res.assignee_name}` : 'Checked in');
+      const converted = w.quotation_ref ? ` · ${w.quotation_ref} converted` : '';
+      onDone(res.assignee_name && !w.assignee_name ? `Checked in · auto-assigned to ${res.assignee_name}${converted}` : `Checked in${converted}`);
     },
     onError: (e) => toast.error(e),
   });

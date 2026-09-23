@@ -640,13 +640,19 @@ export async function assignTask(ctx: RequestContext, taskId: string, assigneeId
 // Quotation → work order (CUS-034)
 // ---------------------------------------------------------------------------
 
-export async function convertQuotation(ctx: RequestContext, quotation: Quotation): Promise<{ quotation: Quotation; work_order: WorkOrder; task: Task }> {
+/**
+ * Creates the work order for an accepted quotation. On acceptance (`markConverted: false`) the quotation stays
+ * `accepted` and the work order waits for the car (check-in); the manual convert / check-in path marks it `converted`.
+ */
+export async function convertQuotation(ctx: RequestContext, quotation: Quotation, opts: { markConverted?: boolean; checkedIn?: boolean } = { markConverted: true, checkedIn: true }): Promise<{ quotation: Quotation; work_order: WorkOrder; task: Task }> {
   const db = getSupabase();
   const services = unwrap<Service[]>(await db.from('services').select('*').eq('category', 'auto_body').eq('is_active', true).order('sort_order'), 'services');
-  const byCategory = services.find((s) => s.code.toLowerCase() === quotation.category.toLowerCase() || s.name.toLowerCase().startsWith(quotation.category.toLowerCase()));
+  const category = (quotation.category ?? '').toLowerCase();
+  const byCategory = category ? services.find((s) => (s.code ?? '').toLowerCase() === category || (s.name ?? '').toLowerCase().startsWith(category)) : undefined;
   const service = byCategory ?? services[0];
   if (!service) throw ApiError.conflict('No auto-body service configured to convert this quotation');
   const created = await createWorkOrderWithTask(ctx, {
+    checkedIn: !!opts.checkedIn,
     outletId: quotation.outlet_id,
     quotationId: quotation.id,
     vehicleId: quotation.vehicle_id,
@@ -654,11 +660,20 @@ export async function convertQuotation(ctx: RequestContext, quotation: Quotation
     service,
     priority: 2,
     title: `${quotation.category} repair · ${quotation.ref}`,
-    etaAt: new Date(Date.now() + service.duration_minutes * 60_000).toISOString(),
+    etaAt: new Date(Date.now() + (service.duration_minutes ?? 240) * 60_000).toISOString(),
   });
-  const updated = unwrap<Quotation>(await db.from('quotations').update({ status: 'converted' }).eq('id', quotation.id).select('*').single(), 'quotation');
-  await audit(ctx, { action: 'quotation.convert', entity_type: 'quotation', entity_id: quotation.id, outlet_id: quotation.outlet_id, after: { work_order_id: created.work_order.id } });
-  return { quotation: updated, work_order: created.work_order, task: created.task };
+  let workOrder = created.work_order;
+  let task = created.task;
+  if (opts.checkedIn && !created.created && !workOrder.checked_in_at) {
+    const checked = await checkInWorkOrder(ctx, workOrder.id);
+    workOrder = checked.work_order;
+    task = checked.task ?? task;
+  }
+  const updated = opts.markConverted
+    ? unwrap<Quotation>(await db.from('quotations').update({ status: 'converted' }).eq('id', quotation.id).select('*').single(), 'quotation')
+    : quotation;
+  await audit(ctx, { action: created.created ? 'quotation.work_order_created' : 'quotation.convert', entity_type: 'quotation', entity_id: quotation.id, outlet_id: quotation.outlet_id, after: { work_order_id: workOrder.id, status: updated.status, checked_in: !!workOrder.checked_in_at } });
+  return { quotation: updated, work_order: workOrder, task };
 }
 
 /**
@@ -677,6 +692,7 @@ export async function checkInWorkOrder(ctx: RequestContext, workOrderId: string,
   const patch: Record<string, unknown> = { checked_in_at: now, checked_in_by: ctx.auth.uid };
   if (opts.bay !== undefined) patch.bay = opts.bay;
   let updated = unwrap<WorkOrder>(await db.from('work_orders').update(patch).eq('id', wo.id).select('*').single(), 'check in');
+  if (wo.quotation_id) await db.from('quotations').update({ status: 'converted' }).eq('id', wo.quotation_id).eq('status', 'accepted');
   await db.from('task_events').insert({ task_id: task?.id ?? null, work_order_id: wo.id, actor_id: ctx.auth.uid, event: 'checked_in', from_status: wo.status, to_status: wo.status, metadata: { bay: opts.bay ?? wo.bay ?? null } });
   await audit(ctx, { action: 'work_order.check_in', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { checked_in_at: now, bay: opts.bay ?? wo.bay ?? null } });
   let outTask = task;

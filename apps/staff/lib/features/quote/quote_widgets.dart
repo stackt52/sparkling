@@ -17,6 +17,76 @@ StatusChipTone quotationTone(QuotationStatus status) => switch (status) {
   QuotationStatus.requested => StatusChipTone.neutral,
 };
 
+/// "WO-2026-4819 · awaiting check-in" while the accepted quote's work order
+/// waits for the car, "WO-2026-4819 · checked in" once it is on site (then
+/// the work status). Null before acceptance.
+String? quoteWorkOrderLabel(Quotation q) {
+  final wo = q.workOrder;
+  final ref = wo?.ref ?? q.workOrderRef;
+  if (ref == null) return null;
+  if (wo == null) return ref;
+  if (wo.awaitingCheckIn) return '$ref · awaiting check-in';
+  if (wo.status == WorkStatus.queued || wo.status == WorkStatus.assigned) {
+    return '$ref · checked in';
+  }
+  return '$ref · ${wo.status.label.toLowerCase()}';
+}
+
+/// "Paid · RCP-70007" once the counter payment is recorded, "R 2 850.00 due"
+/// while an accepted / converted quote is unpaid. Null before acceptance.
+String? quotePaymentLabel(Quotation q) {
+  if (q.isPaid) return 'Paid · ${q.payment!.receiptNo ?? 'receipt pending'}';
+  if (q.isPaymentDue) return '${Money.formatZar(q.amountDueCents)} due';
+  return null;
+}
+
+/// Work-order + payment state chips of an accepted quotation (confirmation
+/// screen, quote detail): amber while awaiting check-in / unpaid, green once
+/// checked in / paid. Renders nothing before acceptance.
+class QuoteStateChips extends StatelessWidget {
+  const QuoteStateChips({
+    super.key,
+    required this.quotation,
+    this.alignment = WrapAlignment.start,
+  });
+
+  final Quotation quotation;
+  final WrapAlignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = quotation;
+    final workOrder = quoteWorkOrderLabel(q);
+    final payment = quotePaymentLabel(q);
+    if (workOrder == null && payment == null) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      alignment: alignment,
+      children: [
+        if (workOrder != null)
+          StatusChip(
+            key: const ValueKey('quote-work-order-chip'),
+            label: workOrder,
+            tone: q.workOrder?.awaitingCheckIn ?? true
+                ? StatusChipTone.warning
+                : StatusChipTone.success,
+            icon: Symbols.build_rounded,
+            dense: true,
+          ),
+        if (payment != null)
+          StatusChip(
+            key: const ValueKey('quote-payment-chip'),
+            label: payment,
+            tone: q.isPaid ? StatusChipTone.success : StatusChipTone.warning,
+            icon: Symbols.payments_rounded,
+            dense: true,
+          ),
+      ],
+    );
+  }
+}
+
 /// Glyph for an attention category.
 IconData categoryIcon(String? category) => switch (category) {
   'Dent' => Symbols.compress_rounded,

@@ -589,11 +589,15 @@ void main() {
     });
 
     test('check-in creates a work order and task; quotation convert', () async {
-      // Customer accepts the quoted QT-0041 first.
-      await repos.customer.decideQuotation(
+      // Customer accepts the quoted QT-0041 first → its work order is on the
+      // board at once (WO-4825), awaiting check-in; the quote stays accepted.
+      final accepted = await repos.customer.decideQuotation(
         DemoStore.quotationQuoted,
         accept: true,
       );
+      expect(accepted.status, QuotationStatus.accepted);
+      expect(accepted.workOrder?.ref, 'WO-${DateTime.now().year}-4825');
+      expect(accepted.workOrder?.isCheckedIn, isFalse);
       await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
       await Future<void>.delayed(const Duration(milliseconds: 5));
       final upcoming = (await repos.staff.outletBookings(
@@ -606,19 +610,20 @@ void main() {
         priority: 2,
       );
       expect(checked.status, BookingStatus.inService);
-      expect(checked.workOrder?.ref, 'WO-${DateTime.now().year}-4825');
+      expect(checked.workOrder?.ref, 'WO-${DateTime.now().year}-4826');
       expect(checked.workOrder?.bay, 'Bay 4');
-      expect(checked.timeline.first.state, TimelineEntryState.pending);
+      // "Checked in" keys off checked_in_at, stamped by the booking check-in.
+      expect(checked.workOrder?.isCheckedIn, isTrue);
+      expect(checked.timeline.first.key, 'checked_in');
+      expect(checked.timeline.first.state, TimelineEntryState.done);
 
-      final accepted = store.quotations.firstWhere(
-        (q) =>
-            q.status == QuotationStatus.accepted &&
-            !store.workOrders.any((w) => w.quotationId == q.id),
-      );
-      expect(accepted.ref, 'QT-${DateTime.now().year}-0041');
+      // Manual convert confirms the check-in on the same work order.
+      final before = store.workOrders.length;
       final converted = await repos.staff.convertQuotation(accepted.id);
       expect(converted.status, QuotationStatus.converted);
-      expect(store.workOrders.last.quotationId, accepted.id);
+      expect(converted.workOrder?.id, accepted.workOrder?.id);
+      expect(converted.workOrder?.isCheckedIn, isTrue);
+      expect(store.workOrders.length, before);
     });
   });
 

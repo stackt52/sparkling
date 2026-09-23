@@ -351,7 +351,11 @@ void main() {
         ),
       );
       expect(b.status, BookingStatus.confirmed);
-      expect(b.workOrder, isNull);
+      // On the board at once, awaiting check-in (no car on site yet).
+      expect(b.workOrder, isNotNull);
+      expect(b.workOrder!.isCheckedIn, isFalse);
+      expect(b.workOrder!.awaitingCheckIn, isTrue);
+      expect(b.isAwaitingCheckIn, isTrue);
       expect(b.slotStart, slot);
       expect(b.discountCents, 0);
       expect(b.discountLabel, isNull);

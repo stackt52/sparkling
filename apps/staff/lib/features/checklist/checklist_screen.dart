@@ -53,6 +53,12 @@ class _ChecklistViewState extends State<ChecklistView> {
   Object? _error;
   bool _busy = false;
 
+  /// Quotation work orders: the quote carries the amount due / payment
+  /// (`GET /quotations/:id` → `payment`, `amount_due_cents`).
+  StreamSubscription<List<Quotation>>? _quoteSub;
+  Quotation? _quote;
+  String? _quoteId;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -71,6 +77,7 @@ class _ChecklistViewState extends State<ChecklistView> {
               _error = null;
             });
             context.syncStatus.markSynced();
+            _watchQuote(d.workOrder);
           },
           onError: (Object e) {
             if (mounted) setState(() => _error = e);
@@ -78,11 +85,53 @@ class _ChecklistViewState extends State<ChecklistView> {
         );
   }
 
-  void _refresh() => setState(() => _sub = _subscribe());
+  void _refresh() => setState(() {
+    _quoteId = null;
+    _sub = _subscribe();
+  });
+
+  void _watchQuote(WorkOrder wo) {
+    final id = wo.quotationId;
+    if (id == null || _quoteId == id) return;
+    _quoteId = id;
+    _quoteSub?.cancel();
+    final staff = context.repositories.staff;
+    staff.quotation(id).then((q) {
+      if (mounted && q.id == _quoteId) setState(() => _quote = q);
+    }, onError: (Object _) {});
+    _quoteSub = staff
+        .watchQuotations(outletId: wo.outletId)
+        .listen((list) {
+          final q = list.where((q) => q.id == id).firstOrNull;
+          if (q != null && mounted) setState(() => _quote = q);
+        }, onError: (Object _) {});
+  }
+
+  /// Counter payment for the quotation behind this work order (same cash
+  /// step as the hand-over sheet), then the quote shows "Paid · RCP-…".
+  Future<void> _recordQuotePayment() async {
+    final quote = _quote;
+    if (quote == null) return;
+    final staff = context.repositories.staff;
+    final payment = await showRecordCashSheet(context, quotation: quote);
+    if (payment == null || !mounted) return;
+    StaffSnack.show(
+      context,
+      '${Money.formatZar(payment.amountCents)} recorded for ${quote.ref}'
+      '${payment.receiptNo == null ? '' : ' · ${payment.receiptNo}'}',
+    );
+    try {
+      final fresh = await staff.quotation(quote.id);
+      if (mounted) setState(() => _quote = fresh);
+    } catch (_) {
+      // The quotations stream refreshes the chip when it emits.
+    }
+  }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _quoteSub?.cancel();
     super.dispose();
   }
 
@@ -183,6 +232,7 @@ class _ChecklistViewState extends State<ChecklistView> {
       customerName: wo.customerName ?? card?.customerName,
       vehicleLabel: wo.vehicleRegistration ?? card?.vehicle?.registrationNo,
       booking: wo.booking ?? card?.booking,
+      quotation: _quote,
     );
     if (result != null && mounted) {
       StaffSnack.show(context, '${wo.ref}: keys released');
@@ -351,6 +401,23 @@ class _ChecklistViewState extends State<ChecklistView> {
                       dense: true,
                     ),
                   ],
+                  // Quotation work order: the quoted total is settled at the
+                  // counter — "Quote · R x due" until recorded.
+                  if (_quote case final quote?
+                      when quote.isPaymentDue || quote.isPaid) ...[
+                    const SizedBox(height: 6),
+                    StatusChip(
+                      key: const ValueKey('quote-payment-chip'),
+                      label: quote.isPaid
+                          ? 'Paid · ${quote.payment!.receiptNo ?? 'receipt pending'}'
+                          : 'Quote · ${Money.formatZar(quote.amountDueCents)} due',
+                      tone: quote.isPaid
+                          ? StatusChipTone.success
+                          : StatusChipTone.warning,
+                      icon: Symbols.payments_rounded,
+                      dense: true,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -435,6 +502,8 @@ class _ChecklistViewState extends State<ChecklistView> {
                     ? wo.booking!.totalCents
                     : (card?.isCashDue ?? false)
                     ? card!.booking!.totalCents
+                    : (_quote?.isPaymentDue ?? false)
+                    ? _quote!.amountDueCents
                     : null,
                 busy: _busy,
                 onHandover: () => _handover(detail),
@@ -458,6 +527,20 @@ class _ChecklistViewState extends State<ChecklistView> {
           ),
         );
       }
+    }
+
+    // Accepted-quote job still to be settled at the counter.
+    if (_quote case final quote? when quote.isPaymentDue) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: _QuotePaymentCard(
+            quotation: quote,
+            busy: _busy,
+            onRecord: _recordQuotePayment,
+          ),
+        ),
+      );
     }
 
     for (final step in steps) {
@@ -533,6 +616,70 @@ class _ChecklistViewState extends State<ChecklistView> {
     );
 
     return ListView(padding: EdgeInsets.zero, children: children);
+  }
+}
+
+/// "Quote · R x due" on a quotation work order with **Record cash payment**
+/// (the hand-over sheet's cash step, targeting the quotation).
+class _QuotePaymentCard extends StatelessWidget {
+  const _QuotePaymentCard({
+    required this.quotation,
+    required this.onRecord,
+    this.busy = false,
+  });
+
+  final Quotation quotation;
+  final VoidCallback onRecord;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.colors;
+    final x = context.sparkling;
+    final q = quotation;
+    return ListTileCard(
+      key: const ValueKey('quote-payment-card'),
+      borderColor: x.onWarningContainer.withValues(alpha: 0.45),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Symbols.payments_rounded, color: x.onWarningContainer, fill: 1),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Quote · ${Money.formatZar(q.amountDueCents)} due',
+                  style: SparklingTypography.titleLarge.copyWith(
+                    fontSize: 17,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${q.ref} is settled at the counter — record the cash before the keys are released. A receipt is issued and the customer notified.',
+            style: SparklingTypography.bodyMedium.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          PillButton(
+            key: const ValueKey('quote-record-cash'),
+            label: 'Record cash payment',
+            icon: Symbols.point_of_sale_rounded,
+            variant: PillButtonVariant.tonal,
+            expand: true,
+            minHeight: 52,
+            onPressed: busy ? null : onRecord,
+          ),
+        ],
+      ),
+    );
   }
 }
 

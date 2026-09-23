@@ -169,6 +169,54 @@ void main() {
     await flushIo(tester);
   });
 
+  testWidgets('accepted quote: booked in awaiting the car, amount due → paid', (
+    tester,
+  ) async {
+    final q = raiseAsStaff();
+    // Accepted (in app) → the work order exists at once, awaiting the car.
+    final accepted = store.decideQuotation(q.id, accept: true);
+    expect(accepted.status, QuotationStatus.accepted);
+    expect(accepted.workOrder?.awaitingCheckIn, isTrue);
+    await pumpScreen(tester, repos, QuoteDetailScreen(quotationId: q.id));
+    await settle(tester);
+    expect(find.byKey(const ValueKey('quote-decided-banner')), findsOneWidget);
+    expect(find.textContaining('Booked in as WO-'), findsOneWidget);
+    await scrollTo(tester, find.byKey(const ValueKey('quote-work-order')));
+    expect(
+      find.text('Booked in · ${accepted.workOrder!.ref} awaiting your car'),
+      findsOneWidget,
+    );
+    await scrollTo(tester, find.byKey(const ValueKey('quote-payment')));
+    expect(find.text('R 1 500.00 due at the counter'), findsOneWidget);
+    expect(find.textContaining('Paid ·'), findsNothing);
+    await flushIo(tester);
+
+    // Staff record the cash at the counter → "Paid · cash · RCP-…".
+    store.signInAs(DemoPersonas.technician);
+    final payment = store.recordPayment(
+      RecordPaymentInput(
+        quotationId: q.id,
+        method: PaymentMethodKind.cash,
+        amountCents: 150000,
+        idempotencyKey: SparklingApi.newOpId(),
+      ),
+    );
+    store.signInAs(DemoPersonas.customer);
+    // A fresh screen (new key → new state) reloads the quote.
+    await pumpScreen(
+      tester,
+      repos,
+      QuoteDetailScreen(key: const ValueKey('paid'), quotationId: q.id),
+    );
+    await settle(tester);
+    await scrollTo(tester, find.byKey(const ValueKey('quote-payment')));
+    expect(find.text('Paid · cash · ${payment.receiptNo}'), findsOneWidget);
+    expect(find.textContaining('due at the counter'), findsNothing);
+    // Still "Accepted" — the check-in is what converts it.
+    expect(find.text('Accepted'), findsOneWidget);
+    await flushIo(tester);
+  });
+
   testWidgets('decline asks for an optional note', (tester) async {
     final q = raiseAsStaff();
     await pumpScreen(tester, repos, QuoteDetailScreen(quotationId: q.id));

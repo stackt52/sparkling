@@ -167,9 +167,10 @@ abstract interface class StaffRepository {
   });
 
   /// Confirms the vehicle for [workOrderId] is on site (`POST
-  /// /work-orders/:id/checkin`), which unlocks assignment; work orders
-  /// converted from quotations start unchecked. Idempotent (`already`).
-  /// Never queued offline.
+  /// /work-orders/:id/checkin`), which unlocks assignment. Every confirmed
+  /// booking and every accepted quotation has its work order at once,
+  /// awaiting check-in; checking a quotation work order in also marks the
+  /// quotation `converted`. Idempotent (`already`). Never queued offline.
   Future<WorkOrderCheckInResult> checkInWorkOrder(
     String workOrderId, {
     String? bay,
@@ -214,8 +215,10 @@ abstract interface class StaffRepository {
   /// returned. Throws `conflict` when no bay is free.
   Future<Booking> createWalkInBooking(WalkInBookingInput input);
 
-  /// Records a cash / card-terminal payment. Queued offline like
-  /// [createWalkInBooking]; the receipt number arrives on sync.
+  /// Records a cash / card-terminal payment for a booking (`booking_id`) or
+  /// an accepted quotation (`quotation_id`, amount = the quoted total).
+  /// Queued offline like [createWalkInBooking]; the receipt number arrives
+  /// on sync.
   Future<Payment> recordPayment(RecordPaymentInput input);
 
   // ---- Memberships at the counter (docs/MEMBERSHIPS.md) ---------------------

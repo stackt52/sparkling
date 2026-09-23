@@ -39,7 +39,7 @@ async function presentedQuotation(id: string, auth: NonNullable<Request['auth']>
   const [row, attachments, workOrder] = await Promise.all([
     db.from('quotations').select(EXPAND).eq('id', id).maybeSingle(),
     loadQuotationAttachments([id]),
-    db.from('work_orders').select('id, ref, status').eq('quotation_id', id).maybeSingle(),
+    db.from('work_orders').select('id, ref, status, checked_in_at').eq('quotation_id', id).maybeSingle(),
   ]);
   const q = unwrap<(Quotation & Record<string, unknown>) | null>(row, 'quotation');
   if (!q) throw ApiError.notFound('Quotation');
@@ -47,7 +47,12 @@ async function presentedQuotation(id: string, auth: NonNullable<Request['auth']>
   if (!q.customer && q.customer_id) q.customer = unwrap<{ id: string; full_name: string } | null>(await db.from('profiles').select('id, full_name, phone, email').eq('id', q.customer_id).maybeSingle(), 'customer');
   if (!q.assessor && q.assessor_id) q.assessor = unwrap<{ id: string; full_name: string } | null>(await db.from('profiles').select('id, full_name').eq('id', q.assessor_id).maybeSingle(), 'assessor');
   const wo = unwrap<{ id: string; ref: string; status: string } | null>(workOrder, 'work order');
-  return { ...presentQuotation(q, attachments, auth), work_order: wo, work_order_ref: wo?.ref ?? null };
+  const paid = unwrap<Array<{ id: string; receipt_no: string | null; amount_cents: number; method: string | null; verified_at: string | null }>>(
+    await db.from('payments').select('id, receipt_no, amount_cents, method, verified_at').eq('quotation_id', id).eq('status', 'successful'),
+    'payments',
+  );
+  const payment = paid[0] ?? null;
+  return { ...presentQuotation(q, attachments, auth), work_order: wo, work_order_ref: wo?.ref ?? null, payment, amount_due_cents: payment ? 0 : (q.amount_cents ?? 0) };
 }
 
 quotationsRouter.get(

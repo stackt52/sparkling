@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import * as React from 'react';
 import Box from '@mui/material/Box';
@@ -26,13 +27,14 @@ import QuotationPhotoGrid from '@/components/quotations/QuotationPhotoGrid';
 import PublicLinkRow from '@/components/quotations/PublicLinkRow';
 import DownloadPdfButton from '@/components/quotations/DownloadPdfButton';
 import RaiseQuoteDialog from '@/components/quotations/RaiseQuoteDialog';
+import RecordPaymentDialog, { POS_METHOD_LABEL, type RecordPaymentTarget } from '@/components/payments/RecordPaymentDialog';
 import { categoryMeta } from '@/components/quotations/quoteCategories';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { useFilters } from '@/lib/filters';
 import { useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
 import { fonts, tk } from '@/theme/tokens';
-import { fmtDate, fmtDateTime, rands, statusLabel } from '@/lib/format';
+import { fmtDate, fmtDateTime, fmtTime, rands, statusLabel } from '@/lib/format';
 import type { QuoteLineItem, Quotation, QuotationAttachment, QuotationStatus } from '@/lib/types';
 
 const STATUSES: (QuotationStatus | 'all')[] = ['all', 'requested', 'assessing', 'quoted', 'accepted', 'declined', 'expired', 'converted'];
@@ -44,7 +46,17 @@ const columns: GridColDef<Quotation>[] = [
   { field: 'category', headerName: 'Category', minWidth: 110, flex: 0.8 },
   { field: 'outlet', headerName: 'Outlet', minWidth: 140, flex: 1, valueGetter: (_v, r) => r.outlet.name.replace('Sparkling ', '') },
   { field: 'created_at', headerName: 'Requested', minWidth: 120, flex: 0.9, renderCell: (p) => fmtDateTime(p.row.created_at) },
-  { field: 'status', headerName: 'Status', minWidth: 130, flex: 0.9, renderCell: (p) => <StatusChip status={p.row.status} /> },
+  {
+    field: 'status', headerName: 'Status', minWidth: 150, flex: 1,
+    renderCell: (p) => (
+      <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 0.25, minWidth: 0 }}>
+        <StatusChip status={p.row.status} />
+        {/* Accepted quotes carry their work order at once: "Awaiting check-in" until the car is on site; "Paid" once the counter payment is recorded. */}
+        {p.row.work_order && !p.row.work_order.checked_in_at && <StatusChip tone="warning" label="Awaiting check-in" icon={<MSymbol name="garage" filled size={14} />} sx={{ height: 20, fontSize: 11, '& .MuiChip-icon': { color: 'inherit', ml: '6px' } }} data-testid="quote-awaiting-checkin" />}
+        {p.row.payment && <StatusChip tone="success" label={`Paid · ${p.row.payment.method === 'card_terminal' ? 'card' : 'cash'}`} icon={<MSymbol name="payments" filled size={14} />} sx={{ height: 20, fontSize: 11, '& .MuiChip-icon': { color: 'inherit', ml: '6px' } }} data-testid="quote-paid-chip" />}
+      </Box>
+    ),
+  },
   { field: 'amount_cents', headerName: 'Amount', minWidth: 110, flex: 0.8, align: 'right', headerAlign: 'right', renderCell: (p) => <b>{p.row.amount_cents != null ? rands(p.row.amount_cents) : '—'}</b> },
 ];
 
@@ -138,9 +150,16 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const toast = useToast();
   const onToast: ToastFn = (kind, message) => (kind === 'error' ? toast.error(message) : kind === 'info' ? toast.info(String(message)) : toast.success(String(message)));
   const q = useQuery({ queryKey: ['quotation', id], queryFn: () => api.getQuotation(id!), enabled: Boolean(id) });
+  const [payTarget, setPayTarget] = React.useState<RecordPaymentTarget | null>(null);
+  // "Check in & start" (`POST /quotations/:id/convert`): the work order exists since acceptance — this confirms the car on site and marks the quote converted.
   const convert = useMutation({
     mutationFn: () => api.convertQuotation(id!),
-    onSuccess: (res) => { toast.success(`Converted to ${res.work_order_ref}`); void qc.invalidateQueries({ queryKey: ['quotations'] }); void qc.invalidateQueries({ queryKey: ['quotation', id] }); },
+    onSuccess: (res) => {
+      toast.success(`Checked in · ${res.work_order_ref ?? 'work order'} started · ${res.ref} converted`);
+      void qc.invalidateQueries({ queryKey: ['quotations'] });
+      void qc.invalidateQueries({ queryKey: ['quotation', id] });
+      void qc.invalidateQueries({ queryKey: ['work-orders'] });
+    },
     onError: (e) => toast.error(e),
   });
   const d = q.data;
@@ -148,6 +167,12 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const items = d ? (d.items ?? d.line_items) : [];
   const quoted = d ? ['quoted', 'accepted', 'declined', 'expired', 'converted'].includes(d.status) : false;
   const decision = d ? decisionLine(d) : null;
+  const accepted = d ? ['accepted', 'converted'].includes(d.status) : false;
+  const workOrder = d?.work_order ?? (d?.work_order_ref ? { id: d.work_order_ref, ref: d.work_order_ref, status: 'queued' as const, checked_in_at: d.status === 'converted' ? d.decided_at : null } : null);
+  const amountDue = d ? (d.amount_due_cents ?? (d.payment ? 0 : d.amount_cents ?? 0)) : 0;
+  // The Convert action now only confirms the car: hidden once the work order is checked in (the check-in already converted the quote).
+  const canCheckin = Boolean(d) && d!.status === 'accepted' && can(role, 'quote:convert') && !workOrder?.checked_in_at;
+  const canRecordPayment = Boolean(d) && accepted && can(role, 'payment:record') && amountDue > 0;
   return (
     <DetailDrawer
       open={Boolean(id)}
@@ -165,9 +190,14 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
       footer={d && (
         <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
           {quoted && <DownloadPdfButton q={d} onToast={onToast} />}
-          {d.status === 'accepted' && can(role, 'quote:convert') && (
-            <Button variant="contained" color="secondary" sx={{ flex: 1 }} onClick={() => convert.mutate()} disabled={convert.isPending} startIcon={<MSymbol name="build" size={20} />}>
-              Convert to work order
+          {canRecordPayment && (
+            <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" sx={{ flex: 1 }} onClick={() => setPayTarget({ kind: 'quotation', id: d.id, ref: d.ref, amount_cents: amountDue, customer_name: d.customer_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="quote-record-payment">
+              Record payment · {rands(amountDue)}
+            </Button>
+          )}
+          {canCheckin && (
+            <Button variant="contained" color="secondary" sx={{ flex: 1 }} onClick={() => convert.mutate()} disabled={convert.isPending} startIcon={<MSymbol name="login" size={20} />} data-testid="quote-checkin-start">
+              Check in &amp; start
             </Button>
           )}
         </Box>
@@ -187,6 +217,34 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
               <Box>
                 <Typography sx={{ fontWeight: 600, color: 'inherit' }}>{decision}</Typography>
                 {d.decision_note && <Typography variant="body2" sx={{ color: 'inherit', opacity: 0.9 }}>“{d.decision_note}”</Typography>}
+              </Box>
+            </Tile>
+          )}
+
+          {accepted && (
+            <Tile sx={{ mt: 1.5, gap: 1.25, alignItems: 'center' }} data-testid="quote-work-order">
+              <MSymbol name={workOrder?.checked_in_at ? 'build' : 'garage'} filled size={22} style={{ color: workOrder?.checked_in_at ? tk.primary : tk.onWarningContainer }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 600 }}>
+                  {workOrder ? <>Work order <span className="mono">{workOrder.ref}</span> · {workOrder.checked_in_at ? `checked in ${fmtTime(workOrder.checked_in_at)}` : 'awaiting check-in'}</> : 'Work order pending'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {workOrder?.checked_in_at ? `${statusLabel(workOrder.status)} · the quotation is converted` : 'Opened on acceptance — confirm the car on site to start the job; the quotation becomes converted then.'}
+                </Typography>
+              </Box>
+              {workOrder && <Button component={Link} href={`/work-orders?focus=${encodeURIComponent(workOrder.id)}`} size="small" variant="text" endIcon={<MSymbol name="arrow_forward" size={18} />} sx={{ whiteSpace: 'nowrap' }}>Work</Button>}
+            </Tile>
+          )}
+          {accepted && (
+            <Tile tone={d.payment ? 'success' : 'default'} sx={{ mt: 1.5, gap: 1.25, alignItems: 'center' }} data-testid="quote-payment">
+              <MSymbol name={d.payment ? 'check_circle' : 'point_of_sale'} filled size={22} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 600, color: 'inherit' }}>
+                  {d.payment ? `Paid · ${POS_METHOD_LABEL[d.payment.method ?? 'cash'].toLowerCase()} · ${d.payment.receipt_no ?? '—'}` : `${rands(amountDue, { decimals: true })} due`}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'inherit', opacity: 0.85 }}>
+                  {d.payment ? `${rands(d.payment.amount_cents, { decimals: true })}${d.payment.verified_at ? ` · ${fmtDateTime(d.payment.verified_at)}` : ''}` : 'Record the cash or card-terminal payment at the counter — the vehicle is released only once paid.'}
+                </Typography>
               </Box>
             </Tile>
           )}
@@ -236,7 +294,6 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
             </Box>
           )}
 
-          {d.status === 'converted' && <Typography sx={{ mt: 2, fontWeight: 600, color: tk.success }}>Converted to {d.work_order_ref}</Typography>}
           {['requested', 'assessing', 'quoted'].includes(d.status) && canWrite && (
             <>
               <Divider sx={{ my: 2.5 }} />
@@ -246,6 +303,7 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
           {!canWrite && ['requested', 'assessing'].includes(d.status) && <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Only supervisors and managers can issue quotes.</Typography>}
         </>
       )}
+      <RecordPaymentDialog target={payTarget} onClose={() => setPayTarget(null)} onRecorded={(p) => toast.success(`Recorded · receipt ${p.receipt_no ?? p.id}`)} />
       <Toast toast={toast.toast} onClose={toast.close} />
     </DetailDrawer>
   );
@@ -270,7 +328,7 @@ export default function QuotationsPage() {
     <>
       <PageHeader
         title="Quotations"
-        subtitle="Auto-body quote requests · assess, quote, share the public link, convert to work orders"
+        subtitle="Auto-body quote requests · assess, quote, share the public link · accepted quotes open their work order at once"
         actions={
           <>
             <OutletPill />
@@ -283,7 +341,7 @@ export default function QuotationsPage() {
           <Chip key={s} label={s === 'all' ? 'All' : statusLabel(s)} clickable onClick={() => setStatus(s)} sx={{ bgcolor: s === status ? tk.secondary : tk.surfaceContainerHigh, color: s === status ? tk.onSecondary : tk.onSurface }} aria-pressed={s === status} />
         ))}
       </Box>
-      <SectionCard flush title="Quote requests" subtitle={status === 'all' ? `${counts.requested} awaiting assessment · ${counts.accepted} accepted, ready to convert` : undefined}>
+      <SectionCard flush title="Quote requests" subtitle={status === 'all' ? `${counts.requested} awaiting assessment · ${counts.accepted} accepted, awaiting check-in` : undefined}>
         <Box sx={{ px: 1.5, pb: 1 }}>
           {!q.isLoading && !q.data?.length ? <EmptyState icon="request_quote" title="No quotations" /> : (
             <AdminGrid<Quotation> rows={q.data ?? []} columns={columns} loading={q.isLoading} getRowClassName={() => 'row-clickable'} onRowClick={(p) => setFocus(p.row.id)} sx={{ '& .MuiDataGrid-cell': { fontFamily: fonts.sans } }} />

@@ -286,8 +286,18 @@ the **Quotes** section on the ops screen) lists items, the damage-photo grid
 (`AuthedImage` fetches bytes with the bearer token; removable until the
 customer decides), a status timeline (raised → sent → decided with the
 `decision_source` label "Accepted via link by <name>" / "Accepted in app"
-→ work order), link / PDF actions and **Convert to work order** for
-supervisors and managers once accepted.
+→ work order), link / PDF actions and, for supervisors and managers,
+**Confirm check-in · WO-…** once accepted (`POST /quotations/:id/convert`).
+
+Accepting a quote (in app or via the public link) creates its work order
+at once: the quote stays `accepted` with `work_order { id, ref, status,
+check_in_at }` / `work_order_ref` until the car is confirmed on site
+(`POST /work-orders/:id/checkin` from the ops assign sheet, or the manual
+convert), which marks it `converted`. The confirmation screen and the quote
+detail show the state as chips (`QuoteStateChips`): **WO-… · awaiting
+check-in** → **WO-… · checked in**, and **R x due** → **Paid · RCP-…**
+(`GET /quotations/:id` `payment` / `amount_due_cents`). A freshly raised
+quote notes that the work order is created the moment the customer accepts.
 
 The draft (`DraftStore` key `raise_quote_draft`) keeps a stable
 `client_op_id` (idempotent retries) and survives restarts; photo file paths
@@ -298,9 +308,11 @@ repository then uploads them best-effort.
 
 Demo: raise a quote for any customer → `QT-2026-00xx`, public link
 `https://demo.sparkling.local/q/<token>`, photos served from memory
-(`demo://photo/<id>`), placeholder PDF. `test/raise_quote_test.dart` walks
-the whole flow (register → vehicle → item with service → photo → raise →
-confirmation → detail) plus the ops entry points and convert.
+(`demo://photo/<id>`), placeholder PDF; Zanele's `QT-2026-0039` is accepted
+with `WO-2026-4819` awaiting check-in (unpaid), Sipho's `QT-2026-0038` is
+converted. `test/raise_quote_test.dart` walks the whole flow (register →
+vehicle → item with service → photo → raise → confirmation → detail) plus
+the ops entry points and confirm check-in.
 Screenshots: `screenshots/quote-{1-customer,3-items,3-photos,4-review,5-confirmation,6-detail}.png`.
 
 ## Vehicle hand-over (collection OTP)
@@ -353,13 +365,41 @@ and unpaid — record the cash, then `73104` releases the keys.
 `payment_due` path and the checklist header. Screenshot:
 `screenshots/handover-cash.png`.
 
+### Quotation work orders (counter payment)
+
+A work order created from an accepted quotation (`work_orders.quotation_id`)
+is settled at the counter for the quoted total. The checklist loads the
+quotation (`GET /quotations/:id` → `payment`, `amount_due_cents`) and shows:
+
+* a **Quote · R x due** header chip and a **Quote · R x due** card with
+  **Record cash payment** → the hand-over sheet's cash step
+  (`CashDueStep` in `RecordCashSheet`, `POST /payments/record
+  { quotation_id, method:'cash', amount_cents, idempotency_key }` via
+  `staff.recordPayment`), then **Paid · RCP-…** once settled (the payment
+  does not convert the quote — the check-in does);
+* the hand-over sheet of an unpaid quotation job starts with the same cash
+  step ("Quote · R x due") before the OTP, and the verified banner's
+  hand-over card carries the amber due line.
+
+Task cards from bookings show the booking ref next to the plate
+(`KL 45 MN GP · SPK-2026-0091 · Bay 2`). Demo: Zanele's `WO-2026-4819`
+(`QT-2026-0039`, R 2 850) is unpaid. `test/quote_payment_test.dart` covers
+the checklist chip → record → paid flow, the hand-over sheet, the raise-quote
+confirmation chips and the booking ref. Screenshot:
+`screenshots/quote-record-payment.png`.
+
 ## Work-order check-in gate
 
 A work order can only be **assigned once its vehicle is checked in**.
-Booking check-ins (scan flow, walk-in "check in now") stamp
-`checked_in_at / checked_in_by` immediately; work orders converted from
-quotations start with `null` and wait for `POST /work-orders/:id/checkin
-{ bay? }` (any staff of the outlet; 201 `{ work_order, task, already:false }`,
+Every confirmed booking has its work order on the board at once
+(`checked_in_at: null`, walk-ins and cash / covered bookings at creation,
+card bookings when the payment succeeds) and every accepted quotation gets
+its work order on acceptance. Booking check-ins (scan flow, walk-in "check
+in now", `POST /bookings/:id/checkin`) stamp `checked_in_at / checked_in_by`
+on that same work order (no duplicate; the walk-in confirmation shows
+`WO-… · awaiting check-in` until then); quotation work orders wait for
+`POST /work-orders/:id/checkin { bay? }` (which also marks the quotation
+`converted`) (any staff of the outlet; 201 `{ work_order, task, already:false }`,
 200 + `already:true` when repeated; runs auto-assignment when the
 `auto_assignment` flag is on). `POST /tasks/:id/assign` answers 409
 `validation_error { reason:'not_checked_in', work_order_id }` until then
@@ -378,8 +418,9 @@ quotations start with `null` and wait for `POST /work-orders/:id/checkin
   reports "Auto-assigned to …" when the flag did it). A stale assign that
   still gets the 409 shows the server message and refreshes the queue.
 
-Demo: Zanele's `WO-2026-4819` (bumper repair from converted `QT-2026-0039`)
-is queued, unassigned and not checked in. `test/ops_checkin_test.dart`
+Demo: Zanele's `WO-2026-4819` (bumper repair from accepted `QT-2026-0039`)
+is queued, unassigned and not checked in; Thabo's `WO-2026-4817`
+(`SPK-2026-0094`, Glen Village) is a booking awaiting check-in. `test/ops_checkin_test.dart`
 covers awaiting chip → confirm check-in → assign, the auto-assign branch and
 the task card / checklist chips. Screenshot:
 `screenshots/ops-awaiting-checkin.png` (queue) and

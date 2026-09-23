@@ -335,12 +335,30 @@ class _QuoteDetailScreenState extends State<QuoteDetailScreen> {
                         const SizedBox(height: 10),
                         KeyValueTile(label: 'Your note', value: q.decisionNote!),
                       ],
-                      if (q.status == QuotationStatus.converted) ...[
-                        const SizedBox(height: 14),
-                        const InfoBanner(
-                          tone: InfoTone.success,
-                          text:
-                              'Work order created — track progress under Bookings.',
+                      // Accepted: the job is booked in at once (work order
+                      // awaiting the car) and the total is settled at the
+                      // counter — "Paid · cash · RCP-…" once staff recorded it.
+                      if (quoteWorkOrderLabel(q) case final workOrder?) ...[
+                        const SizedBox(height: 10),
+                        KeyValueTile(
+                          key: const ValueKey('quote-work-order'),
+                          label: 'Work order',
+                          value: workOrder,
+                          helper: q.workOrder?.awaitingCheckIn ?? false
+                              ? 'Bring the car to ${shortOutletName(q.outletName)} — the repair starts once it is checked in.'
+                              : 'Track progress under Bookings.',
+                        ),
+                      ],
+                      if (q.paymentLabel case final payment?) ...[
+                        const SizedBox(height: 10),
+                        KeyValueTile(
+                          key: const ValueKey('quote-payment'),
+                          label: 'Payment',
+                          value: payment,
+                          warning: !q.isPaid,
+                          helper: q.isPaid
+                              ? 'Receipt issued at the counter.'
+                              : 'Cash or card at the counter when you drop off or collect the car.',
                         ),
                       ],
                       if (q.pdfUrl != null || q.status != QuotationStatus.requested) ...[
@@ -506,7 +524,10 @@ class _DecisionBanner extends StatelessWidget {
       text: declined
           ? 'This quote is closed. Request a new one if anything changes.'
           : q.status == QuotationStatus.converted
-          ? 'Work order created — track progress under Bookings.'
+          ? 'Work order ${q.workOrderRef ?? ''} created — track progress under Bookings.'
+                .replaceFirst('order  ', 'order ')
+          : q.workOrder?.awaitingCheckIn ?? false
+          ? 'Booked in as ${q.workOrder!.ref} — ${shortOutletName(q.outletName)} is expecting your car. Decisions are final.'
           : '${shortOutletName(q.outletName)} will schedule the repair and confirm on WhatsApp. Decisions are final.',
     );
   }

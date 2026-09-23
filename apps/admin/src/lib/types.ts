@@ -314,6 +314,11 @@ export interface WorkOrderSummary {
   bay: string | null;
   eta_at: string | null;
   blocked_reason: string | null;
+  /**
+   * Explicit "car checked in" stamp (migration 0015). Every confirmed booking has its work order at once with
+   * `checked_in_at: null` ("awaiting check-in"); `POST /bookings/:id/checkin` stamps it on that same work order.
+   */
+  checked_in_at?: string | null;
 }
 
 /** How the customer chose to pay at booking time (`cash` = cash on collection, feature flag `cash_on_collection`). */
@@ -338,11 +343,12 @@ export interface Booking {
   service: { id: string; name: string; category: ServiceCategory; duration_minutes: number };
   vehicle: { id: string; registration_no: string; make: string | null; model: string | null };
   customer: { id: string; full_name: string; email: string | null; phone: string | null };
+  /** Present as soon as the booking is confirmed (card bookings: once the online payment succeeds). */
   work_order: WorkOrderSummary | null;
   payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number; method?: PosPaymentMethod | null; provider?: string | null } | null;
   /**
    * Chosen at booking time. A `cash` booking is created `confirmed` with no online payment; `payment` stays null
-   * until staff record the cash at the counter (`POST /payments/record`), and collection is refused (409
+   * until staff record the cash / card-terminal payment (`POST /payments/record`), and collection is refused (409
    * `validation_error` `{ reason: 'payment_due', amount_cents }`) until then.
    */
   payment_method?: BookingPaymentMethod | null;
@@ -439,7 +445,17 @@ export interface Quotation {
   decision_by_name?: string | null;
   attachments: QuotationAttachment[];
   created_at: string;
+  /**
+   * Set as soon as the quote is accepted (in-app, public link or at the counter): the work order starts "awaiting
+   * check-in" and the quotation stays `accepted` until `POST /work-orders/:id/checkin` (or `/quotations/:id/convert`)
+   * confirms the car on site, which marks it `converted`.
+   */
+  work_order?: QuotationWorkOrder | null;
   work_order_ref?: string | null;
+  /** Successful counter payment (`POST /payments/record { quotation_id }`), null while unpaid. */
+  payment?: QuotationPayment | null;
+  /** `amount_cents` while unpaid, 0 once `payment` is set. */
+  amount_due_cents?: number;
   /** Staff only: `<PUBLIC_WEB_BASE_URL>/q/<token>`; null until the quote has been shared. */
   public_url?: string | null;
   public_token_expires_at?: string | null;
@@ -447,6 +463,23 @@ export interface Quotation {
   pdf_url?: string | null;
   /** Standard terms printed on the quote (see `QUOTE_TERMS`). */
   terms?: string;
+}
+
+/** `GET /quotations/:id` → `work_order` (the accepted quote's job; `checked_in_at` null until the car is on site). */
+export interface QuotationWorkOrder {
+  id: string;
+  ref: string;
+  status: WorkStatus;
+  checked_in_at: string | null;
+}
+
+/** `GET /quotations/:id` → `payment` (the successful counter payment, provider `pos`). */
+export interface QuotationPayment {
+  id: string;
+  receipt_no: string | null;
+  amount_cents: number;
+  method: PosPaymentMethod | null;
+  verified_at: string | null;
 }
 
 /** `POST /quotations` (staff shape): raise a quote for a walk-in customer in one step. */
@@ -552,10 +585,14 @@ export interface WorkOrder {
   checked_in_by_name: string | null;
 }
 
-/** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }` — the dashboard keeps the booking and the work order. */
+/**
+ * `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }` — the dashboard keeps the booking and the
+ * work order. `created` is false when the confirmed booking's existing work order was checked in (the usual case).
+ */
 export interface BookingCheckinResult {
   booking: Booking;
   work_order: WorkOrderSummary | null;
+  created?: boolean;
 }
 
 /* ---------- walk-in (staff on behalf of a customer) ---------- */
@@ -633,18 +670,26 @@ export interface WalkInBookingResult {
 
 export type PosPaymentMethod = 'cash' | 'card_terminal';
 
+/**
+ * `POST /payments/record` — exactly one of `booking_id` / `quotation_id` (400 otherwise). `amount_cents` must equal
+ * `bookings.total_cents` / `quotations.amount_cents` (400); an already paid target answers 409. The API replays the
+ * same `idempotency_key` with 200 `duplicate: true`; the dashboard generates `pos-<uuid>` when the caller has none.
+ */
 export interface RecordPaymentInput {
-  booking_id: string;
+  booking_id?: string | null;
+  quotation_id?: string | null;
   method: PosPaymentMethod;
   reference?: string | null;
   amount_cents: number;
-  idempotency_key: string;
+  idempotency_key?: string;
 }
 
 /** `payments` row created by `POST /payments/record` (provider `pos`). */
 export interface PosPayment {
   id: string;
-  booking_id: string;
+  booking_id: string | null;
+  /** Set for quotation payments (migration 0016); `booking_id` is null for these. */
+  quotation_id?: string | null;
   method: PosPaymentMethod;
   provider: string;
   amount_cents: number;
@@ -733,7 +778,11 @@ export function priceLabel(o: Pick<OutletServiceOffer, 'pricing_mode' | 'vat_mod
 /* ---------- payments ---------- */
 export interface Payment {
   id: string;
+  booking_id?: string | null;
   booking_ref: string | null;
+  /** Set for quotation counter payments (`booking_id` / `booking_ref` are null for these). */
+  quotation_id?: string | null;
+  quotation_ref?: string | null;
   /** Set for membership invoice payments (`booking_ref` is null for these). */
   membership_invoice_id?: string | null;
   customer_name: string;

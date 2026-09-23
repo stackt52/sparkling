@@ -117,6 +117,7 @@ class WorkOrderSummary extends Equatable {
     this.pickupOtp,
     this.pickupOtpVerifiedAt,
     this.collectedAt,
+    this.checkedInAt,
   });
 
   final String id;
@@ -141,7 +142,16 @@ class WorkOrderSummary extends Equatable {
   /// Set once staff verified the OTP and released the keys.
   final DateTime? collectedAt;
 
+  /// When the car was confirmed on site. Every confirmed booking has its
+  /// work order at once (`checked_in_at: null` = awaiting check-in); the
+  /// check-in (`POST /bookings/:id/checkin`) stamps this on the same row.
+  final DateTime? checkedInAt;
+
   bool get isCollected => collectedAt != null;
+  bool get isCheckedIn => checkedInAt != null;
+
+  /// On the board but the car has not been confirmed on site yet.
+  bool get awaitingCheckIn => !isCheckedIn && status.isOpen;
 
   /// The customer can show an OTP at the counter.
   bool get awaitingCollection => pickupOtp != null && collectedAt == null;
@@ -168,6 +178,7 @@ class WorkOrderSummary extends Equatable {
     pickupOtp: strOrNull(json['pickup_otp']),
     pickupOtpVerifiedAt: dtOrNull(json['pickup_otp_verified_at']),
     collectedAt: dtOrNull(json['collected_at']),
+    checkedInAt: dtOrNull(json['checked_in_at']),
   );
 
   Json toJson() => compact({
@@ -185,6 +196,7 @@ class WorkOrderSummary extends Equatable {
     'pickup_otp': pickupOtp,
     'pickup_otp_verified_at': iso(pickupOtpVerifiedAt),
     'collected_at': iso(collectedAt),
+    'checked_in_at': iso(checkedInAt),
   });
 
   WorkOrderSummary copyWith({
@@ -200,6 +212,7 @@ class WorkOrderSummary extends Equatable {
     String? pickupOtp,
     DateTime? pickupOtpVerifiedAt,
     DateTime? collectedAt,
+    DateTime? checkedInAt,
     bool clearPickupOtp = false,
   }) => WorkOrderSummary(
     id: id,
@@ -216,6 +229,7 @@ class WorkOrderSummary extends Equatable {
     pickupOtp: clearPickupOtp ? null : (pickupOtp ?? this.pickupOtp),
     pickupOtpVerifiedAt: pickupOtpVerifiedAt ?? this.pickupOtpVerifiedAt,
     collectedAt: collectedAt ?? this.collectedAt,
+    checkedInAt: checkedInAt ?? this.checkedInAt,
   );
 
   @override
@@ -233,6 +247,7 @@ class WorkOrderSummary extends Equatable {
     pickupOtp,
     pickupOtpVerifiedAt,
     collectedAt,
+    checkedInAt,
   ];
 }
 
@@ -300,33 +315,68 @@ class TimelineEntry extends Equatable {
   List<Object?> get props => [key, title, state, at, note];
 }
 
-/// Nested `payment` in `GET /bookings/:id`.
+/// Nested `payment` in `GET /bookings/:id` and `GET /quotations/:id`
+/// (`{ id, receipt_no, amount_cents, method, verified_at }` — a quotation
+/// payment is always the successful counter payment, so a missing `status`
+/// with a `verified_at` reads as `successful`).
 class PaymentSummary extends Equatable {
   const PaymentSummary({
     required this.id,
     required this.status,
     required this.amountCents,
     this.receiptNo,
+    this.method,
+    this.verifiedAt,
   });
   final String id;
   final PaymentStatus status;
   final int amountCents;
   final String? receiptNo;
 
-  factory PaymentSummary.fromJson(Json json) => PaymentSummary(
-    id: str(json['id']),
-    status: PaymentStatus.fromDb(strOrNull(json['status'])),
-    amountCents: intOf(json['amount_cents']),
-    receiptNo: strOrNull(json['receipt_no']),
-  );
+  /// `cash` / `card_terminal` for counter payments, `card` / `eft` online.
+  final String? method;
+  final DateTime? verifiedAt;
+
+  bool get isVerified => status.isVerified;
+
+  /// "cash" / "card terminal" / "card" for receipts and status lines.
+  String? get methodLabel => switch (method) {
+    null => null,
+    'card_terminal' => 'card terminal',
+    final m => m.replaceAll('_', ' '),
+  };
+
+  factory PaymentSummary.fromJson(Json json) {
+    final verifiedAt = dtOrNull(json['verified_at']);
+    final rawStatus = strOrNull(json['status']);
+    return PaymentSummary(
+      id: str(json['id']),
+      status: rawStatus == null && verifiedAt != null
+          ? PaymentStatus.successful
+          : PaymentStatus.fromDb(rawStatus),
+      amountCents: intOf(json['amount_cents']),
+      receiptNo: strOrNull(json['receipt_no']),
+      method: strOrNull(json['method']),
+      verifiedAt: verifiedAt,
+    );
+  }
   Json toJson() => compact({
     'id': id,
     'status': status.db,
     'amount_cents': amountCents,
     'receipt_no': receiptNo,
+    'method': method,
+    'verified_at': iso(verifiedAt),
   });
   @override
-  List<Object?> get props => [id, status, amountCents, receiptNo];
+  List<Object?> get props => [
+    id,
+    status,
+    amountCents,
+    receiptNo,
+    method,
+    verifiedAt,
+  ];
 }
 
 /// An add-on attached to a booking (`addon_service_ids` expanded).
@@ -572,6 +622,11 @@ class Booking extends Equatable {
   bool get isUpcoming =>
       status == BookingStatus.confirmed || status == BookingStatus.pending;
   bool get isInService => status == BookingStatus.inService;
+
+  /// Confirmed with its work order on the board, car not yet on site
+  /// (`work_order.checked_in_at == null`).
+  bool get isAwaitingCheckIn =>
+      isUpcoming && workOrder != null && !workOrder!.isCheckedIn;
 
   /// Completed, keys not yet released and the API exposed the collection OTP
   /// (only the owning customer receives it).

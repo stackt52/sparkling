@@ -392,18 +392,28 @@ enum PaymentMethodKind implements SparklingEnum {
   };
 }
 
-/// Body for `POST /payments/record`.
+/// Body for `POST /payments/record` — a counter payment for a booking
+/// (`booking_id`, cash on collection / walk-in) **or** an accepted quotation
+/// (`quotation_id`, `amount_cents` = `quotations.amount_cents`). Exactly one
+/// of [bookingId] / [quotationId] is set; [toJson] emits only that key.
 class RecordPaymentInput {
   const RecordPaymentInput({
-    required this.bookingId,
+    this.bookingId,
+    this.quotationId,
     required this.method,
     required this.amountCents,
     required this.idempotencyKey,
     this.reference,
     this.bookingClientOpId,
-  });
+  }) : assert(
+         (bookingId != null) != (quotationId != null),
+         'Exactly one of bookingId / quotationId is required',
+       );
 
-  final String bookingId;
+  final String? bookingId;
+
+  /// Accepted / converted quotation settled at the counter.
+  final String? quotationId;
   final PaymentMethodKind method;
   final int amountCents;
   final String idempotencyKey;
@@ -416,9 +426,15 @@ class RecordPaymentInput {
   /// `POST /sync/batch` resolve the booking created earlier in the batch.
   final String? bookingClientOpId;
 
+  bool get isForQuotation => quotationId != null;
+
+  /// The booking or quotation id the payment settles.
+  String get targetId => quotationId ?? bookingId!;
+
   RecordPaymentInput copyWith({String? bookingId, String? bookingClientOpId}) =>
       RecordPaymentInput(
         bookingId: bookingId ?? this.bookingId,
+        quotationId: quotationId,
         method: method,
         amountCents: amountCents,
         idempotencyKey: idempotencyKey,
@@ -427,8 +443,9 @@ class RecordPaymentInput {
       );
 
   Json toJson() => compact({
-    'booking_id': bookingId,
-    'booking_client_op_id': bookingClientOpId,
+    'booking_id': quotationId == null ? bookingId : null,
+    'quotation_id': quotationId,
+    'booking_client_op_id': quotationId == null ? bookingClientOpId : null,
     'method': method.db,
     'reference': (reference?.trim().isEmpty ?? true) ? null : reference!.trim(),
     'amount_cents': amountCents,
@@ -436,7 +453,10 @@ class RecordPaymentInput {
   });
 
   factory RecordPaymentInput.fromJson(Json json) => RecordPaymentInput(
-    bookingId: str(json['booking_id']),
+    bookingId: strOrNull(json['quotation_id']) == null
+        ? str(json['booking_id'])
+        : null,
+    quotationId: strOrNull(json['quotation_id']),
     bookingClientOpId: strOrNull(json['booking_client_op_id']),
     method: PaymentMethodKind.fromDb(strOrNull(json['method'])),
     amountCents: intOf(json['amount_cents']),

@@ -17,6 +17,7 @@ import DetailDrawer from '@/components/ui/DetailDrawer';
 import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
 import CashChip, { cashDue } from '@/components/bookings/CashChip';
+import RecordPaymentDialog, { type RecordPaymentTarget } from '@/components/payments/RecordPaymentDialog';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
 import Toast from '@/components/ui/Toast';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
@@ -74,6 +75,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const [checkinOpen, setCheckinOpen] = React.useState(false);
   const [bay, setBay] = React.useState('');
   const [priority, setPriority] = React.useState<WalkInPriority>(2);
+  const [payTarget, setPayTarget] = React.useState<RecordPaymentTarget | null>(null);
   const q = useQuery({ queryKey: ['booking', bookingId], queryFn: () => api.getBooking(bookingId!), enabled: Boolean(bookingId) });
   const cancel = useMutation({
     mutationFn: () => api.cancelBooking(bookingId!, reason),
@@ -85,12 +87,12 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
     },
     onError: (e) => toast.error(e),
   });
-  // Explicit "car checked in" (`POST /bookings/:id/checkin`): opens the work order already checked in and auto-assigns it when the flag is on.
+  // Explicit "car checked in" (`POST /bookings/:id/checkin`): stamps the booking's existing work order (created when it was confirmed) and auto-assigns it when the flag is on.
   const checkin = useMutation({
     mutationFn: () => api.checkinBooking(bookingId!, { bay: bay.trim() || null, priority }),
     onSuccess: (res) => {
       const auto = res.work_order?.assignee_name ? ` · auto-assigned to ${res.work_order.assignee_name}` : '';
-      toast.success(`Checked in · ${res.work_order?.ref ?? 'work order'} created${auto}`);
+      toast.success(`Checked in · ${res.work_order?.ref ?? 'work order'}${res.created ? ' created' : ''}${auto}`);
       setCheckinOpen(false);
       setBay('');
       void qc.invalidateQueries({ queryKey: ['bookings'] });
@@ -101,7 +103,13 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   });
   const b = q.data;
   const canCancel = can(role, 'booking:cancel') && b && ['pending', 'confirmed'].includes(b.status);
-  const canCheckin = can(role, 'work_order:checkin') && b && ['pending', 'confirmed'].includes(b.status) && !b.work_order;
+  // The work order exists from confirmation; the button stays until the car is actually checked in on it.
+  const canCheckin = can(role, 'work_order:checkin') && b && ['pending', 'confirmed'].includes(b.status) && !b.work_order?.checked_in_at;
+  // Counter payment (cash / card terminal) for anything still unpaid — cash-on-collection bookings, or a card booking whose customer pays at the desk instead.
+  const canRecordPayment = can(role, 'payment:record') && b && ['confirmed', 'in_service', 'completed'].includes(b.status) && b.total_cents > 0 && b.payment?.status !== 'successful';
+  const workOrderLine = b?.work_order
+    ? `${b.work_order.ref} · ${b.work_order.checked_in_at ? `checked in ${fmtTime(b.work_order.checked_in_at)}` : 'awaiting check-in'}${b.work_order.assignee_name ? ` · ${b.work_order.assignee_name}` : ''}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`
+    : null;
 
   return (
     <>
@@ -123,8 +131,13 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
             {b.walk_in && <> · <Box component="span" sx={{ color: tk.secondary, fontWeight: 600 }}>Walk-in</Box>{b.created_by_name ? ` · created by ${b.created_by_name}` : ''}</>}
           </>
         )}
-        footer={(canCheckin || canCancel) && (
+        footer={(canCheckin || canCancel || canRecordPayment) && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {canRecordPayment && (
+              <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
+                Record payment · {rands(b.total_cents)}
+              </Button>
+            )}
             {canCheckin && (
               <Button variant="contained" color="secondary" fullWidth onClick={() => setCheckinOpen(true)} startIcon={<MSymbol name="login" size={20} />} data-testid="booking-confirm-checkin">
                 Confirm check-in
@@ -149,7 +162,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               <Row label="Vehicle" value={b.vehicle.registration_no} mono />
               {b.vehicle_size && <Row label="Vehicle size" value={`${SIZE_LABEL[b.vehicle_size]}${b.price_label ? ` · ${b.price_label}` : ''}`} />}
               {b.addons && b.addons.length > 0 && <Row label="Add-ons" value={b.addons.map((a) => a.name).join(', ')} />}
-              {b.work_order && <Row label="Work order" value={`${b.work_order.ref} · ${b.work_order.assignee_name ?? 'unassigned'}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`} />}
+              {workOrderLine && <Row label="Work order" value={<span data-testid="booking-work-order">{workOrderLine}</span>} />}
             </Tile>
 
             <Typography variant="h4" component="h3" sx={{ mt: 4, mb: 1.5 }}>Timeline</Typography>
@@ -163,7 +176,8 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               {(b.vat_cents ?? 0) > 0 && <Row label="VAT 15 % (excl. price)" value={rands(b.vat_cents!, { decimals: true })} />}
               <Divider sx={{ my: 0.5, borderStyle: 'dashed' }} />
               <Row label="Total" value={<span style={{ color: tk.primary, fontSize: 18 }}>{rands(b.total_cents, { decimals: true })}</span>} />
-              <Row label="Payment" value={b.payment ? <StatusChip status={b.payment.status} /> : b.payment_method === 'cash' ? <CashChip booking={b} size="medium" /> : <StatusChip tone="neutral" label="Not started" />} />
+              {/* Cash-on-collection bookings keep the cash chip: "Cash due R x" → "Paid · cash" once recorded. */}
+              <Row label="Payment" value={b.payment_method === 'cash' && b.payment?.status !== 'failed' ? <CashChip booking={b} size="medium" /> : b.payment ? <StatusChip status={b.payment.status} /> : <StatusChip tone="neutral" label="Not started" />} />
               {b.payment?.method ? (
                 <Row label="Method" value={b.payment.method === 'cash' ? (b.payment_method === 'cash' ? 'Cash on collection (counter)' : 'Cash (counter)') : 'Card terminal'} />
               ) : b.payment_method ? (
@@ -200,7 +214,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
         <DialogTitle id="booking-checkin-title">Confirm check-in · {b?.ref}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
-            Confirms that <span className="mono">{b?.vehicle.registration_no}</span> is on site: the booking moves to in service and its work order is opened — assigned automatically when auto-assignment is on, otherwise by a supervisor.
+            Confirms that <span className="mono">{b?.vehicle.registration_no}</span> is on site: the booking moves to in service and its work order{b?.work_order ? ` ${b.work_order.ref}` : ''} is checked in — assigned automatically when auto-assignment is on, otherwise by a supervisor.
           </Typography>
           <TextField label="Bay (optional)" placeholder="e.g. Bay 2" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !checkin.isPending) { e.preventDefault(); checkin.mutate(); } }} />
           <Box>
@@ -223,6 +237,14 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
           <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={checkin.isPending} onClick={() => checkin.mutate()}>Confirm check-in</Button>
         </DialogActions>
       </Dialog>
+      <RecordPaymentDialog
+        target={payTarget}
+        onClose={() => setPayTarget(null)}
+        onRecorded={(p) => {
+          toast.success(`Recorded · receipt ${p.receipt_no ?? p.id}`);
+          void qc.invalidateQueries({ queryKey: ['booking', bookingId] });
+        }}
+      />
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
   );

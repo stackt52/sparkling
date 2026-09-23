@@ -16,6 +16,7 @@ import { getCustomerOrThrow } from './customers.js';
 import { benefitFor, loadContext, postUsage } from './memberships.js';
 import { firstName, formatRand, notify, type NotifyOutcome } from './notifications.js';
 import { convertQuotation as convertToWorkOrder } from './workflow.js';
+import { systemContext } from '../lib/systemContext.js';
 
 export const PUBLIC_TOKEN_TTL_DAYS = 30;
 export const SHARE_MIN_INTERVAL_MS = 60_000;
@@ -459,6 +460,7 @@ export async function decide(ctx: RequestContext, id: string, decision: 'accept'
   assertOwner(ctx.auth, q);
   const updated = await applyDecision(q, { decision, note, source: 'app', byId: ctx.auth.uid, byName: ctx.auth.profile?.full_name ?? null });
   await audit(ctx, { action: `quotation.${updated.status}`, entity_type: 'quotation', entity_id: id, outlet_id: q.outlet_id, after: { note, decision_source: 'app' } });
+  if (updated.status === 'accepted') await workOrderOnAcceptance(systemContext(ctx.correlationId, ctx.log), updated);
   await notifyDecision(updated, ctx.auth.profile?.full_name ?? null);
   return updated;
 }
@@ -504,8 +506,18 @@ export async function decidePublic(token: string, body: { decision: 'accept' | '
     outlet_id: q.outlet_id,
     after: { decision: body.decision, status: updated.status, note: body.note ?? null, accepted_by_name: byName, ip: meta.ip ?? null, user_agent: meta.userAgent ?? null },
   });
+  if (updated.status === 'accepted') await workOrderOnAcceptance(systemContext(meta.correlationId, meta.log), updated);
   await notifyDecision(updated, customer?.full_name ?? null);
   return updated;
+}
+
+/** Accepted quotations get their work order immediately (awaiting check-in); failures are logged, never block the decision. */
+async function workOrderOnAcceptance(ctx: RequestContext, q: Quotation): Promise<void> {
+  try {
+    await convertToWorkOrder(ctx, q, { markConverted: false, checkedIn: false });
+  } catch (err) {
+    ctx.log.warn({ err, quotation_id: q.id }, 'could not create the work order for the accepted quotation');
+  }
 }
 
 /** `quote_decided` push to the assessor + outlet supervisors/managers; `quote_decision_receipt` to the customer. */
@@ -548,7 +560,7 @@ export async function convert(ctx: RequestContext, id: string) {
   const q = await getQuotationOrThrow(id);
   assertOutlet(ctx.auth, q.outlet_id);
   if (!canTransitionQuotation(q.status, 'converted')) throw ApiError.invalidTransition(q.status, 'converted', 'quotation');
-  return convertToWorkOrder(ctx, q);
+  return convertToWorkOrder(ctx, q, { markConverted: true, checkedIn: true });
 }
 
 export function assertCanReadQuotation(ctx: RequestContext, q: Quotation): void {

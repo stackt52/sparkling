@@ -288,7 +288,7 @@ void main() {
       return queue.firstWhere((t) => t.id == DemoStore.taskAwaitingCheckIn);
     }
 
-    test('seed: converted-quotation work order awaits check-in', () async {
+    test('seed: accepted-quotation work order awaits check-in', () async {
       await boot();
       final task = await queuedTask();
       expect(task.assigneeId, isNull);
@@ -297,8 +297,16 @@ void main() {
       expect(task.workOrder!.ref, 'WO-${today.year}-4819');
       final detail = await repos.staff.workOrder(DemoStore.woAwaitingCheckIn);
       expect(detail.workOrder.isCheckedIn, isFalse);
-      expect(detail.workOrder.quotationId, DemoStore.quotationConverted);
+      expect(detail.workOrder.quotationId, DemoStore.quotationAccepted);
       expect(detail.steps, isNotEmpty);
+      // The quotation stays accepted (with its work order) until check-in.
+      final quote = await repos.staff.quotation(DemoStore.quotationAccepted);
+      expect(quote.status, QuotationStatus.accepted);
+      expect(quote.workOrder?.id, DemoStore.woAwaitingCheckIn);
+      expect(quote.workOrder?.awaitingCheckIn, isTrue);
+      expect(quote.workOrderRef, 'WO-${today.year}-4819');
+      expect(quote.payment, isNull);
+      expect(quote.amountDueCents, 285000);
       // Booking-backed work orders were checked in at the counter.
       final inService = await repos.staff.workOrder(DemoStore.woInService);
       expect(inService.workOrder.isCheckedIn, isTrue);
@@ -349,6 +357,10 @@ void main() {
       final detail = await repos.staff.workOrder(DemoStore.woAwaitingCheckIn);
       expect(detail.workOrder.assigneeId, 'seed_pieter');
       expect(detail.events.map((e) => e.event), contains('checked_in'));
+      // Confirming the check-in converted the quotation.
+      final quote = await repos.staff.quotation(DemoStore.quotationAccepted);
+      expect(quote.status, QuotationStatus.converted);
+      expect(quote.workOrder?.isCheckedIn, isTrue);
 
       // Idempotent: a second check-in reports `already`.
       final again = await repos.staff.checkInWorkOrder(

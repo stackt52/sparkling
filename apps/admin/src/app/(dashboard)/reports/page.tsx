@@ -48,7 +48,8 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const paymentColumns: GridColDef<Payment>[] = [
   { field: 'created_at', headerName: 'When', flex: 1, minWidth: 130, renderCell: (p) => fmtDateTime(p.row.created_at) },
-  { field: 'booking_ref', headerName: 'Booking', flex: 1, minWidth: 130, renderCell: (p) => <span className="mono" style={{ color: tk.primary, fontWeight: 700 }}>{p.row.booking_ref}</span> },
+  // Counter payments for accepted quotations carry `quotation_id` / `quotation_ref` instead of a booking (migration 0016).
+  { field: 'booking_ref', headerName: 'Booking / quote', flex: 1, minWidth: 130, valueGetter: (_v, r) => r.booking_ref ?? r.quotation_ref ?? '', renderCell: (p) => <span className="mono" style={{ color: tk.primary, fontWeight: 700 }}>{p.row.booking_ref ?? p.row.quotation_ref ?? (p.row.membership_invoice_id ? 'Membership' : '—')}</span> },
   { field: 'customer_name', headerName: 'Customer', flex: 1.2, minWidth: 150 },
   { field: 'provider', headerName: 'Provider', flex: 0.7, minWidth: 90 },
   { field: 'receipt_no', headerName: 'Receipt', flex: 0.9, minWidth: 110, renderCell: (p) => <span className="mono">{p.row.receipt_no ?? '—'}</span> },

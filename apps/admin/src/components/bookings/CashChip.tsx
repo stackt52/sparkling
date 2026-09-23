@@ -10,14 +10,14 @@ export function cashDue(b: Pick<Booking, 'payment_method' | 'payment' | 'total_c
 }
 
 /**
- * "Cash due R x" (warning) while a cash-on-collection booking is unpaid, "Paid · cash" once the counter payment
- * is recorded. Renders nothing for other payment methods.
+ * "Cash due R x" (warning) while a cash-on-collection booking is unpaid, "Paid · cash" (or "Paid · card" when the
+ * counter took the card terminal) once the payment is recorded. Renders nothing for other payment methods.
  */
 export default function CashChip({ booking, size = 'small' }: { booking: Pick<Booking, 'payment_method' | 'payment' | 'total_cents' | 'status'>; size?: 'small' | 'medium' }) {
   if (booking.payment_method !== 'cash') return null;
   const due = cashDue(booking);
   const paid = booking.payment?.status === 'successful';
-  const label = paid ? 'Paid · cash' : due ? `Cash due ${rands(booking.total_cents)}` : 'Cash';
+  const label = paid ? `Paid · ${booking.payment?.method === 'card_terminal' ? 'card' : 'cash'}` : due ? `Cash due ${rands(booking.total_cents)}` : 'Cash';
   const dims = size === 'small' ? { height: 20, fontSize: 11 } : { height: 24, fontSize: 12 };
   return (
     <StatusChip

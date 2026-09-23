@@ -179,7 +179,7 @@ export class DemoApi implements AdminApi {
       service: { id: s.id, name: s.name, category: s.category, duration_minutes: s.duration_minutes },
       vehicle: { id: v.id, registration_no: v.registration_no, make: v.make, model: v.model },
       customer: { id: b.customer_id, full_name: c?.full_name ?? 'Customer', email: c?.email ?? null, phone: c?.phone ?? null },
-      work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason } : null,
+      work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason, checked_in_at: w.checked_in_at } : null,
       payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider } : null,
       payment_method: b.payment_method ?? null,
       vehicle_size: b.vehicle_size, pricing_mode: b.pricing_mode, vat_mode: b.vat_mode, addon_service_ids: [...b.addon_service_ids], addons_cents: b.addons_cents, vat_cents: b.vat_cents, price_label: b.price_label,
@@ -328,7 +328,8 @@ export class DemoApi implements AdminApi {
     if (tpl) {
       tpl.steps.forEach((s, i) => {
         const done = w ? i < w.steps_done : false;
-        const current = w ? i === w.steps_done && !['completed', 'verified'].includes(w.status) : false;
+        // Checklist steps only start once the car is checked in; before that the work order just waits on the board.
+        const current = w?.checked_in_at ? i === w.steps_done && !['completed', 'verified'].includes(w.status) : false;
         timeline.push({ key: s.key, title: s.title, state: done ? 'done' : current ? (w?.status === 'blocked' ? 'blocked' : 'current') : 'pending', at: done && w?.started_at ? new Date(new Date(w.started_at).getTime() + (i + 1) * 6 * 60000).toISOString() : null, actor: done ? w?.assignee_name : null });
       });
     }
@@ -354,14 +355,49 @@ export class DemoApi implements AdminApi {
   private static origin() {
     return typeof window !== 'undefined' ? window.location.origin : '';
   }
-  /** Staff view of a quotation: applies any decision made on the public page, adds `items`, `public_url`, `pdf_url`. */
-  private staffQuotation(q: Quotation): Quotation {
+  /**
+   * Applies a decision made on the public page (another tab) to the live quotation. An acceptance creates the work
+   * order at once — awaiting check-in — exactly like `POST /quotations/:id/decision` does server-side.
+   */
+  private syncPublicDecision(q: Quotation) {
     const pub = this.publicTokens.get(q.id);
-    if (pub) {
-      const before = q.status;
-      applyDemoDecision(q, pub.token);
-      if (before !== q.status) this.emit('quotations');
+    if (!pub) return;
+    const before = q.status;
+    applyDemoDecision(q, pub.token);
+    if (before === q.status) return;
+    if (q.status === 'accepted') {
+      const w = this.ensureQuoteWorkOrder(q);
+      this.pushActivity({ kind: 'quote', title: `Quote ${q.ref} accepted · ${this.fmtR(q.amount_cents ?? 0)}`, subtitle: `${q.decision_by_name ?? q.customer_name} via link · work order ${w.ref} awaiting check-in`, icon: 'request_quote', tone: 'warning' });
+      this.emit('work_orders');
     }
+    this.emit('quotations');
+  }
+  /** The accepted quote's work order (created on acceptance; idempotent). */
+  private ensureQuoteWorkOrder(q: Quotation): WorkOrder {
+    const existing = this.workOrders.find((w) => w.quotation_ref === q.ref);
+    if (existing) return existing;
+    const ref = this.nextWoRef();
+    const v = this.vehicle(q.vehicle.id);
+    const cat = q.category.toLowerCase();
+    const svc = this.services.find((s) => s.category === 'auto_body' && s.name.toLowerCase().includes(cat)) ?? this.services.find((s) => s.category === 'auto_body')!;
+    const tpl = this.templates.find((t) => t.id === svc.checklist_template_id)!;
+    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso(), checked_in_at: null, checked_in_by_name: null };
+    this.workOrders.push(w);
+    q.work_order_ref = ref;
+    this.log('quotation.accept', 'quotation', q.id, { status: 'quoted' }, { status: 'accepted', work_order: ref }, q.outlet.id);
+    return w;
+  }
+  /** The quotation's counter payment (`payments.quotation_id`, migration 0016), if recorded. */
+  private quotePayment(q: Quotation): Quotation['payment'] {
+    const p = this.payments.find((x) => x.quotation_id === q.id && x.status === 'successful');
+    if (!p) return null;
+    const pos = this.posPayments.find((x) => x.id === p.id);
+    return { id: p.id, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, verified_at: p.verified_at };
+  }
+  /** Staff view of a quotation: applies any decision made on the public page, adds `items`, `work_order`, `payment`, `public_url`, `pdf_url`. */
+  private staffQuotation(q: Quotation): Quotation {
+    this.syncPublicDecision(q);
+    const pub = this.publicTokens.get(q.id);
     const out = clone(q);
     out.items = out.line_items;
     out.outlet = withOutletLegal(out.outlet, this.outlets.find((o) => o.id === q.outlet.id));
@@ -369,6 +405,11 @@ export class DemoApi implements AdminApi {
     out.public_url = pub ? `${DemoApi.origin()}/q/${pub.token}` : null;
     out.public_token_expires_at = pub?.expires_at ?? null;
     out.pdf_url = `/v1/quotations/${q.id}/pdf`;
+    const w = this.workOrders.find((x) => x.quotation_ref === q.ref) ?? null;
+    out.work_order = w ? { id: w.id, ref: w.ref, status: w.status, checked_in_at: w.checked_in_at } : null;
+    out.work_order_ref = w?.ref ?? q.work_order_ref ?? null;
+    out.payment = this.quotePayment(q);
+    out.amount_due_cents = out.payment ? 0 : (q.amount_cents ?? 0);
     return out;
   }
   /** Creates (or rotates) the public token for a quotation and registers it with the public demo store. */
@@ -537,30 +578,41 @@ export class DemoApi implements AdminApi {
     if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
     return buildQuotePdf(pdfInputFromQuotation(this.staffQuotation(q), undefined, this.outlets));
   }
+  /**
+   * `POST /quotations/:id/convert` — "Check in & start": the accepted quote's work order exists since acceptance, so
+   * this confirms the car on site on it (same as `checkinWorkOrder`) and marks the quotation `converted`.
+   */
   async convertQuotation(id: string): Promise<Quotation> {
     await delay();
     this.requireRole('supervisor', 'manager', 'admin');
     const q = this.quotations.find((x) => x.id === id);
     if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
+    this.syncPublicDecision(q);
     if (q.status !== 'accepted') throw new ApiRequestError(409, { code: 'invalid_transition', message: 'Only accepted quotations can be converted' });
-    const ref = this.nextWoRef();
-    const v = VEHICLES.find((x) => x.id === q.vehicle.id)!;
-    const cat = q.category.toLowerCase();
-    const svc = this.services.find((s) => s.category === 'auto_body' && s.name.toLowerCase().includes(cat)) ?? this.services.find((s) => s.category === 'auto_body')!;
-    const tpl = this.templates.find((t) => t.id === svc.checklist_template_id)!;
-    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso(), checked_in_at: null, checked_in_by_name: null };
-    this.workOrders.push(w);
-    q.status = 'converted';
-    q.work_order_ref = ref;
-    this.log('quotation.convert', 'quotation', q.id, { status: 'accepted' }, { status: 'converted', work_order: ref }, q.outlet.id);
-    this.pushActivity({ kind: 'quote', title: `Quote ${q.ref} converted · ${this.fmtR(q.amount_cents ?? 0)}`, subtitle: `Work order ${ref} queued`, icon: 'request_quote', tone: 'warning' });
+    const w = this.ensureQuoteWorkOrder(q);
+    if (!w.checked_in_at) {
+      this.markCheckedIn(w, w.bay);
+      this.log('work_order.check_in', 'work_order', w.id, { checked_in_at: null }, { checked_in_at: w.checked_in_at, bay: w.bay }, w.outlet.id);
+      this.autoAssign(w);
+    }
+    this.markQuoteConverted(q, w);
     this.emit('work_orders');
-    return clone(q);
+    return this.staffQuotation(q);
+  }
+  /** Check-in of a quote's work order → the quotation becomes `converted` (idempotent). */
+  private markQuoteConverted(q: Quotation, w: WorkOrder) {
+    if (q.status === 'converted') return;
+    q.status = 'converted';
+    q.work_order_ref = w.ref;
+    this.log('quotation.convert', 'quotation', q.id, { status: 'accepted' }, { status: 'converted', work_order: w.ref }, q.outlet.id);
+    this.pushActivity({ kind: 'quote', title: `Quote ${q.ref} converted · ${this.fmtR(q.amount_cents ?? 0)}`, subtitle: `${w.ref} checked in${w.assignee_name ? ` · ${w.assignee_name}` : ''}`, icon: 'request_quote', tone: 'warning' });
+    this.emit('quotations');
   }
 
   /* ------------------------------------------------------------ work orders */
   async listWorkOrders(f: WorkOrderFilters): Promise<WorkOrder[]> {
     await delay();
+    for (const q of this.quotations) this.syncPublicDecision(q);
     let rows = this.workOrders.filter((w) => !f.outlet_id || w.outlet.id === f.outlet_id);
     if (f.status && f.status !== 'all') rows = rows.filter((w) => w.status === f.status);
     return clone(rows);
@@ -601,8 +653,21 @@ export class DemoApi implements AdminApi {
     this.log('work_order.check_in', 'work_order', w.id, { checked_in_at: null }, { checked_in_at: w.checked_in_at, bay }, w.outlet.id);
     const assignee = this.autoAssign(w);
     this.pushActivity({ kind: 'assigned', title: `${w.ref} checked in${assignee ? ` · auto-assigned to ${assignee}` : ''}`, subtitle: `${w.vehicle.registration_no}${bay ? ` · ${bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
+    this.afterCheckIn(w);
     this.emit('work_orders');
     return clone(w);
+  }
+  /** Side effects of a check-in: a quote-based order marks its quotation `converted`; a booking-based one moves the booking to `in_service`. */
+  private afterCheckIn(w: WorkOrder) {
+    const q = w.quotation_ref ? this.quotations.find((x) => x.ref === w.quotation_ref) : undefined;
+    if (q) this.markQuoteConverted(q, w);
+    const b = w.booking_ref ? this.bookings.find((x) => x.ref === w.booking_ref) : undefined;
+    if (b && ['pending', 'confirmed'].includes(b.status)) {
+      const from = b.status;
+      b.status = 'in_service';
+      this.log('booking.checkin', 'booking', b.id, { status: from }, { status: 'in_service', work_order: w.ref, bay: w.bay }, b.outlet_id);
+      this.emit('bookings');
+    }
   }
   /** Stamps `checked_in_at` / `checked_in_by_name` and the `checked_in` task event (bay in the reason). */
   private markCheckedIn(w: WorkOrder, bay: string | null) {
@@ -635,9 +700,9 @@ export class DemoApi implements AdminApi {
     this.log('task.assign', 'task', w.task_id, { assignee: null }, { assignee: pick.id, reason: 'auto_assignment' }, w.outlet.id);
     return pick.full_name;
   }
-  /** Seed refs end at WO-2026-4826; each work order opened in the session takes the next number. */
+  /** Seed refs end at WO-2026-4828; each work order opened in the session takes the next number. */
   private nextWoRef(): string {
-    return `WO-2026-${4827 + this.workOrders.length - WORK_ORDERS.length}`;
+    return `WO-2026-${4829 + this.workOrders.length - WORK_ORDERS.length}`;
   }
   async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }): Promise<WorkOrder> {
     await delay();
@@ -1082,14 +1147,18 @@ export class DemoApi implements AdminApi {
     if (mb?.benefit === 'included') this.postUsage(b);
     this.log('booking.create_walk_in', 'booking', b.id, null, { ref, total_cents: total, price_cents: price, discount_cents: discount, discount_label: b.discount_label, membership_benefit: b.membership_benefit ?? null, addons_cents, vat_cents: vat, vehicle_size: size, customer_id: customer.id, slot_start: b.slot_start, status: b.status, payment_method: b.payment_method ?? null, walk_in: true, on_behalf: true }, o.id);
 
-    const work_order = input.checkin ? this.openWorkOrder(b, input.checkin) : null;
-    this.pushActivity({ kind: 'assigned', title: `${ref} walk-in · ${s.name}`, subtitle: `${outletShort(o.id)} · ${v.registration_no} · by ${this.actor().full_name}${work_order?.bay ? ` · ${work_order.bay}` : ''}`, icon: 'directions_walk', tone: 'primary' });
+    // Every confirmed booking gets its work order at once (awaiting check-in); `checkin` confirms the car on it immediately.
+    const work_order = this.openWorkOrder(b, input.checkin ?? null);
+    this.pushActivity({ kind: 'assigned', title: `${ref} walk-in · ${s.name}`, subtitle: `${outletShort(o.id)} · ${v.registration_no} · by ${this.actor().full_name}${work_order.bay ? ` · ${work_order.bay}` : ''}${work_order.checked_in_at ? '' : ' · awaiting check-in'}`, icon: 'directions_walk', tone: 'primary' });
     this.emit('bookings');
     const booking = this.expandBooking(b);
-    return { booking, duplicate: false, ...(input.checkin ? { work_order: booking.work_order, task: work_order?.task_id ? { id: work_order.task_id, status: work_order.status } : null } : {}) };
+    return { booking, duplicate: false, work_order: booking.work_order, task: { id: work_order.task_id!, status: work_order.status } };
   }
 
-  /** `POST /bookings/:id/checkin` — explicit "car checked in" for a pending / confirmed booking without a work order. */
+  /**
+   * `POST /bookings/:id/checkin` — explicit "car checked in" for a pending / confirmed booking: stamps the work order
+   * the booking already has (`created: false`); legacy bookings without one get it created and checked in.
+   */
   async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult> {
     await delay(260);
     this.requireStaff();
@@ -1100,63 +1169,91 @@ export class DemoApi implements AdminApi {
     const existing = this.workOrders.find((x) => x.booking_ref === b.ref);
     const work_order = existing ?? this.openWorkOrder(b, body);
     if (existing && !existing.checked_in_at) {
+      if (body.priority) existing.priority = body.priority;
       this.markCheckedIn(existing, body.bay?.trim() || existing.bay);
+      this.log('work_order.check_in', 'work_order', existing.id, { checked_in_at: null }, { checked_in_at: existing.checked_in_at, bay: existing.bay }, existing.outlet.id);
       this.autoAssign(existing);
+      this.afterCheckIn(existing);
       this.emit('work_orders');
     }
-    if (!existing) this.pushActivity({ kind: 'assigned', title: `${b.ref} checked in${work_order.assignee_name ? ` · auto-assigned to ${work_order.assignee_name}` : ''}`, subtitle: `${outletShort(b.outlet_id)} · ${work_order.vehicle.registration_no}${work_order.bay ? ` · ${work_order.bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
+    this.pushActivity({ kind: 'assigned', title: `${b.ref} checked in${work_order.assignee_name ? ` · auto-assigned to ${work_order.assignee_name}` : ''}`, subtitle: `${outletShort(b.outlet_id)} · ${work_order.vehicle.registration_no}${work_order.bay ? ` · ${work_order.bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
     this.emit('bookings');
     const booking = this.expandBooking(b);
-    return { booking, work_order: booking.work_order };
+    return { booking, work_order: booking.work_order, created: !existing };
   }
   /**
-   * Opens the booking's work order already checked in (what a booking check-in does server-side), moves the
-   * booking to `in_service` and runs auto-assignment when the flag is on.
+   * Opens the confirmed booking's work order (what confirming a booking does server-side). With `checkin` it is
+   * stamped checked in at once — the booking moves to `in_service` and auto-assignment runs when the flag is on —
+   * otherwise it waits on the board as "Awaiting check-in".
    */
-  private openWorkOrder(b: RawBooking, checkin: { bay?: string | null; priority?: WalkInPriority }): WorkOrder {
+  private openWorkOrder(b: RawBooking, checkin: { bay?: string | null; priority?: WalkInPriority } | null): WorkOrder {
     const s = this.services.find((x) => x.id === b.service_id) ?? serviceById(b.service_id);
     const v = this.vehicle(b.vehicle_id);
     const customer = this.profile(b.customer_id);
     const tpl = this.templates.find((t) => t.id === s.checklist_template_id && t.status === 'published') ?? this.templates.find((t) => t.id === s.checklist_template_id);
     const end = new Date(b.slot_end);
-    const bay = checkin.bay?.trim() || null;
+    const bay = checkin?.bay?.trim() || null;
     const w: WorkOrder = {
       id: nextId('wo'), ref: this.nextWoRef(), outlet: { id: b.outlet_id, name: outletName(b.outlet_id) }, booking_ref: b.ref, quotation_ref: null, customer_name: customer?.full_name ?? 'Customer',
       vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status: 'queued',
-      priority: checkin.priority ?? 2, bay, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
+      priority: checkin?.priority ?? 2, bay, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
       started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl?.steps.length ?? 0, task_id: nextId('task'), events: [], updated_at: nowIso(),
       checked_in_at: null, checked_in_by_name: null,
     };
-    this.markCheckedIn(w, bay);
     this.workOrders.push(w);
-    const from = b.status;
-    b.status = 'in_service';
-    this.log('booking.checkin', 'booking', b.id, { status: from }, { status: 'in_service', work_order: w.ref, bay: w.bay, priority: w.priority }, b.outlet_id);
-    this.autoAssign(w);
+    this.log('work_order.create', 'work_order', w.id, null, { ref: w.ref, booking: b.ref, checked_in: Boolean(checkin) }, b.outlet_id);
+    if (checkin) {
+      this.markCheckedIn(w, bay);
+      const from = b.status;
+      b.status = 'in_service';
+      this.log('booking.checkin', 'booking', b.id, { status: from }, { status: 'in_service', work_order: w.ref, bay: w.bay, priority: w.priority }, b.outlet_id);
+      this.autoAssign(w);
+    }
     this.emit('work_orders');
     return w;
   }
 
+  /** `POST /payments/record` — counter payment for a booking (`booking_id`) or an accepted quotation (`quotation_id`); same validations as the API. */
   async recordPayment(input: RecordPaymentInput): Promise<PosPayment> {
     await delay(260);
     this.requireStaff();
-    const prior = this.ops.get(`payment:${input.idempotency_key}`);
+    const key = input.idempotency_key ?? `pos-${uuid()}`;
+    const prior = this.ops.get(`payment:${key}`);
     if (prior) return clone(this.posPayments.find((p) => p.id === prior)!);
-    const b = this.bookings.find((x) => x.id === input.booking_id);
-    if (!b) throw new ApiRequestError(404, { code: 'not_found', message: 'Booking not found' });
-    this.requireOutletAccess(b.outlet_id);
-    if (input.amount_cents !== b.total_cents) throw new ApiRequestError(400, { code: 'validation_error', message: `Amount must equal the booking total (${this.fmtR(b.total_cents)})`, details: [{ path: 'amount_cents', message: 'Must equal booking total' }] });
-    if (this.payments.some((p) => p.booking_ref === b.ref && p.status === 'successful')) throw new ApiRequestError(409, { code: 'conflict', message: 'This booking is already paid' });
+    if (Boolean(input.booking_id) === Boolean(input.quotation_id)) {
+      throw new ApiRequestError(400, { code: 'validation_error', message: 'Exactly one of booking_id or quotation_id is required', details: [{ path: 'booking_id', message: 'booking_id or quotation_id' }] });
+    }
+    if (!['cash', 'card_terminal'].includes(input.method)) throw new ApiRequestError(400, { code: 'validation_error', message: 'method must be cash or card_terminal', details: [{ path: 'method', message: 'Invalid' }] });
+    let target: { kind: 'booking' | 'quotation'; id: string; ref: string; outlet_id: string; customer_id: string; total: number };
+    if (input.booking_id) {
+      const b = this.bookings.find((x) => x.id === input.booking_id);
+      if (!b) throw new ApiRequestError(404, { code: 'not_found', message: 'Booking not found' });
+      if (b.status === 'cancelled') throw new ApiRequestError(409, { code: 'invalid_transition', message: 'Cannot record a payment for a cancelled booking' });
+      if (this.payments.some((p) => p.booking_ref === b.ref && p.status === 'successful')) throw new ApiRequestError(409, { code: 'conflict', message: 'This booking is already paid' });
+      target = { kind: 'booking', id: b.id, ref: b.ref, outlet_id: b.outlet_id, customer_id: b.customer_id, total: b.total_cents };
+    } else {
+      const q = this.quotations.find((x) => x.id === input.quotation_id);
+      if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
+      this.syncPublicDecision(q);
+      if (!['accepted', 'converted'].includes(q.status)) throw new ApiRequestError(409, { code: 'conflict', message: 'Only accepted quotations can be paid', details: { quotation_id: q.id, status: q.status } });
+      if (this.payments.some((p) => p.quotation_id === q.id && p.status === 'successful')) throw new ApiRequestError(409, { code: 'conflict', message: 'This quotation is already paid' });
+      target = { kind: 'quotation', id: q.id, ref: q.ref, outlet_id: q.outlet.id, customer_id: q.customer_id, total: q.amount_cents ?? 0 };
+    }
+    this.requireOutletAccess(target.outlet_id);
+    if (input.amount_cents !== target.total) throw new ApiRequestError(400, { code: 'validation_error', message: `Amount must equal the ${target.kind} total (${this.fmtR(target.total)})`, details: [{ path: 'amount_cents', message: `Must equal ${target.kind} total` }] });
     const receipt = `RCP-${70010 + this.payments.length}`;
     const id = uuid();
     const now = nowIso();
-    this.payments.unshift({ id, booking_ref: b.ref, customer_name: this.profile(b.customer_id)?.full_name ?? 'Customer', provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, verified_at: now, created_at: now });
-    const pos: PosPayment = { id, booking_id: b.id, method: input.method, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, provider_ref: input.reference?.trim() || null, verified_at: now, created_at: now };
+    const customer_name = this.profile(target.customer_id)?.full_name ?? 'Customer';
+    this.payments.unshift({ id, booking_id: target.kind === 'booking' ? target.id : null, booking_ref: target.kind === 'booking' ? target.ref : null, quotation_id: target.kind === 'quotation' ? target.id : null, quotation_ref: target.kind === 'quotation' ? target.ref : null, customer_name, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, verified_at: now, created_at: now });
+    const pos: PosPayment = { id, booking_id: target.kind === 'booking' ? target.id : null, quotation_id: target.kind === 'quotation' ? target.id : null, method: input.method, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, provider_ref: input.reference?.trim() || null, verified_at: now, created_at: now };
     this.posPayments.push(pos);
-    this.ops.set(`payment:${input.idempotency_key}`, id);
-    this.log('payment.record', 'payment', id, null, { booking_ref: b.ref, amount_cents: input.amount_cents, method: input.method, reference: pos.provider_ref, receipt_no: receipt }, b.outlet_id);
-    this.pushActivity({ kind: 'payment', title: `${this.fmtR(input.amount_cents)} ${input.method === 'cash' ? 'cash' : 'card'} payment recorded · ${b.ref}`, subtitle: `${receipt} · attested by ${this.actor().full_name}`, icon: 'point_of_sale', tone: 'primary' });
+    this.ops.set(`payment:${key}`, id);
+    this.log('payment.record', 'payment', id, null, { [target.kind === 'booking' ? 'booking_ref' : 'quotation_ref']: target.ref, amount_cents: input.amount_cents, method: input.method, reference: pos.provider_ref, receipt_no: receipt }, target.outlet_id);
+    this.pushActivity({ kind: 'payment', title: `${this.fmtR(input.amount_cents)} ${input.method === 'cash' ? 'cash' : 'card'} payment recorded · ${target.ref}`, subtitle: `${receipt} · attested by ${this.actor().full_name}`, icon: 'point_of_sale', tone: 'primary' });
     this.emit('payments');
+    if (target.kind === 'quotation') this.emit('quotations');
+    else this.emit('bookings');
     return clone(pos);
   }
 
@@ -1811,7 +1908,8 @@ export class DemoApi implements AdminApi {
   async listPayments(p: OutletScoped): Promise<Payment[]> {
     await delay();
     const refs = new Set(this.scoped(this.bookings, p.outlet_id).map((b) => b.ref));
-    return clone(this.payments.filter((x) => !p.outlet_id || (x.booking_ref && refs.has(x.booking_ref))).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+    const quoteIds = new Set(this.quotations.filter((q) => !p.outlet_id || q.outlet.id === p.outlet_id).map((q) => q.id));
+    return clone(this.payments.filter((x) => !p.outlet_id || (x.booking_ref && refs.has(x.booking_ref)) || (x.quotation_id && quoteIds.has(x.quotation_id))).sort((a, b) => b.created_at.localeCompare(a.created_at)));
   }
   async reportSummary(f: ReportFilters): Promise<ReportSummary> {
     await delay();
@@ -1943,6 +2041,8 @@ export class DemoApi implements AdminApi {
       const b = this.bookings.filter((x) => x.status === 'confirmed' && new Date(x.slot_start).getTime() <= Date.now()).sort((a, c) => a.slot_start.localeCompare(c.slot_start))[0];
       if (b) {
         b.status = 'in_service';
+        const w = this.workOrders.find((x) => x.booking_ref === b.ref);
+        if (w && !w.checked_in_at) { this.markCheckedIn(w, w.bay); this.autoAssign(w); this.emit('work_orders'); }
         this.pushActivity({ kind: 'assigned', title: `${b.ref} checked in · ${serviceById(b.service_id).name}`, subtitle: `${outletShort(b.outlet_id)} · ${vehicleById(b.vehicle_id).registration_no}`, icon: 'login', tone: 'neutral' });
         this.emit('bookings');
       }

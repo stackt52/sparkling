@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
 
+import 'booking.dart';
 import 'enums.dart';
 import 'json.dart';
+import 'money.dart';
 
 /// `quotations.line_items[]` / `items[]` entry — one attention area (dent,
 /// scratch, bumper …) optionally tied to an auto-body `service_id`.
@@ -262,7 +264,56 @@ enum QuoteDecisionSource {
   };
 }
 
-/// `quotations` row (+ `attachments[]` on `GET /quotations/:id`).
+/// Nested `work_order` on a quotation (`{ id, ref, status, checked_in_at }`).
+/// Accepting a quotation creates its work order at once; it waits on the
+/// board (`checked_in_at: null`) until the car is confirmed on site, which
+/// also marks the quotation `converted`.
+class QuotationWorkOrder extends Equatable {
+  const QuotationWorkOrder({
+    required this.id,
+    required this.ref,
+    required this.status,
+    this.checkedInAt,
+  });
+
+  final String id;
+  final String ref;
+  final WorkStatus status;
+  final DateTime? checkedInAt;
+
+  bool get isCheckedIn => checkedInAt != null;
+
+  /// Created on acceptance, car not on site yet.
+  bool get awaitingCheckIn => !isCheckedIn && status.isOpen;
+
+  factory QuotationWorkOrder.fromJson(Json json) => QuotationWorkOrder(
+    id: str(json['id']),
+    ref: str(json['ref']),
+    status: WorkStatus.fromDb(strOrNull(json['status'])),
+    checkedInAt: dtOrNull(json['checked_in_at']),
+  );
+
+  Json toJson() => compact({
+    'id': id,
+    'ref': ref,
+    'status': status.db,
+    'checked_in_at': iso(checkedInAt),
+  });
+
+  QuotationWorkOrder copyWith({WorkStatus? status, DateTime? checkedInAt}) =>
+      QuotationWorkOrder(
+        id: id,
+        ref: ref,
+        status: status ?? this.status,
+        checkedInAt: checkedInAt ?? this.checkedInAt,
+      );
+
+  @override
+  List<Object?> get props => [id, ref, status, checkedInAt];
+}
+
+/// `quotations` row (+ `attachments[]`, `work_order`, `payment` and
+/// `amount_due_cents` on `GET /quotations/:id`).
 class Quotation extends Equatable {
   const Quotation({
     required this.id,
@@ -296,7 +347,13 @@ class Quotation extends Equatable {
     this.pdfUrl,
     this.customerName,
     this.pendingSync = false,
-  });
+    this.workOrder,
+    this.workOrderRef,
+    this.payment,
+    int? amountDueCents,
+  }) : // The wire field backs the `amountDueCents` getter (computed fallback).
+       // ignore: prefer_initializing_formals
+       _amountDueCents = amountDueCents;
 
   final String id;
   final String ref;
@@ -346,6 +403,45 @@ class Quotation extends Equatable {
 
   /// Raised offline — waiting in the sync queue for a server id / ref.
   final bool pendingSync;
+
+  /// Work order created on acceptance (awaiting check-in until the car is
+  /// confirmed on site, which makes the quotation `converted`).
+  final QuotationWorkOrder? workOrder;
+
+  /// `work_order_ref` — also set when only the ref is known.
+  final String? workOrderRef;
+
+  /// Successful counter payment (`POST /payments/record { quotation_id }`).
+  final PaymentSummary? payment;
+  final int? _amountDueCents;
+
+  /// `amount_due_cents`: 0 once paid, otherwise the quoted total.
+  int get amountDueCents =>
+      _amountDueCents ?? (isPaid ? 0 : (amountCents ?? itemsTotalCents));
+
+  bool get isPaid => payment?.isVerified ?? false;
+
+  /// Accepted or converted with a total still to be settled at the counter.
+  bool get isPaymentDue =>
+      (status == QuotationStatus.accepted ||
+          status == QuotationStatus.converted) &&
+      !isPaid &&
+      amountDueCents > 0;
+
+  /// "Paid · cash · RCP-70007" / "R 2 850.00 due at the counter" — null
+  /// before acceptance.
+  String? get paymentLabel {
+    final p = payment;
+    if (p != null && p.isVerified) {
+      return [
+        'Paid',
+        p.methodLabel,
+        p.receiptNo,
+      ].whereType<String>().join(' · ');
+    }
+    if (!isPaymentDue) return null;
+    return '${Money.formatZar(amountDueCents)} due at the counter';
+  }
 
   /// Alias of [lineItems] (`items` on the wire).
   List<LineItem> get items => lineItems;
@@ -443,6 +539,16 @@ class Quotation extends Equatable {
           strOrNull(json['customer_name']) ??
           strOrNull(asJsonOrNull(json['customer'])?['full_name']),
       pendingSync: boolOf(json['pending_sync']),
+      workOrder: json['work_order'] is Map
+          ? QuotationWorkOrder.fromJson(asJson(json['work_order']))
+          : null,
+      workOrderRef:
+          strOrNull(json['work_order_ref']) ??
+          strOrNull(asJsonOrNull(json['work_order'])?['ref']),
+      payment: json['payment'] is Map
+          ? PaymentSummary.fromJson(asJson(json['payment']))
+          : null,
+      amountDueCents: intOrNull(json['amount_due_cents']),
     );
   }
 
@@ -480,6 +586,10 @@ class Quotation extends Equatable {
     'pdf_url': pdfUrl,
     'customer_name': customerName,
     'pending_sync': pendingSync ? true : null,
+    'work_order': workOrder?.toJson(),
+    'work_order_ref': workOrderRef ?? workOrder?.ref,
+    'payment': payment?.toJson(),
+    'amount_due_cents': _amountDueCents,
   });
 
   Quotation copyWith({
@@ -504,6 +614,10 @@ class Quotation extends Equatable {
     String? pdfUrl,
     String? customerName,
     bool? pendingSync,
+    QuotationWorkOrder? workOrder,
+    String? workOrderRef,
+    PaymentSummary? payment,
+    int? amountDueCents,
   }) => Quotation(
     id: id,
     ref: ref,
@@ -536,6 +650,10 @@ class Quotation extends Equatable {
     pdfUrl: pdfUrl ?? this.pdfUrl,
     customerName: customerName ?? this.customerName,
     pendingSync: pendingSync ?? this.pendingSync,
+    workOrder: workOrder ?? this.workOrder,
+    workOrderRef: workOrderRef ?? this.workOrderRef ?? workOrder?.ref,
+    payment: payment ?? this.payment,
+    amountDueCents: amountDueCents ?? _amountDueCents,
   );
 
   @override
@@ -552,6 +670,9 @@ class Quotation extends Equatable {
     decisionSource,
     publicUrl,
     pendingSync,
+    workOrder,
+    payment,
+    _amountDueCents,
   ];
 }
 

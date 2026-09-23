@@ -175,15 +175,19 @@ export interface AdminApi {
   getBooking(id: string): Promise<BookingDetail>;
   cancelBooking(id: string, reason: string): Promise<Booking>;
   /**
-   * Explicit "car checked in" for a `pending` / `confirmed` booking that has no work order yet
-   * (`POST /bookings/:id/checkin { bay?, priority? }`): creates the work order already checked in and
-   * auto-assigns it when the `auto_assignment` flag is on.
+   * Explicit "car checked in" for a `pending` / `confirmed` booking (`POST /bookings/:id/checkin { bay?, priority? }`):
+   * stamps `checked_in_at` on the work order the booking already has (created when it was confirmed; `created:false`),
+   * moves the booking to `in_service` and auto-assigns it when the `auto_assignment` flag is on.
    */
   checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult>;
   /* quotations */
   listQuotations(filters: QuotationFilters): Promise<Quotation[]>;
   getQuotation(id: string): Promise<Quotation>;
   submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }): Promise<Quotation>;
+  /**
+   * "Check in & start" for an accepted quotation (`POST /quotations/:id/convert`): the work order already exists since
+   * acceptance, so this confirms the car on site (same effect as `checkinWorkOrder`) and marks the quotation `converted`.
+   */
   convertQuotation(id: string): Promise<Quotation>;
   /** Staff-raised quote (`POST /quotations`, staff shape) → status `quoted` with a fresh public link. */
   raiseQuotation(input: RaiseQuotationInput): Promise<Quotation>;
@@ -229,6 +233,10 @@ export interface AdminApi {
   listOutletServicesFor(outletId: string, vehicleSize?: VehicleSize): Promise<OutletServiceOffer[]>;
   availability(outletId: string, serviceId: string, dateISO: string): Promise<AvailabilitySlot[]>;
   createWalkInBooking(input: WalkInBookingInput): Promise<WalkInBookingResult>;
+  /**
+   * Counter payment attestation (`POST /payments/record`, staff / manager / admin) for a booking (`booking_id`) or an
+   * accepted quotation (`quotation_id`). The idempotency key is generated client-side (`pos-<uuid>`) unless given.
+   */
   recordPayment(input: RecordPaymentInput): Promise<PosPayment>;
   /* catalogue */
   listOutlets(): Promise<Outlet[]>;
@@ -491,12 +499,12 @@ export class HttpApi implements AdminApi {
   }
   /** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }`; the bare `work_orders` row is mapped onto the summary shape. */
   async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }) {
-    const res = await this.request<{ booking: Booking; work_order: (Partial<WorkOrderSummary> & { id: string; ref: string; status: WorkStatus }) | null }>('POST', `/bookings/${id}/checkin`, body);
+    const res = await this.request<{ booking: Booking; work_order: (Partial<WorkOrderSummary> & { id: string; ref: string; status: WorkStatus }) | null; created?: boolean }>('POST', `/bookings/${id}/checkin`, body);
     const w = res.work_order;
     const work_order: WorkOrderSummary | null = w
-      ? { id: w.id, ref: w.ref, status: w.status, stage: w.stage ?? 0, stage_count: w.stage_count ?? 0, progress_pct: w.progress_pct ?? 0, assignee_id: w.assignee_id ?? null, assignee_name: w.assignee_name ?? null, bay: w.bay ?? body.bay ?? null, eta_at: w.eta_at ?? null, blocked_reason: w.blocked_reason ?? null }
+      ? { id: w.id, ref: w.ref, status: w.status, stage: w.stage ?? 0, stage_count: w.stage_count ?? 0, progress_pct: w.progress_pct ?? 0, assignee_id: w.assignee_id ?? null, assignee_name: w.assignee_name ?? null, bay: w.bay ?? body.bay ?? null, eta_at: w.eta_at ?? null, blocked_reason: w.blocked_reason ?? null, checked_in_at: w.checked_in_at ?? new Date().toISOString() }
       : null;
-    return { booking: res.booking, work_order };
+    return { booking: res.booking, work_order, created: res.created ?? false };
   }
   listQuotations(f: QuotationFilters) {
     return this.list<Quotation>(`/quotations${qs({ limit: 200, ...f })}`);
@@ -507,10 +515,11 @@ export class HttpApi implements AdminApi {
   async submitQuote(id: string, body: { amount_cents: number; line_items: QuoteLineItem[]; valid_until: string; items_note?: string | null }) {
     return (await this.request<{ quotation: Quotation }>('POST', `/quotations/${id}/quote`, body)).quotation;
   }
-  /** `POST /quotations/:id/convert` → `{ quotation, work_order, task }`; the quotation carries `work_order_ref`. */
+  /** `POST /quotations/:id/convert` → `{ quotation, work_order, task }`; the quotation carries `work_order` / `work_order_ref`. */
   async convertQuotation(id: string) {
-    const res = await this.request<{ quotation: Quotation; work_order: { ref: string } }>('POST', `/quotations/${id}/convert`, {});
-    return { ...res.quotation, work_order_ref: res.quotation.work_order_ref ?? res.work_order?.ref ?? null };
+    const res = await this.request<{ quotation: Quotation; work_order: { id: string; ref: string; status: WorkStatus; checked_in_at?: string | null } | null }>('POST', `/quotations/${id}/convert`, {});
+    const wo = res.quotation.work_order ?? (res.work_order ? { id: res.work_order.id, ref: res.work_order.ref, status: res.work_order.status, checked_in_at: res.work_order.checked_in_at ?? null } : null);
+    return { ...res.quotation, work_order: wo, work_order_ref: res.quotation.work_order_ref ?? wo?.ref ?? null };
   }
   async raiseQuotation(input: RaiseQuotationInput) {
     const res = await this.request<{ quotation: Quotation } | Quotation>('POST', '/quotations', input);
@@ -609,8 +618,12 @@ export class HttpApi implements AdminApi {
   createWalkInBooking(input: WalkInBookingInput) {
     return this.request<WalkInBookingResult>('POST', '/bookings', input);
   }
+  /** 201 `{ payment, duplicate:false }` (200 `duplicate:true` on an idempotent replay) — the dashboard keeps the payment. */
   async recordPayment(input: RecordPaymentInput) {
-    const res = await this.request<{ payment: PosPayment }>('POST', '/payments/record', input);
+    const body: RecordPaymentInput = { ...input, idempotency_key: input.idempotency_key ?? `pos-${uuid()}` };
+    if (!body.booking_id) delete body.booking_id;
+    if (!body.quotation_id) delete body.quotation_id;
+    const res = await this.request<{ payment: PosPayment; duplicate?: boolean }>('POST', '/payments/record', body);
     return res.payment;
   }
   listOutlets() {

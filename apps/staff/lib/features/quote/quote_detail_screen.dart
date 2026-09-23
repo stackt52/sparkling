@@ -13,9 +13,11 @@ import 'quote_actions.dart';
 import 'quote_widgets.dart';
 
 /// Staff quotation detail (`/quotes/:id`): items, damage photos (authed),
-/// status timeline (raised → sent → decided with the decision source),
-/// public link actions, PDF and "Convert to work order" for supervisors /
-/// managers once accepted.
+/// status timeline (raised → sent → decided with the decision source → work
+/// order), work-order / payment chips ("WO-… · awaiting check-in",
+/// "R x due" / "Paid · RCP-…"), public link actions, PDF and, for
+/// supervisors / managers, "Confirm check-in" on the accepted quote's work
+/// order (`POST /quotations/:id/convert` → `converted`).
 class QuoteDetailScreen extends StatefulWidget {
   const QuoteDetailScreen({super.key, required this.quotationId});
 
@@ -106,7 +108,10 @@ class _QuoteDetailScreenState extends State<QuoteDetailScreen> {
       );
       if (result != null && mounted) {
         StaffHaptics.success(context);
-        StaffSnack.show(context, '${q.ref} converted — work order queued');
+        StaffSnack.show(
+          context,
+          '${q.ref} converted — ${result.workOrderRef ?? 'work order'} checked in',
+        );
         setState(() {
           _future = Future.value(result);
         });
@@ -216,6 +221,11 @@ class _QuoteDetailScreenState extends State<QuoteDetailScreen> {
                                 : 'Waiting for the customer',
                             text: validityLabel(q),
                           ),
+                        if (q.workOrder != null ||
+                            quotePaymentLabel(q) != null) ...[
+                          const SizedBox(height: 10),
+                          QuoteStateChips(quotation: q),
+                        ],
                         const SizedBox(height: 14),
                         _Card(
                           child: Column(
@@ -386,8 +396,12 @@ class _QuoteDetailScreenState extends State<QuoteDetailScreen> {
                           const SizedBox(height: 16),
                           PillButton(
                             key: const ValueKey('quote-convert'),
-                            label: 'Convert to work order',
-                            icon: Symbols.build_rounded,
+                            label: q.workOrder != null
+                                ? 'Confirm check-in · ${q.workOrder!.ref}'
+                                : 'Convert to work order',
+                            icon: q.workOrder != null
+                                ? Symbols.login_rounded
+                                : Symbols.build_rounded,
                             variant: PillButtonVariant.navy,
                             expand: true,
                             minHeight: 54,
@@ -542,12 +556,18 @@ class _Timeline extends StatelessWidget {
       ),
       (
         'Work order',
-        converted
-            ? 'Created from this quote'
-            : q.status == QuotationStatus.accepted
-            ? 'Convert to schedule the repair'
-            : 'After acceptance',
-        converted
+        [
+          quoteWorkOrderLabel(q) ??
+              (converted
+                  ? 'Created from this quote'
+                  : q.status == QuotationStatus.accepted
+                  ? 'Convert to schedule the repair'
+                  : 'Created on acceptance, then awaiting check-in'),
+          if (q.workOrder?.awaitingCheckIn ?? false)
+            'confirm the check-in when the car arrives',
+          ?quotePaymentLabel(q),
+        ].join(' · '),
+        converted || (q.workOrder?.isCheckedIn ?? false)
             ? TimelineState.done
             : q.status == QuotationStatus.accepted
             ? TimelineState.current

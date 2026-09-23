@@ -368,7 +368,13 @@ describe('POST /v1/bookings (staff walk-in)', () => {
     const b = r.body.booking;
     expect(b.slot_start).toBe('2026-09-14T08:15:00.000Z');
     expect(b.slot_end).toBe('2026-09-14T08:45:00.000Z');
-    expect(b).toMatchObject({ status: 'confirmed', walk_in: true, created_by: 'tech_1', customer_id: 'cust_1', price_cents: 12000, total_cents: 12000, work_order: null });
+    expect(b).toMatchObject({ status: 'confirmed', walk_in: true, created_by: 'tech_1', customer_id: 'cust_1', price_cents: 12000, total_cents: 12000 });
+    // A confirmed booking is on the board straight away, awaiting the car's check-in.
+    expect(b.work_order).toMatchObject({ status: 'queued' });
+    const wo = db.rows('work_orders').find((w) => w.booking_id === b.id)!;
+    expect(wo.status).toBe('queued');
+    expect(wo.checked_in_at ?? null).toBeNull();
+    expect(wo.assignee_id ?? null).toBeNull();
     expect(r.body.duplicate).toBe(false);
     expect(r.body.work_order).toBeUndefined();
     const log = audits('booking.create_walk_in');
@@ -514,5 +520,26 @@ describe('POST /v1/payments/record', () => {
     const missing = await post('/v1/payments/record', 'tech', { ...record, booking_id: '10000000-0000-4000-8000-00000000ffff' });
     expect(missing.status).toBe(404);
     expect(db.rows('payments')).toHaveLength(0);
+  });
+});
+
+describe('booking → work order lifecycle', () => {
+  it('check-in reuses the work order created at confirmation (no duplicate), marks it checked in', async () => {
+    vi.useFakeTimers({ now: new Date('2026-09-14T08:07:00.000Z'), toFake: ['Date'] });
+    const created = await post('/v1/bookings', 'tech', { vehicle_id: VEH_1, outlet_id: OUTLET, service_id: SERVICE, customer_id: 'cust_1', walk_in: true, client_op_id: 'op-walk-lifecycle' });
+    expect(created.status).toBe(201);
+    const bookingId = created.body.booking.id as string;
+    expect(db.rows('work_orders').filter((w) => w.booking_id === bookingId)).toHaveLength(1);
+    const before = db.rows('work_orders').find((w) => w.booking_id === bookingId)!;
+    expect(before.checked_in_at ?? null).toBeNull();
+
+    const checkin = await post(`/v1/bookings/${bookingId}/checkin`, 'sup', { bay: 'Bay 3', priority: 1 });
+    expect(checkin.status).toBe(200);
+    expect(checkin.body.work_order).toMatchObject({ id: before.id, bay: 'Bay 3', priority: 1, checked_in_by: 'sup_1' });
+    expect(checkin.body.work_order.checked_in_at).toBeTruthy();
+    expect(checkin.body.booking.status).toBe('in_service');
+    expect(db.rows('work_orders').filter((w) => w.booking_id === bookingId)).toHaveLength(1);
+    expect(db.rows('task_events').some((e) => e.event === 'checked_in' && e.work_order_id === before.id)).toBe(true);
+    vi.useRealTimers();
   });
 });
