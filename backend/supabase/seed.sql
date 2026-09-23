@@ -153,6 +153,7 @@ insert into public.notification_templates (key, channel, title, body, is_promoti
  -- Twilio WhatsApp Content templates carried over from the legacy sparkling-admin project (approved cards)
  ('service_ready','whatsapp',null,'Thank you for visiting Sparkling Auto. Your {{vehicle}} is ready at {{outlet}}. Present OTP {{otp}} to collect your keys.',false,'twilio','HX63a748f8b6680eac890e0137dfcf0fdb','{"1":"otp"}'),
  ('pickup_otp','push','Collection OTP','Show OTP {{otp}} at {{outlet}} to collect your {{vehicle}}.',false,null,null,'{}'),
+ ('vehicle_collected','push','Keys collected','Your {{vehicle}} was collected from {{outlet}} at {{time}}. Thank you for choosing Sparkling!',false,null,null,'{}'),
  ('pickup_otp','whatsapp',null,'Your Sparkling collection OTP is {{otp}}. Present it at {{outlet}} to collect your keys.',false,'twilio','HX63a748f8b6680eac890e0137dfcf0fdb','{"1":"otp"}'),
  ('payment_successful','push','Payment received','R {{amount}} received. Receipt {{receipt}}.',false,null,null,'{}'),
  ('payment_failed','push','Payment failed','We could not process R {{amount}}. Tap to retry.',false,null,null,'{}'),

@@ -5454,6 +5454,16 @@ class DemoStore {
     _notify('work_orders', workOrderId);
     if (task != null) _notify('tasks', task.id);
     if (wo.bookingId != null) _notify('bookings', wo.bookingId);
+    // Mirror the API's push: the customer is told their keys were handed over.
+    _pushNotification(
+      wo.customerId,
+      'vehicle_collected',
+      'Keys collected',
+      'Your ${vehicleById(wo.vehicleId)?.displayName ?? 'vehicle'} was collected from '
+          '${outletById(wo.outletId)?.name} at ${SparklingDates.hhmm(at)}. '
+          'Thank you for choosing Sparkling!',
+      {'type': 'booking', 'id': wo.bookingId ?? wo.id},
+    );
     return PickupVerifyResult(verified: true, collectedAt: at);
   }
 

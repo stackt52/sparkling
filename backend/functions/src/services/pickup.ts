@@ -83,6 +83,22 @@ export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp
     metadata: { otp_attempts: attempts + 1 },
   });
   await audit(ctx, { action: 'work_order.collected', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { collected_at: now, verified_by: ctx.auth.uid } });
+  // Tell the customer their keys were handed over (push; never blocks the release).
+  try {
+    const outlet = await db.from('outlets').select('name, timezone').eq('id', wo.outlet_id).maybeSingle();
+    const o = outlet.data as { name: string; timezone: string | null } | null;
+    const time = new Intl.DateTimeFormat('en-GB', { timeZone: o?.timezone ?? 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(now));
+    await notify({
+      recipientId: wo.customer_id,
+      templateKey: 'vehicle_collected',
+      vars: { vehicle: await vehicleLabel(wo.vehicle_id), outlet: o?.name ?? '', time, ref: wo.ref },
+      dedupeKey: `vehicle_collected:${wo.id}`,
+      payload: { type: wo.booking_id ? 'booking' : 'work_order', booking_id: wo.booking_id, work_order_id: wo.id, collected_at: now },
+      channels: ['push'],
+    });
+  } catch (err) {
+    ctx.log.warn({ err, work_order_id: wo.id }, 'vehicle_collected notification failed');
+  }
   return { work_order: redactPickupOtp(ctx.auth, updated), collected_at: now };
 }
 

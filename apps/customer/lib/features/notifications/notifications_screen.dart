@@ -97,6 +97,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   IconData _icon(AppNotification n) => switch (n.templateKey) {
+    final k when k.contains('collected') => Symbols.car_tag_rounded,
     final k when k.contains('otp') || k.contains('pickup') =>
       Symbols.key_rounded,
     final k when k.contains('ready') => Symbols.task_alt_rounded,

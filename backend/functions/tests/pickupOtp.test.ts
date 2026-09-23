@@ -64,6 +64,7 @@ beforeEach(() => {
   db.seed('notification_templates', [
     { key: 'service_ready', channel: 'push', title: 'Ready', body: 'Your {{vehicle}} is ready at {{outlet}}. Collection OTP {{otp}}.', is_promotional: false, is_active: true },
     { key: 'pickup_otp', channel: 'push', title: 'Collection OTP', body: 'Show OTP {{otp}} at {{outlet}} to collect your {{vehicle}}.', is_promotional: false, is_active: true },
+    { key: 'vehicle_collected', channel: 'push', title: 'Keys collected', body: 'Your {{vehicle}} was collected from {{outlet}} at {{time}}.', is_promotional: false, is_active: true },
   ]);
   db.seed('device_tokens', [{ profile_id: 'cust_1', token: 'tok_c1', platform: 'android', app: 'customer' }]);
   setSupabaseClient(db as any);
@@ -172,6 +173,12 @@ describe('verifyPickup (staff hand-over)', () => {
     expect(db.rows('audit_events').some((a) => a.action === 'work_order.collected' && a.entity_id === WO)).toBe(true);
 
     await expect(verifyPickup(sup(), WO, otp)).rejects.toMatchObject({ code: 'conflict', details: { collected_at: out.collected_at } });
+    // The customer is told their keys were handed over (push, once).
+    const told = db.rows('notifications').filter((n) => n.template_key === 'vehicle_collected');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ recipient_id: 'cust_1', channel: 'push' });
+    expect(told[0].body).toMatch(/collected from Sparkling Sandton at \d{2}:\d{2}/);
+    expect(told[0].payload).toMatchObject({ type: 'booking', booking_id: BOOKING, work_order_id: WO });
   });
 
   it('is restricted to staff of the outlet', async () => {
