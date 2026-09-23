@@ -44,6 +44,9 @@ export interface AdminWorkOrder {
   /** Car confirmed on site; null = awaiting check-in (not assignable yet). */
   checked_in_at: string | null;
   checked_in_by_name: string | null;
+  /** Keys released to the customer (collection OTP verified). */
+  collected_at: string | null;
+  pickup_otp_verified_at: string | null;
   eta_at: string | null;
   due_at: string | null;
   started_at: string | null;
@@ -146,6 +149,8 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
       assignee_name: w.assignee_id ? (nameOf.get(w.assignee_id) ?? null) : null,
       checked_in_at: w.checked_in_at ?? null,
       checked_in_by_name: w.checked_in_by ? (nameOf.get(w.checked_in_by) ?? null) : null,
+      collected_at: w.collected_at ?? null,
+      pickup_otp_verified_at: w.pickup_otp_verified_at ?? null,
       eta_at: w.eta_at ?? null,
       due_at: w.due_at ?? null,
       started_at: w.started_at ?? null,

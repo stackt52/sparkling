@@ -133,3 +133,29 @@ describe('checklist step photos', () => {
     expect(customer.status).toBe(403);
   });
 });
+
+describe('parseMultipart on Cloud Functions (pre-buffered rawBody)', () => {
+  it('parses the form from req.rawBody when the request stream was already drained', async () => {
+    const { parseMultipart } = await import('../src/lib/multipart.js');
+    const { PassThrough } = await import('node:stream');
+    const boundary = '----sparklingTestBoundary';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="step_key"\r\n\r\nprewash\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n`),
+      PNG_1x1,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    // A request whose stream has nothing left to read (as on Cloud Functions), but carries rawBody.
+    const req = new PassThrough() as unknown as import('express').Request & { rawBody?: Buffer };
+    req.end();
+    Object.assign(req, {
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(body.length) },
+      rawBody: body,
+      is: (type: string) => (type === 'multipart/form-data' ? 'multipart/form-data' : false),
+    });
+    const form = await parseMultipart(req, { fileField: 'photo', maxFileBytes: 1024 * 1024 });
+    expect(form.fields.step_key).toBe('prewash');
+    expect(form.file?.filename).toBe('p.png');
+    expect(form.file?.buffer.equals(PNG_1x1)).toBe(true);
+  });
+});

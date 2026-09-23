@@ -30,6 +30,8 @@ export type Capability =
   | 'task:transition'
   /** Explicit "car checked in" (`POST /work-orders/:id/checkin`, `POST /bookings/:id/checkin`) — ops roles. */
   | 'work_order:checkin'
+  /** Vehicle hand-over with the customer's collection OTP (`POST /work-orders/:id/pickup/verify` / `…/resend`) — ops roles. */
+  | 'work_order:handover'
   /** Counter payment attestation (`POST /payments/record`) for bookings and accepted quotations — staff / manager / admin. */
   | 'payment:record'
   | 'user:manage'
@@ -49,14 +51,14 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   admin: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'payment:record', 'user:manage',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record', 'user:manage',
     'loyalty:draft', 'loyalty:publish', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'catalogue:manage', 'service:manage',
     'template:manage', 'flags:manage', 'notification:resend',
   ]),
   manager: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'payment:record',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record',
     'loyalty:draft', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'notification:resend',
   ]),
   finance: new Set<Capability>([
@@ -65,7 +67,7 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   ]),
   supervisor: new Set<Capability>([
     'view:overview', 'view:work_orders', 'view:inventory', 'view:bookings', 'view:quotations',
-    'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'payment:record', 'inventory:movement',
+    'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record', 'inventory:movement',
   ]),
 };
 

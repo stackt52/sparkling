@@ -83,6 +83,46 @@ and the first sign-in forces a password change.
   return fake `Spk-…` passwords and flag the row; `/change-password` renders as a preview and "Set password" just
   returns to the dashboard.
 
+## Vehicle hand-over — collection OTP (Work, Bookings)
+
+When a work order is **verified** the customer receives a 5-digit collection OTP (push / WhatsApp `pickup_otp`); the keys
+are released only against that code. Capability `work_order:handover` (admin / manager / supervisor — the check-in roles).
+
+* **Work board** — a `verified` card shows **Ready for collection** until the OTP is verified, then **Collected HH:mm**.
+  The drawer of a verified, not-yet-collected order has a **Hand over vehicle** section (`src/components/work/HandoverPanel.tsx`):
+  a 5-box OTP input (digits only, auto-advance, Backspace steps back, paste fills all boxes, Enter submits), **Release keys** →
+  `POST /work-orders/:id/pickup/verify { otp }`, and a **Resend OTP** link → `POST /work-orders/:id/pickup/resend`
+  (the same code again; the link counts the API's `retry_after_seconds` / 429 cooldown down — "Resend OTP in 42s").
+  Errors are inline: 409 `invalid_otp` → "Incorrect OTP · 4 attempts remaining" (boxes cleared), after the 5th failure
+  (`locked: true`) the boxes and the button are disabled with the locked message; 409 `conflict` with `collected_at` just
+  refreshes the card; 409 `validation_error { reason: 'payment_due' }` (unpaid cash-on-collection booking) shows the
+  cash-due notice with a **Record payment · R x** shortcut (same `RecordPaymentDialog`, `booking_id` from the error), after
+  which the OTP can be entered again. Success: toast **"Keys released · collected HH:mm"**, the header gets the Collected
+  chip, the subtitle "· Collected HH:mm", Reassign / transitions disappear, and the audit trail lists `collected`,
+  `pickup_otp_failed` ("Attempt n of 5") and `pickup_otp_resent` events.
+* **Bookings drawer** — the work-order line reads "WO-… · ready for collection" / "· collected HH:mm" (Collected chip in the
+  header) and, while the booking's work order is verified and not collected, the footer offers **Hand over vehicle · WO-…**,
+  a link to `/work-orders?focus=<id>` that opens the Work drawer with the OTP form.
+* **API client** — `AdminApi.verifyPickup(id, otp)` → `{ work_order, collected_at, collected: true }` and
+  `resendPickupOtp(id)` → `{ work_order, notification, retry_after_seconds }`; `HttpApi` re-reads `GET /admin/work-orders/:id`
+  after either call and overlays `collected_at` / `pickup_otp_verified_at` from the verify response (`WorkOrder` carries
+  `booking_id`, `collected_at`, `pickup_otp_verified_at`; `WorkOrderSummary` carries `collected_at`; `ApiError.code` adds
+  `invalid_otp`). `pickup_otp` itself is never returned to staff.
+* **Demo** — WO-2026-4822 (Naledi, SPK-2026-0092, verified) is seeded with OTP **48213** (`SEED_PICKUP_OTPS` in
+  `src/lib/demo/data.ts`; the code also sits in the customer's `pickup_otp` rows on Messages). Verifying an order in the
+  session issues a random code and posts the push + WhatsApp rows to Messages. `DemoApi.verifyPickup` mirrors the API: 5
+  attempts then locked, the cash-due guard (WO-2026-4828 / SPK-2026-0097 until its cash is recorded), `conflict` once
+  collected; `resendPickupOtp` answers 429 within a minute of the last send.
+
+## Bookings-by-hour chart follows the period
+
+`GET /admin/kpis?period=` returns `bookings_by_hour` for the **selected period** (today / this week / this month) — the
+hour-of-day distribution of all bookings in that window — and `future` only on today's series. `BookingsByHourChart`
+reads `useFilters().period`: the card subtitle says **Today / This week / This month**, the 40 %-opacity "upcoming" series
+and legend entries appear only for today (so week / month stack bookings from other days on the same hour at full
+opacity), the current-hour highlight is today-only, and an all-zero series shows **"No bookings in this period"**.
+`DemoApi.kpis` builds the series from the period's bookings (Monday-to-date / 1st-to-date) the same way.
+
 ## Phone numbers (any country, E.164)
 
 Every phone typed in the dashboard goes through **`PhoneField`** (`src/components/ui/PhoneField.tsx`) and is sent to
@@ -247,6 +287,10 @@ Before going live, enable **Supabase → Authentication → Third-Party Auth →
 | `work-awaiting-checkin.png` | Work board — WO-2026-4826 "Awaiting check-in" card and drawer: Assign disabled ("Check the car in first"), Confirm check-in |
 | `booking-record-payment.png` | Bookings drawer — SPK-2026-0097 ("Work order WO-2026-4828 · awaiting check-in") with the Record payment dialog: Cash / Card terminal, reference, fixed amount |
 | `quotation-paid.png` | Quotations drawer — QT-2026-0041 accepted via the public link: work order tile awaiting check-in, "Paid · cash · RCP-…" after Record payment, Check in & start |
+| `work-handover-otp.png` | Work drawer — WO-2026-4822 "Ready for collection": Hand over vehicle section after a wrong code ("Incorrect OTP · 4 attempts remaining"), Release keys, Resend OTP; the failed attempt in the audit trail |
+| `work-handover-collected.png` | The same drawer after the correct OTP — "Collected HH:mm" chip, "Keys released · collected HH:mm" toast, actions hidden, `collected` audit event |
+| `work-handover-cash-due.png` | WO-2026-4828 (Ayanda's unpaid cash booking) verified in the session — the cash-due notice with the Record payment shortcut |
+| `overview-month.png` | Overview with the period set to This month — "Bookings by hour · This month" stacks bookings from other days, no "upcoming" legend entries |
 | `walkin-*.png`, `catalogue-*.png`, `drawer-*.png`, `public-quote-*.png`, `raise-quote*.png` | Earlier flows (walk-in booking, catalogue, drawers, public quotation page, raise quote) |
 
 ## Branding

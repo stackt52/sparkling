@@ -9,8 +9,8 @@ import {
   SERVICE_GROUPS, VAT_RATE, priceLabel, vehicleSizeOf,
   type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingCheckinResult, type BookingDetail, type ChecklistTemplate, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
-  type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type Outlet, type OutletServiceInput,
-  type OutletServiceOffer, type Page, type Payment, type Period, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
+  type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type NotifyChannel, type Outlet, type OutletServiceInput,
+  type OutletServiceOffer, type Page, type Payment, type Period, type PickupNotification, type PickupResendResult, type PickupVerifyResult, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
   type Profile, type ReportSummary, type ResetPasswordResult, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
   type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WalkInPriority, type WorkOrder, type WorkStatus,
 } from '../types';
@@ -20,7 +20,7 @@ import { PHONE_HINT, normalisePhone } from '../phone';
 import { buildQuotePdf } from './quotePdf';
 import {
   AUDIT, BADGES, DEMO_PROFILES, FLAGS, INVENTORY, LEDGER, LOYALTY_ACCOUNTS, LOYALTY_CONFIGS, NOTIFICATIONS, OUTLETS, OUTLET_COMPONENTS, OUTLET_OFFERS, PAYMENTS,
-  QUOTATIONS, SEED_BOOKINGS, SERVICES, STAFF_BADGES, TEMPLATES, TEN, VEHICLES, WORK_ORDERS, daysAgo, effectivePricing, generateExtraBookings, nowIso, rel,
+  QUOTATIONS, SEED_BOOKINGS, SEED_PICKUP_OTPS, SERVICES, STAFF_BADGES, TEMPLATES, TEN, VEHICLES, WORK_ORDERS, daysAgo, effectivePricing, generateExtraBookings, nowIso, rel,
   outletName, outletShort, profileById, profileName, rng, serviceById, vehicleById, type RawBooking,
 } from './data';
 import type { CatalogueComponent, CatalogueOffer } from './catalogue';
@@ -36,6 +36,10 @@ const nextId = (p: string) => `${p}-${Date.now().toString(36)}-${(seq++).toStrin
 
 /** Mirrors the API's 409 `validation_error` `{ reason: 'not_checked_in' }` on `POST /tasks/:id/assign`. */
 const NOT_CHECKED_IN = 'The vehicle has not been checked in yet — confirm the check-in before assigning this work order';
+
+/** Collection OTP (`POST /work-orders/:id/pickup/*`): 5 wrong codes lock the order; the same code is re-sent at most once a minute. */
+const PICKUP_OTP_MAX_ATTEMPTS = 5;
+const PICKUP_RESEND_INTERVAL_MS = 60_000;
 
 const ALLOWED: Record<WorkStatus, WorkStatus[]> = {
   queued: ['assigned', 'cancelled'],
@@ -92,10 +96,16 @@ export class DemoApi implements AdminApi {
   private photoBlobs = new Map<string, Blob>();
   /** `POST /quotations/:id/share` is rate-limited to 1/min per quotation. */
   private shareTimes = new Map<string, number>();
+  /** Collection OTPs issued on `verified` (work order id → code, issue time, failed attempts, last send). Staff never read the code through the API. */
+  private pickup = new Map<string, { otp: string; issued_at: string; failures: number; last_sent: number }>();
 
   constructor() {
     this.recomputeAlerts();
     this.seedActivity();
+    // Verified seed work orders already carry their collection OTP (WO-2026-4822 → SEED_PICKUP_OTPS); their last send is old enough for an immediate resend.
+    for (const w of this.workOrders) {
+      if (w.status === 'verified' && !w.collected_at) this.pickup.set(w.id, { otp: SEED_PICKUP_OTPS[w.ref] ?? DemoApi.randomOtp(), issued_at: w.updated_at, failures: 0, last_sent: Date.now() - 5 * 60_000 });
+    }
     // The seed quote QT-2026-0041 has already been shared: its public link is /q/demo-quoted.
     for (const q of this.quotations) {
       const token = demoSeedToken(q.id);
@@ -179,7 +189,7 @@ export class DemoApi implements AdminApi {
       service: { id: s.id, name: s.name, category: s.category, duration_minutes: s.duration_minutes },
       vehicle: { id: v.id, registration_no: v.registration_no, make: v.make, model: v.model },
       customer: { id: b.customer_id, full_name: c?.full_name ?? 'Customer', email: c?.email ?? null, phone: c?.phone ?? null },
-      work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason, checked_in_at: w.checked_in_at } : null,
+      work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason, checked_in_at: w.checked_in_at, collected_at: w.collected_at ?? null } : null,
       payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider } : null,
       payment_method: b.payment_method ?? null,
       vehicle_size: b.vehicle_size, pricing_mode: b.pricing_mode, vat_mode: b.vat_mode, addon_service_ids: [...b.addon_service_ids], addons_cents: b.addons_cents, vat_cents: b.vat_cents, price_label: b.price_label,
@@ -214,11 +224,19 @@ export class DemoApi implements AdminApi {
     const todayBookings = this.scoped(this.bookings, p.outlet_id).filter((b) => b.slot_start.slice(0, 10) === TEN.toISOString().slice(0, 10) || new Date(b.slot_start).toDateString() === TEN.toDateString());
     const nowMs = Date.now();
     const rev = todayBookings.filter((b) => b.status === 'completed' || b.status === 'in_service').reduce((s, b) => s + b.total_cents, 0);
-    const hours = Array.from({ length: 10 }, (_, i) => 7 + i);
+    // Hour-of-day distribution of the *selected period's* bookings (today / this week / this month), like `GET /admin/kpis`;
+    // the 07–16 trading hours are always present and "future" only means something on today's chart.
+    const { from } = this.periodRange(p.period);
+    const endOfToday = new Date(TEN);
+    endOfToday.setHours(23, 59, 59, 999);
+    const periodBookings = this.scoped(this.bookings, p.outlet_id).filter((b) => b.status !== 'cancelled' && new Date(b.slot_start) >= from && new Date(b.slot_start) <= endOfToday);
     const currentHour = new Date().getHours();
-    const bookings_by_hour = hours.map((h) => {
-      const rows = todayBookings.filter((b) => new Date(b.slot_start).getHours() === h && b.status !== 'cancelled');
-      return { hour: h, car_wash: rows.filter((b) => serviceById(b.service_id).category === 'car_wash').length, auto_body: rows.filter((b) => serviceById(b.service_id).category === 'auto_body').length, future: h > currentHour };
+    const hours = new Set<number>(Array.from({ length: 10 }, (_, i) => 7 + i));
+    for (const b of periodBookings) hours.add(new Date(b.slot_start).getHours());
+    const bookings_by_hour = [...hours].sort((a, b) => a - b).map((h) => {
+      const rows = periodBookings.filter((b) => new Date(b.slot_start).getHours() === h);
+      const category = (b: RawBooking) => (this.services.find((s) => s.id === b.service_id) ?? serviceById(b.service_id)).category;
+      return { hour: h, car_wash: rows.filter((b) => category(b) === 'car_wash').length, auto_body: rows.filter((b) => category(b) === 'auto_body').length, future: p.period === 'today' && h > currentHour };
     });
     const outletsInScope = p.outlet_id ? this.outlets.filter((o) => o.id === p.outlet_id) : this.outlets;
     const r = rng(77 + (p.period === 'week' ? 1 : p.period === 'month' ? 2 : 0));
@@ -716,7 +734,7 @@ export class DemoApi implements AdminApi {
     if (body.to === 'blocked') w.blocked_reason = body.reason ?? 'Blocked';
     if (body.to === 'in_progress') { w.blocked_reason = null; w.started_at = w.started_at ?? nowIso(); }
     if (body.to === 'completed') w.steps_done = Math.max(w.steps_done, w.step_count - 1);
-    if (body.to === 'verified') { w.steps_done = w.step_count; const b = this.bookings.find((x) => x.ref === w.booking_ref); if (b) b.status = 'completed'; }
+    if (body.to === 'verified') { w.steps_done = w.step_count; const b = this.bookings.find((x) => x.ref === w.booking_ref); if (b) b.status = 'completed'; this.issuePickupOtp(w); }
     w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'transition', from_status: from, to_status: body.to, reason: body.reason ?? null, created_at: nowIso() });
     w.updated_at = nowIso();
     this.log('task.transition', 'task', taskId, { status: from }, { status: body.to, reason: body.reason }, w.outlet.id);
@@ -724,6 +742,102 @@ export class DemoApi implements AdminApi {
     this.recomputeAlerts();
     this.emit('work_orders');
     return clone(w);
+  }
+  /* ------------------------------------------------------------ vehicle hand-over (collection OTP) */
+  private static randomOtp(): string {
+    return String(10000 + Math.floor(Math.random() * 90000));
+  }
+  /** `verified` issues the 5-digit collection OTP and sends it to the customer (push + WhatsApp `pickup_otp`); the code shows up in Messages, never on the staff work order. */
+  private issuePickupOtp(w: WorkOrder) {
+    if (this.pickup.has(w.id)) return;
+    const otp = SEED_PICKUP_OTPS[w.ref] ?? DemoApi.randomOtp();
+    this.pickup.set(w.id, { otp, issued_at: nowIso(), failures: 0, last_sent: Date.now() });
+    this.sendPickupOtp(w, otp);
+  }
+  private pickupCustomerId(w: WorkOrder): string | null {
+    const b = w.booking_ref ? this.bookings.find((x) => x.ref === w.booking_ref) : undefined;
+    if (b) return b.customer_id;
+    const q = w.quotation_ref ? this.quotations.find((x) => x.ref === w.quotation_ref) : undefined;
+    return q?.customer_id ?? null;
+  }
+  private sendPickupOtp(w: WorkOrder, otp: string): PickupNotification[] {
+    const customerId = this.pickupCustomerId(w);
+    if (!customerId) return [];
+    const c = this.profile(customerId);
+    const first = (c?.full_name ?? 'there').split(' ')[0];
+    const car = [w.vehicle.make, w.vehicle.model].filter(Boolean).join(' ') || 'car';
+    const channels: NotifyChannel[] = c?.whatsapp_opt_in === false ? ['push'] : ['push', 'whatsapp'];
+    return channels.map((channel) => {
+      const id = nextId('n');
+      const body = channel === 'whatsapp'
+        ? `Hi ${first}, your ${car} (${w.vehicle.registration_no}) is ready at ${w.outlet.name}. Your collection code is ${otp} — show it at the counter to collect your keys.`
+        : `Your ${car} is ready at ${w.outlet.name}. Collection code ${otp}.`;
+      this.notifications.unshift({ id, recipient_id: customerId, recipient_name: c?.full_name ?? null, channel, template_key: 'pickup_otp', title: channel === 'push' ? 'Your car is ready' : null, body, payload: { type: 'work_order', work_order_id: w.id, ref: w.ref }, status: 'sent', provider_status: channel === 'whatsapp' ? 'queued' : null, provider_ref: channel === 'whatsapp' ? `SM${uuid().replace(/-/g, '').slice(0, 32)}` : null, provider_error_code: null, error: null, attempts: 1, sent_at: nowIso(), delivered_at: null, read_at: null, created_at: nowIso() });
+      return { id, channel, status: 'sent' as const };
+    });
+  }
+  /** Shared guards of `verifyPickup` / `resendPickupOtp`: outlet access, not collected yet, an OTP has been issued. */
+  private pickupTarget(id: string): WorkOrder {
+    const w = this.workOrders.find((x) => x.id === id || x.ref === id);
+    if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found' });
+    this.requireOutletAccess(w.outlet.id);
+    if (w.collected_at) throw new ApiRequestError(409, { code: 'conflict', message: 'Vehicle has already been collected', details: { collected_at: w.collected_at } });
+    if (!this.pickup.has(w.id)) throw new ApiRequestError(409, { code: 'conflict', message: 'No collection OTP has been issued for this work order (it must be verified first)', details: { status: w.status } });
+    return w;
+  }
+  /** Mirrors the API's `assertCashSettled`: a cash-on-collection booking must be paid at the counter before the keys go. */
+  private assertCashSettled(w: WorkOrder) {
+    const b = w.booking_ref ? this.bookings.find((x) => x.ref === w.booking_ref) : undefined;
+    if (!b || b.payment_method !== 'cash' || b.total_cents <= 0) return;
+    if (this.payments.some((p) => p.booking_ref === b.ref && p.status === 'successful')) return;
+    throw new ApiRequestError(409, { code: 'validation_error', message: `Cash payment of R ${(b.total_cents / 100).toFixed(2)} is due before the keys are released — record it under Payments first`, details: { reason: 'payment_due', booking_id: b.id, amount_cents: b.total_cents, method: 'cash' } });
+  }
+  /** `POST /work-orders/:id/pickup/verify { otp }` — wrong code → 409 `invalid_otp` (5 attempts, then locked); success stamps `collected_at`. */
+  async verifyPickup(id: string, otp: string): Promise<PickupVerifyResult> {
+    await delay(260);
+    this.requireStaff();
+    const w = this.pickupTarget(id);
+    const code = String(otp ?? '').trim();
+    if (!/^\d{5}$/.test(code)) throw new ApiRequestError(400, { code: 'validation_error', message: 'OTP is 5 digits', details: [{ path: 'otp', message: 'OTP is 5 digits' }] });
+    this.assertCashSettled(w);
+    const state = this.pickup.get(w.id)!;
+    if (state.failures >= PICKUP_OTP_MAX_ATTEMPTS) throw new ApiRequestError(409, { code: 'conflict', message: 'OTP attempts exhausted for this work order', details: { locked: true, attempts: state.failures, max_attempts: PICKUP_OTP_MAX_ATTEMPTS } });
+    if (code !== state.otp) {
+      state.failures += 1;
+      const remaining = Math.max(0, PICKUP_OTP_MAX_ATTEMPTS - state.failures);
+      w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'pickup_otp_failed', from_status: w.status, to_status: w.status, reason: `Attempt ${state.failures} of ${PICKUP_OTP_MAX_ATTEMPTS}`, created_at: nowIso() });
+      w.updated_at = nowIso();
+      this.log('work_order.pickup_otp_failed', 'work_order', w.id, null, { attempt: state.failures, attempts_remaining: remaining }, w.outlet.id);
+      this.emit('work_orders');
+      throw new ApiRequestError(409, { code: 'invalid_otp', message: remaining > 0 ? 'Incorrect OTP' : 'Incorrect OTP; attempts exhausted', details: { attempts_remaining: remaining, locked: remaining === 0 } });
+    }
+    const now = nowIso();
+    w.collected_at = now;
+    w.pickup_otp_verified_at = now;
+    w.updated_at = now;
+    w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'collected', from_status: w.status, to_status: w.status, reason: null, created_at: now });
+    this.log('work_order.collected', 'work_order', w.id, { collected_at: null }, { collected_at: now, otp_attempts: state.failures + 1 }, w.outlet.id);
+    this.pushActivity({ kind: 'completed', title: `${w.ref} collected · keys released`, subtitle: `${w.vehicle.registration_no} · OTP verified by ${this.actor().full_name}`, icon: 'key', tone: 'success' });
+    this.emit('work_orders');
+    this.emit('bookings');
+    return { work_order: clone(w), collected_at: now, collected: true };
+  }
+  /** `POST /work-orders/:id/pickup/resend` — the *same* code again (push + WhatsApp), at most once a minute (429 otherwise). */
+  async resendPickupOtp(id: string): Promise<PickupResendResult> {
+    await delay(260);
+    this.requireStaff();
+    const w = this.pickupTarget(id);
+    const state = this.pickup.get(w.id)!;
+    const elapsed = Date.now() - state.last_sent;
+    if (elapsed < PICKUP_RESEND_INTERVAL_MS) throw new ApiRequestError(429, { code: 'rate_limited', message: `OTP was sent ${Math.round(elapsed / 1000)}s ago; try again in ${Math.ceil((PICKUP_RESEND_INTERVAL_MS - elapsed) / 1000)}s` });
+    state.last_sent = Date.now();
+    const notification = this.sendPickupOtp(w, state.otp);
+    w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'pickup_otp_resent', from_status: w.status, to_status: w.status, reason: notification.length ? `Sent on ${notification.map((n) => n.channel).join(' + ')}` : null, created_at: nowIso() });
+    w.updated_at = nowIso();
+    this.log('work_order.pickup_otp_resend', 'work_order', w.id, null, { channels: notification.map((n) => `${n.channel}:${n.status}`) }, w.outlet.id);
+    this.emit('work_orders');
+    this.emit('notifications');
+    return { work_order: clone(w), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
   }
   async team(p: OutletScoped): Promise<TeamMember[]> {
     await delay(60);
@@ -1194,7 +1308,7 @@ export class DemoApi implements AdminApi {
     const end = new Date(b.slot_end);
     const bay = checkin?.bay?.trim() || null;
     const w: WorkOrder = {
-      id: nextId('wo'), ref: this.nextWoRef(), outlet: { id: b.outlet_id, name: outletName(b.outlet_id) }, booking_ref: b.ref, quotation_ref: null, customer_name: customer?.full_name ?? 'Customer',
+      id: nextId('wo'), ref: this.nextWoRef(), outlet: { id: b.outlet_id, name: outletName(b.outlet_id) }, booking_id: b.id, booking_ref: b.ref, quotation_ref: null, customer_name: customer?.full_name ?? 'Customer',
       vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status: 'queued',
       priority: checkin?.priority ?? 2, bay, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
       started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl?.steps.length ?? 0, task_id: nextId('task'), events: [], updated_at: nowIso(),

@@ -52,6 +52,7 @@ export interface ApiError {
     | 'conflict'
     | 'invalid_transition'
     | 'rate_limited'
+    | 'invalid_otp'
     | 'gone'
     | 'internal'
     | 'network';
@@ -319,6 +320,8 @@ export interface WorkOrderSummary {
    * `checked_in_at: null` ("awaiting check-in"); `POST /bookings/:id/checkin` stamps it on that same work order.
    */
   checked_in_at?: string | null;
+  /** Set once the customer's collection OTP was verified at the counter (`POST /work-orders/:id/pickup/verify`). */
+  collected_at?: string | null;
 }
 
 /** How the customer chose to pay at booking time (`cash` = cash on collection, feature flag `cash_on_collection`). */
@@ -583,6 +586,37 @@ export interface WorkOrder {
    */
   checked_in_at: string | null;
   checked_in_by_name: string | null;
+  /** Booking the work order belongs to (`null` for quote-based orders) — the id `POST /payments/record` needs when collection is refused with `payment_due`. */
+  booking_id?: string | null;
+  /**
+   * Vehicle hand-over. A `verified` work order issues a 5-digit collection OTP to the customer (push / WhatsApp); staff
+   * enter it with `POST /work-orders/:id/pickup/verify`, which stamps `pickup_otp_verified_at` and `collected_at`.
+   * `pickup_otp` itself is never returned to staff.
+   */
+  collected_at?: string | null;
+  pickup_otp_verified_at?: string | null;
+}
+
+/** `POST /work-orders/:id/pickup/verify { otp }` → 200 (the keys are released). */
+export interface PickupVerifyResult {
+  work_order: WorkOrder;
+  collected_at: string;
+  collected: true;
+}
+
+/** One delivery attempt of the re-sent `pickup_otp` notification (push + WhatsApp when the customer opted in). */
+export interface PickupNotification {
+  id?: string;
+  channel: NotifyChannel;
+  status: NotifyStatus | string;
+}
+
+/** `POST /work-orders/:id/pickup/resend` → 200; 429 `rate_limited` within a minute of the last send. */
+export interface PickupResendResult {
+  work_order: WorkOrder;
+  notification: PickupNotification[];
+  /** Seconds before another resend is accepted (60). */
+  retry_after_seconds: number;
 }
 
 /**

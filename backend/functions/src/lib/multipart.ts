@@ -58,6 +58,19 @@ export function parseMultipart(req: Request, opts: MultipartOptions): Promise<Mu
     bb.on('close', () => {
       if (!failed) resolve(out);
     });
+    // Cloud Functions (and the Firebase emulator) read the whole body up front and expose it as
+    // `req.rawBody`; the request stream is already drained by then, so piping it would end the form
+    // immediately ("Unexpected end of form"). Feed busboy the buffered body in that case.
+    const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+    if (raw && raw.length > 0 && (req.readableEnded || !req.readable)) {
+      bb.end(raw);
+      return;
+    }
+    if (raw && raw.length > 0) {
+      bb.end(raw);
+      req.resume();
+      return;
+    }
     req.pipe(bb);
   });
 }

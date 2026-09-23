@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import NextLink from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -107,8 +108,10 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const canCheckin = can(role, 'work_order:checkin') && b && ['pending', 'confirmed'].includes(b.status) && !b.work_order?.checked_in_at;
   // Counter payment (cash / card terminal) for anything still unpaid — cash-on-collection bookings, or a card booking whose customer pays at the desk instead.
   const canRecordPayment = can(role, 'payment:record') && b && ['confirmed', 'in_service', 'completed'].includes(b.status) && b.total_cents > 0 && b.payment?.status !== 'successful';
+  // Hand-over: the booking's work order is verified and the keys have not been released — opens the Work board drawer with the OTP form.
+  const canHandover = can(role, 'work_order:handover') && b?.work_order?.status === 'verified' && !b.work_order.collected_at;
   const workOrderLine = b?.work_order
-    ? `${b.work_order.ref} · ${b.work_order.checked_in_at ? `checked in ${fmtTime(b.work_order.checked_in_at)}` : 'awaiting check-in'}${b.work_order.assignee_name ? ` · ${b.work_order.assignee_name}` : ''}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`
+    ? `${b.work_order.ref} · ${b.work_order.collected_at ? `collected ${fmtTime(b.work_order.collected_at)}` : b.work_order.status === 'verified' ? 'ready for collection' : b.work_order.checked_in_at ? `checked in ${fmtTime(b.work_order.checked_in_at)}` : 'awaiting check-in'}${b.work_order.assignee_name ? ` · ${b.work_order.assignee_name}` : ''}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`
     : null;
 
   return (
@@ -123,6 +126,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
           <>
             <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{b.ref}</Typography>
             <StatusChip status={b.status} />
+            {b.work_order?.collected_at && <StatusChip tone="success" label={`Collected ${fmtTime(b.work_order.collected_at)}`} icon={<MSymbol name="key" filled size={16} />} sx={{ '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="booking-collected-chip" />}
           </>
         )}
         subtitle={b && (
@@ -131,8 +135,13 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
             {b.walk_in && <> · <Box component="span" sx={{ color: tk.secondary, fontWeight: 600 }}>Walk-in</Box>{b.created_by_name ? ` · created by ${b.created_by_name}` : ''}</>}
           </>
         )}
-        footer={(canCheckin || canCancel || canRecordPayment) && (
+        footer={(canCheckin || canCancel || canRecordPayment || canHandover) && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {canHandover && b.work_order && (
+              <Button variant="contained" color="secondary" fullWidth component={NextLink} href={`/work-orders?focus=${b.work_order.id}`} startIcon={<MSymbol name="key" filled size={20} />} data-testid="booking-handover">
+                Hand over vehicle · {b.work_order.ref}
+              </Button>
+            )}
             {canRecordPayment && (
               <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
                 Record payment · {rands(b.total_cents)}

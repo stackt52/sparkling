@@ -267,6 +267,12 @@ describe('GET /admin/kpis', () => {
     expect(typeof r.body.cycle_delta_minutes).toBe('number');
     expect(r.body.bookings_by_hour.every((h: any) => typeof h.future === 'boolean' && typeof h.hour === 'number')).toBe(true);
     expect(r.body.bookings_by_hour.reduce((n: number, h: any) => n + h.car_wash + h.auto_body, 0)).toBe(2);
+    // The chart follows the selected period: this month includes earlier days' bookings, and nothing is "upcoming".
+    const month = await get('/v1/admin/kpis?period=month', 'finance');
+    expect(month.status).toBe(200);
+    const monthTotal = month.body.bookings_by_hour.reduce((n: number, h: any) => n + h.car_wash + h.auto_body, 0);
+    expect(monthTotal).toBeGreaterThanOrEqual(2);
+    expect(month.body.bookings_by_hour.every((h: any) => h.future === false)).toBe(true);
     expect(r.body.top_staff[0]).toMatchObject({ staff_id: 'tech_1', name: 'Pieter Marais', initials: 'PM', points: 25, rank: 1, tier: 'gold' });
     expect(r.body.revenue_by_outlet.map((o: any) => o.name)).toEqual(['Sparkling Sandton', 'Sparkling Rosebank']);
   });
@@ -503,7 +509,7 @@ describe('check-in gate & auto-assignment', () => {
 
     const rows = await get(`/v1/admin/work-orders?outlet_id=${OUTLET_A}&status=queued,assigned,in_progress,blocked,completed,verified`, 'admin');
     expect(rows.status).toBe(200);
-    expect(rows.body.data.find((w: any) => w.id === WO_1)).toMatchObject({ checked_in_by_name: 'Musa Manager' });
+    expect(rows.body.data.find((w: any) => w.id === WO_1)).toMatchObject({ checked_in_by_name: 'Musa Manager', collected_at: null });
   });
 
   it('auto-assigns on check-in when the Config switch is on (skill match, lowest load)', async () => {

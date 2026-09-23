@@ -35,8 +35,32 @@ abstract class _ApiRepositoryBase {
 
   bool get offline => connectivity?.isOffline ?? false;
 
+  /// In-process change bus: every successful mutation made through these
+  /// repositories announces the tables it touched, so open watchers refetch
+  /// immediately — even when the realtime socket is down or the change would
+  /// not produce a realtime event for the rows a screen is watching.
+  static final StreamController<RealtimeChange> _local =
+      StreamController<RealtimeChange>.broadcast();
+
+  static Stream<RealtimeChange> get localChanges => _local.stream;
+
+  /// Announces a local change to [table] (optionally for row [id]).
+  static void notifyLocal(String table, {String? id}) {
+    if (_local.isClosed) return;
+    _local.add(
+      RealtimeChange(
+        table: table,
+        event: RealtimeEvent.update,
+        newRecord: {'id': ?id},
+        oldRecord: const {},
+        commitTimestamp: DateTime.now(),
+      ),
+    );
+  }
+
   /// Emits `fetch()` immediately, then again after every change on [trigger]
-  /// (debounced). Falls back to a single emission when realtime is unavailable.
+  /// or on [localChanges] (debounced). Falls back to local changes only when
+  /// realtime is unavailable.
   Stream<T> refetchOn<T>(
     Stream<RealtimeChange>? trigger,
     Future<T> Function() fetch, {
@@ -44,6 +68,7 @@ abstract class _ApiRepositoryBase {
   }) {
     late StreamController<T> controller;
     StreamSubscription<RealtimeChange>? sub;
+    StreamSubscription<RealtimeChange>? localSub;
     Timer? timer;
 
     Future<void> emit() async {
@@ -55,22 +80,26 @@ abstract class _ApiRepositoryBase {
       }
     }
 
+    void bump() {
+      timer?.cancel();
+      timer = Timer(debounce, () => unawaited(emit()));
+    }
+
     controller = StreamController<T>.broadcast(
       onListen: () {
         unawaited(emit());
         sub = trigger?.listen(
-          (_) {
-            timer?.cancel();
-            timer = Timer(debounce, () => unawaited(emit()));
-          },
+          (_) => bump(),
           onError: (Object e) {
             // Realtime failures must not kill the data stream.
           },
         );
+        localSub = localChanges.listen((_) => bump());
       },
       onCancel: () async {
         timer?.cancel();
         await sub?.cancel();
+        await localSub?.cancel();
       },
     );
     return controller.stream;
@@ -98,15 +127,31 @@ abstract class _ApiRepositoryBase {
     required String clientOpId,
     required T optimistic,
     String? label,
+
+    /// Tables the mutation changes server-side; announced on success so
+    /// watchers (task list, checklist, ops) refetch at once.
+    List<String> touches = const [],
   }) async {
+    void announce() {
+      for (final t in touches) {
+        notifyLocal(t);
+      }
+    }
+
     final q = queue;
-    if (q == null) return call();
+    if (q == null) {
+      final out = await call();
+      announce();
+      return out;
+    }
     if (offline) {
       await q.enqueue(kind, payload, clientOpId: clientOpId, label: label);
       return optimistic;
     }
     try {
-      return await call();
+      final out = await call();
+      announce();
+      return out;
     } on ApiException catch (e) {
       if (!e.isNetwork) rethrow;
       connectivity?.report(false);
@@ -622,6 +667,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     return queueIfOffline(
       call: () => api.transitionTask(task.id, input),
       kind: SyncKinds.taskTransition,
+      touches: const ['tasks', 'work_orders'],
       payload: {'task_id': task.id, ...input.toJson()},
       clientOpId: input.clientOpId,
       optimistic: optimistic,
@@ -644,6 +690,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
         idempotencyKey: opId,
       ),
       kind: SyncKinds.taskAssign,
+      touches: const ['tasks', 'work_orders'],
       payload: {
         'task_id': task.id,
         'assignee_id': assigneeId,
@@ -682,6 +729,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     return queueIfOffline(
       call: () => api.submitStep(workOrderId, stepKey, input),
       kind: SyncKinds.stepResult,
+      touches: const ['checklist_step_results', 'work_orders', 'tasks'],
       payload: {
         'work_order_id': workOrderId,
         'step_key': stepKey,
@@ -715,6 +763,8 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
       bay: bay,
       idempotencyKey: SparklingApi.newOpId(),
     );
+    _ApiRepositoryBase.notifyLocal('work_orders');
+    _ApiRepositoryBase.notifyLocal('tasks');
     // The cached detail carries the old `checked_in_at`; drop it so the next
     // open reflects the check-in even before realtime catches up.
     await cache?.remove('work_order:$workOrderId');
@@ -722,8 +772,15 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   }
 
   @override
-  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
-      api.verifyPickupOtp(workOrderId, otp);
+  Future<PickupVerifyResult> verifyPickupOtp(
+    String workOrderId,
+    String otp,
+  ) async {
+    final out = await api.verifyPickupOtp(workOrderId, otp);
+    _ApiRepositoryBase.notifyLocal('work_orders', id: workOrderId);
+    _ApiRepositoryBase.notifyLocal('tasks');
+    return out;
+  }
 
   @override
   Future<void> resendPickupOtp(String workOrderId) =>
@@ -776,6 +833,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     return queueIfOffline(
       call: () => api.createWalkInBooking(input),
       kind: SyncKinds.bookingCreateWalkIn,
+      touches: const ['bookings', 'work_orders', 'tasks'],
       payload: input.toJson(),
       clientOpId: input.clientOpId,
       optimistic: optimistic,
@@ -811,6 +869,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     return queueIfOffline(
       call: () => api.recordPayment(input),
       kind: SyncKinds.paymentRecord,
+      touches: const ['payments', 'bookings', 'quotations', 'work_orders'],
       payload: input.toJson(),
       clientOpId: input.idempotencyKey,
       optimistic: optimistic,
@@ -847,6 +906,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     return queueIfOffline(
       call: () => api.staffEnrolMembership(input),
       kind: SyncKinds.membershipEnrol,
+      touches: const ['memberships'],
       payload: input.toJson(),
       clientOpId: input.clientOpId,
       optimistic: optimistic,
@@ -947,6 +1007,7 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     final result = await queueIfOffline(
       call: () => api.raiseQuotation(input),
       kind: SyncKinds.quotationRaise,
+      touches: const ['quotations'],
       payload: input.toJson(),
       clientOpId: input.clientOpId,
       optimistic: optimistic,
@@ -1080,6 +1141,7 @@ class ApiInventoryRepository extends _ApiRepositoryBase
     return queueIfOffline(
       call: () => api.addInventoryMovement(item.id, input),
       kind: SyncKinds.inventoryMovement,
+      touches: const ['inventory_items', 'inventory_alerts'],
       payload: {'item_id': item.id, ...input.toJson()},
       clientOpId: input.clientOpId,
       optimistic: item.copyWith(onHand: newOnHand, updatedAt: DateTime.now()),

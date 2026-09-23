@@ -123,7 +123,7 @@ export async function computeKpis(range: KpiRange) {
     db.from('services').select('id, category, is_active'),
     db.from('memberships').select('id, plan_id, status').eq('status', 'active'),
     db.from('membership_plans').select('id, monthly_fee_cents'),
-    scope(db.from('bookings').select('id, status, outlet_id').gte('slot_start', range.from).lt('slot_start', range.to)),
+    scope(db.from('bookings').select('id, status, outlet_id, slot_start, service_id').gte('slot_start', range.from).lt('slot_start', range.to)),
     scope(db.from('tasks').select('id, started_at, completed_at, elapsed_seconds, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', range.from).lt('completed_at', range.to)),
     scope(db.from('tasks').select('id, started_at, completed_at, elapsed_seconds, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', weekAgo)),
     scope(db.from('work_orders').select('id, due_at, completed_at, outlet_id').in('status', ['completed', 'verified']).gte('completed_at', range.from).lt('completed_at', range.to)),
@@ -148,8 +148,11 @@ export async function computeKpis(range: KpiRange) {
   // Hours are bucketed in each outlet's timezone; "future" marks hours still to come (today, first in-scope outlet's clock).
   const clockTz = outletRows.find((o) => inScope(o.id))?.timezone ?? 'Africa/Johannesburg';
   const currentHour = hourOf(new Date().toISOString(), clockTz);
+  // Hour-of-day distribution for the *selected* period (today / week / month / custom), not just today;
+  // "future" only means something for today's chart.
+  const isToday = range.period === 'today';
   const byHour = new Map<number, { car_wash: number; auto_body: number }>();
-  for (const b of unwrap<any[]>(bookingsToday, 'bookings')) {
+  for (const b of unwrap<any[]>(bookingsRange, 'bookings')) {
     if (b.status === 'cancelled') continue;
     const h = hourOf(b.slot_start, tz.get(b.outlet_id) ?? 'Africa/Johannesburg');
     const cur = byHour.get(h) ?? { car_wash: 0, auto_body: 0 };
@@ -157,7 +160,7 @@ export async function computeKpis(range: KpiRange) {
     cur[cat] += 1;
     byHour.set(h, cur);
   }
-  const bookings_by_hour = [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v, future: hour > currentHour }));
+  const bookings_by_hour = [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([hour, v]) => ({ hour, ...v, future: isToday && hour > currentHour }));
 
   const revenueByOutlet = new Map<string, number>();
   for (const p of unwrap<any[]>(curPay, 'payments')) {

@@ -476,7 +476,7 @@ const wo = (id: string, ref: string, outlet_id: string, booking_ref: string | nu
   const v = vehicleById(vehicle_id);
   const s = serviceById(service_id);
   return {
-    id, ref, outlet: { id: outlet_id, name: outletName(outlet_id) }, booking_ref, quotation_ref, customer_name: profileName(customer) ?? customer,
+    id, ref, outlet: { id: outlet_id, name: outletName(outlet_id) }, booking_id: booking_ref ? (SEED_BOOKINGS.find((b) => b.ref === booking_ref)?.id ?? null) : null, booking_ref, quotation_ref, customer_name: profileName(customer) ?? customer,
     vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status, priority, bay,
     assignee_id: assignee, assignee_name: profileName(assignee), eta_at: eta === null ? null : rel(eta), due_at: due === null ? null : rel(due), started_at: started === null ? null : rel(started),
     blocked_reason: blocked, steps_done: stepsDone, step_count: t.steps.length, task_id: id.replace('30000000', '40000000'), events: [], updated_at: rel(-1),
@@ -510,6 +510,11 @@ WORK_ORDERS[2].events = [
 WORK_ORDERS[1].events = [
   { id: 'te-4', actor_name: 'Johan Botha', event: 'transition', from_status: 'completed', to_status: 'verified', reason: 'Checklist compliant', created_at: rel(-70) },
 ];
+/**
+ * Collection OTPs of the verified seed work orders (issued to the customer on `verified`, never returned to staff by the
+ * API). WO-2026-4822 (Naledi, SPK-2026-0092) uses the code from docs/API.md; orders verified in the session get a random one.
+ */
+export const SEED_PICKUP_OTPS: Record<string, string> = { 'WO-2026-4822': '48213' };
 
 /* ---------- payments (amounts follow the booking totals so receipts reconcile) ---------- */
 export const PAYMENTS: Payment[] = [
@@ -611,4 +616,7 @@ export const NOTIFICATIONS: NotificationRow[] = [
   }),
   note('c0000000-0000-4000-8000-00000000n010', 'seed_sipho', 'whatsapp', 'booking_cancelled', null, 'Your Sparkling booking SPK-2026-0090 was cancelled. Rebook any time in the app.', 'suppressed', 3 * 60, { provider_status: null, provider_ref: null, attempts: 0, sent_at: null, error: 'whatsapp_opt_in=false', payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000009' } }),
   note('c0000000-0000-4000-8000-00000000n011', 'seed_lindiwe', 'push', 'service_started', 'Service started', `Your Kia Sonet is now in Bay 1 at ${outletName(OUTLET_GLV)}.`, 'queued', 2, { payload: { type: 'booking', id: '10000000-0000-4000-8000-000000000012' } }),
+  // WO-2026-4822 was verified ~70 min ago: the collection OTP (SEED_PICKUP_OTPS) went to Naledi on push + WhatsApp.
+  note('c0000000-0000-4000-8000-00000000n012', 'seed_naledi', 'whatsapp', 'pickup_otp', null, `Hi Naledi, your Suzuki Swift (HR 88 TS GP) is ready at ${outletName(OUTLET_MEN)}. Your collection code is 48213 — show it at the counter to collect your keys.`, 'delivered', 70, { payload: { type: 'work_order', work_order_id: '30000000-0000-4000-8000-000000000002', ref: 'WO-2026-4822' } }),
+  note('c0000000-0000-4000-8000-00000000n013', 'seed_naledi', 'push', 'pickup_otp', 'Your car is ready', `Your Suzuki Swift is ready at ${outletName(OUTLET_MEN)}. Collection code 48213.`, 'sent', 70, { payload: { type: 'work_order', work_order_id: '30000000-0000-4000-8000-000000000002', ref: 'WO-2026-4822' } }),
 ];

@@ -23,6 +23,7 @@ import Tile from '@/components/ui/Tile';
 import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { LoadingRows } from '@/components/ui/States';
+import HandoverPanel from '@/components/work/HandoverPanel';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { conflictDetail } from '@/lib/api';
 import { useFilters } from '@/lib/filters';
@@ -52,6 +53,8 @@ function WoCard({ w, onOpen, now }: { w: WorkOrder; onOpen: () => void; now: num
       <Typography variant="h5">{w.service.name}</Typography>
       {/* Both booking- and quote-based orders start awaiting check-in; the chip clears once the car is confirmed on site. */}
       {!w.checked_in_at && <AwaitingCheckinChip />}
+      {/* Verified: the customer holds the collection OTP until the keys are released at the counter. */}
+      {w.status === 'verified' && (w.collected_at ? <CollectedChip at={w.collected_at} /> : <ReadyForCollectionChip />)}
       <Typography variant="body2" color="text.secondary"><span className="mono">{w.vehicle.registration_no}</span>{w.bay ? ` · ${w.bay}` : ''} · {w.customer_name.split(' ')[0]}</Typography>
       {(w.booking_ref || w.quotation_ref) && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }} data-testid="wo-source-ref">
@@ -89,6 +92,32 @@ function AwaitingCheckinChip({ size = 'small' }: { size?: 'small' | 'medium' }) 
       label="Awaiting check-in"
       icon={<MSymbol name="garage" filled size={size === 'small' ? 15 : 18} />}
       data-testid="awaiting-checkin"
+      sx={{ alignSelf: 'flex-start', ...(size === 'small' && { height: 22, fontSize: 11 }), '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }}
+    />
+  );
+}
+
+/** Shown on a `verified` order until the OTP is verified — the customer still has to collect the keys. */
+function ReadyForCollectionChip({ size = 'small' }: { size?: 'small' | 'medium' }) {
+  return (
+    <StatusChip
+      tone="secondary"
+      label="Ready for collection"
+      icon={<MSymbol name="key" filled size={size === 'small' ? 15 : 18} />}
+      data-testid="ready-for-collection"
+      sx={{ alignSelf: 'flex-start', ...(size === 'small' && { height: 22, fontSize: 11 }), '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }}
+    />
+  );
+}
+
+/** "Collected HH:mm" — `collected_at` set by `POST /work-orders/:id/pickup/verify`. */
+function CollectedChip({ at, size = 'small' }: { at: string; size?: 'small' | 'medium' }) {
+  return (
+    <StatusChip
+      tone="success"
+      label={`Collected ${fmtTime(at)}`}
+      icon={<MSymbol name="key" filled size={size === 'small' ? 15 : 18} />}
+      data-testid="collected-chip"
       sx={{ alignSelf: 'flex-start', ...(size === 'small' && { height: 22, fontSize: 11 }), '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }}
     />
   );
@@ -198,6 +227,9 @@ function AssignForm({ w, onClose }: { w: WorkOrder; onClose: () => void }) {
   );
 }
 
+/** Audit-trail icons per task event (`transition` and anything unknown fall back to swap_horiz). */
+const EVENT_ICON: Record<string, string> = { assigned: 'assignment_ind', checked_in: 'login', collected: 'key', pickup_otp_failed: 'password', pickup_otp_resent: 'send' };
+
 const NEXT: Partial<Record<WorkStatus, { to: WorkStatus; label: string; icon: string; needsReason?: boolean }[]>> = {
   assigned: [{ to: 'in_progress', label: 'Start', icon: 'play_arrow' }],
   in_progress: [{ to: 'blocked', label: 'Mark blocked', icon: 'block', needsReason: true }, { to: 'completed', label: 'Complete', icon: 'task_alt' }],
@@ -221,9 +253,13 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
   const canAct = can(role, 'task:transition') && Boolean(w?.task_id);
   const canAssign = can(role, 'task:assign') && Boolean(w?.task_id);
   const checkedIn = Boolean(w?.checked_in_at);
+  const collected = Boolean(w?.collected_at);
   const canCheckin = can(role, 'work_order:checkin') && Boolean(w) && !checkedIn && !['verified', 'cancelled'].includes(w!.status);
+  // Hand-over: a verified order whose keys have not been released yet (`work_order:handover` — the check-in roles).
+  const canHandover = can(role, 'work_order:handover') && w?.status === 'verified' && !collected;
   const transitions = w ? NEXT[w.status] ?? [] : [];
-  const hasFooter = Boolean(w) && (canAssign || canCheckin || (canAct && transitions.length > 0) || Boolean(reasonFor));
+  // Once collected the job is closed — no more assignment / transitions.
+  const hasFooter = Boolean(w) && !collected && (canAssign || canCheckin || (canAct && transitions.length > 0) || Boolean(reasonFor));
   return (
     <DetailDrawer
       open={Boolean(w)}
@@ -236,12 +272,14 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
           <StatusChip status={w.status} />
           <StatusChip tone={priorityTone[w.priority]} label={`P${w.priority}`} />
           {!w.checked_in_at && <AwaitingCheckinChip size="medium" />}
+          {w.status === 'verified' && (w.collected_at ? <CollectedChip at={w.collected_at} size="medium" /> : <ReadyForCollectionChip size="medium" />)}
         </>
       )}
       subtitle={w && (
         <>
           {w.service.name} · {w.vehicle.make} {w.vehicle.model} · <span className="mono">{w.vehicle.registration_no}</span>
           {w.checked_in_at && <> · Checked in {fmtTime(w.checked_in_at)}{w.checked_in_by_name ? ` by ${w.checked_in_by_name}` : ''}</>}
+          {w.collected_at && <> · Collected {fmtTime(w.collected_at)}</>}
         </>
       )}
       footer={w && hasFooter && (
@@ -289,15 +327,21 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
             </Box>
             {w.blocked_reason && <Typography variant="body2" sx={{ color: tk.error, fontWeight: 600 }}>{w.blocked_reason}</Typography>}
           </Tile>
+          {/* Keyed on the work order so a fresh OTP form (attempts, cooldown) opens per card. */}
+          {canHandover && <HandoverPanel key={w.id} w={w} onCollected={(at) => toast.success(`Keys released · collected ${fmtTime(at)}`)} />}
           <Typography variant="h4" sx={{ mt: 3, mb: 1 }}>Audit trail</Typography>
           <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
             {w.events.length === 0 && <Typography variant="body2" color="text.secondary">No events yet.</Typography>}
             {[...w.events].reverse().map((e) => (
               <Box component="li" key={e.id} sx={{ display: 'flex', gap: 1.5 }}>
-                <MSymbol name={e.event === 'assigned' ? 'assignment_ind' : e.event === 'checked_in' ? 'login' : 'swap_horiz'} size={20} style={{ color: tk.onSurfaceVariant, marginTop: 2 }} />
+                <MSymbol name={EVENT_ICON[e.event] ?? 'swap_horiz'} size={20} style={{ color: e.event === 'pickup_otp_failed' ? tk.error : tk.onSurfaceVariant, marginTop: 2 }} />
                 <Box>
                   <Typography variant="body2">
-                    {e.event === 'checked_in' ? <>Checked in · <b>{e.actor_name ?? 'staff'}</b></> : <><b>{e.actor_name}</b> {e.event === 'assigned' ? 'assigned' : `moved ${statusLabel(e.from_status ?? '')} → ${statusLabel(e.to_status ?? '')}`}</>}
+                    {e.event === 'checked_in' ? <>Checked in · <b>{e.actor_name ?? 'staff'}</b></>
+                      : e.event === 'collected' ? <>Keys released · OTP verified by <b>{e.actor_name ?? 'staff'}</b></>
+                      : e.event === 'pickup_otp_failed' ? <>Incorrect collection OTP entered · <b>{e.actor_name ?? 'staff'}</b></>
+                      : e.event === 'pickup_otp_resent' ? <>Collection OTP re-sent · <b>{e.actor_name ?? 'staff'}</b></>
+                      : <><b>{e.actor_name}</b> {e.event === 'assigned' ? 'assigned' : `moved ${statusLabel(e.from_status ?? '')} → ${statusLabel(e.to_status ?? '')}`}</>}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">{fmtDateTime(e.created_at)}{e.reason ? ` · ${e.reason}` : ''}</Typography>
                 </Box>

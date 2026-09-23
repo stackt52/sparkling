@@ -202,6 +202,12 @@ class _ChecklistViewState extends State<ChecklistView> {
     );
     if (result != null && mounted) {
       StaffHaptics.success(context);
+      StaffSnack.show(
+        context,
+        result.pendingSync
+            ? 'Step "${step.title}" saved — will sync when online'
+            : 'Step "${step.title}" completed',
+      );
       await context.repositories.drafts.delete(_draftKey(step.key));
     }
   }

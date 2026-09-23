@@ -43,6 +43,8 @@ import type {
   Page,
   Payment,
   Period,
+  PickupResendResult,
+  PickupVerifyResult,
   PosPayment,
   Profile,
   QuoteLineItem,
@@ -211,6 +213,16 @@ export interface AdminApi {
    * and runs auto-assignment when the flag is on and the work order is unassigned. Idempotent (200 `already: true`).
    */
   checkinWorkOrder(id: string, body: { bay?: string | null }): Promise<WorkOrder>;
+  /**
+   * Vehicle hand-over (`POST /work-orders/:id/pickup/verify { otp }`): the customer presents the 5-digit collection OTP
+   * issued when the work order was verified. 409 `invalid_otp` `{ attempts_remaining, locked }` on a wrong code (5
+   * attempts, then locked), 409 `conflict` once collected (`details.collected_at`) or before an OTP was issued, and 409
+   * `validation_error` `{ reason: 'payment_due', amount_cents, booking_id, method: 'cash' }` while a cash-on-collection
+   * booking is unpaid (record the payment first).
+   */
+  verifyPickup(id: string, otp: string): Promise<PickupVerifyResult>;
+  /** Re-sends the same collection OTP (push + WhatsApp); 429 `rate_limited` within a minute of the last send, 409 once collected. */
+  resendPickupOtp(id: string): Promise<PickupResendResult>;
   team(params: OutletScoped): Promise<TeamMember[]>;
   /* users */
   listUsers(): Promise<StaffUser[]>;
@@ -559,6 +571,17 @@ export class HttpApi implements AdminApi {
   async checkinWorkOrder(id: string, body: { bay?: string | null }) {
     await this.request<{ work_order: { id: string }; task: Task | null; already: boolean }>('POST', `/work-orders/${id}/checkin`, body);
     return this.getWorkOrder(id);
+  }
+  /** `POST /work-orders/:id/pickup/verify` answers with the bare row; the board card is re-read and `collected_at` overlaid (the admin shape may not carry it). */
+  async verifyPickup(id: string, otp: string) {
+    const res = await this.request<{ work_order: { id: string; collected_at?: string | null; pickup_otp_verified_at?: string | null }; collected_at: string; collected: boolean }>('POST', `/work-orders/${id}/pickup/verify`, { otp });
+    const row = await this.getWorkOrder(id);
+    const collected_at = row.collected_at ?? res.collected_at ?? res.work_order.collected_at ?? new Date().toISOString();
+    return { work_order: { ...row, collected_at, pickup_otp_verified_at: row.pickup_otp_verified_at ?? res.work_order.pickup_otp_verified_at ?? collected_at }, collected_at, collected: true as const };
+  }
+  async resendPickupOtp(id: string) {
+    const res = await this.request<{ work_order: { id: string }; notification?: PickupResendResult['notification']; retry_after_seconds?: number }>('POST', `/work-orders/${id}/pickup/resend`, {});
+    return { work_order: await this.getWorkOrder(id), notification: res.notification ?? [], retry_after_seconds: res.retry_after_seconds ?? 60 };
   }
   /** Verifying with incomplete required steps needs a supervisor `override.reason` — the drawer's reason doubles as that. */
   async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }) {
