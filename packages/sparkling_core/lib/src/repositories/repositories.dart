@@ -153,6 +153,15 @@ abstract interface class StaffRepository {
     String? reason,
   });
 
+  /// Uploads a checklist photo proof; needs a connection (never queued).
+  /// Submit the step afterwards with the returned attachment's id.
+  Future<Attachment> uploadStepPhoto(
+    String workOrderId, {
+    required String stepKey,
+    Uint8List? bytes,
+    String? path,
+  });
+
   /// When offline the result is queued and returned with `pendingSync: true`.
   Future<StepResult> submitStep(
     String workOrderId,

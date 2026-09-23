@@ -56,6 +56,7 @@ class DemoStore {
     staffAvailability[uid] = (status: status, capacity: prev?.capacity ?? 3);
     _changes.add(const DemoChange('staff_availability'));
   }
+
   UserRole get role => currentUser.role;
 
   void signInAs(AuthUser user) {
@@ -317,7 +318,13 @@ class DemoStore {
     final t = ten;
     final n = now;
 
-    const ratings = {'MEN': 4.8, 'GLV': 4.9, 'POT': 4.7, 'TOT': 4.6, 'RUS': 4.7};
+    const ratings = {
+      'MEN': 4.8,
+      'GLV': 4.9,
+      'POT': 4.7,
+      'TOT': 4.6,
+      'RUS': 4.7,
+    };
     for (final r in demoOutletRows) {
       outlets.add(
         Outlet(
@@ -1199,7 +1206,8 @@ class DemoStore {
             label: 'Blend to quarter panel',
             amountCents: 65000,
             category: 'Paint',
-            description: 'Colour blend into the rear quarter so the join is invisible.',
+            description:
+                'Colour blend into the rear quarter so the join is invisible.',
             serviceId: svcSpotRepair,
           ),
         ],
@@ -1588,7 +1596,8 @@ class DemoStore {
         createdAt: n.subtract(const Duration(hours: 3)),
       ),
     ]);
-    for (final step in templateById(tplBody)?.steps ?? const <ChecklistStep>[]) {
+    for (final step
+        in templateById(tplBody)?.steps ?? const <ChecklistStep>[]) {
       stepResults.add(
         StepResult(
           id: _newId('5'),
@@ -2342,8 +2351,10 @@ class DemoStore {
     );
   }
 
-  static const String _demoPngGrey = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAxklEQVR42u3YoRGEQBREwRc3AZzF4EjgwiSDMUi66tsxT+12x+8ad97/cV/Yps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7epg6TZtJMmkkzaSbNpJm0OkyaSTNpJs2kmTSTZtLqMGkmzaSZNJNm0kyaSXtnM2kmzaSZNJNm0kyaSTNpdZg0k2bSTJpJM2kmzaTVYdJMmkkzaSbNpJk0k/YLYdJM+uX2AVN/5sraXG0wAAAAAElFTkSuQmCC';
-  static const String _demoPngBlue = 'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAx0lEQVR42u3YMRGEQBREwSeG/KzgABtoONU4mISQrvrpJC/a7Y7zHve7/uO+sE2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU0dJs2kmTSTZtJMmkkzaXWYNJNm0kyaSTNpJs2k1WHSTJpJM2kmzaSZNJP2zmbSTJpJM2kmzaSZNJNm0uowaSbNpJk0k2bSTJpJq8OkmTSTZtJMmkkzaSbtF8KkmfTL7QNFnjnSFnTnPAAAAABJRU5ErkJggg==';
+  static const String _demoPngGrey =
+      'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAxklEQVR42u3YoRGEQBREwRc3AZzF4EjgwiSDMUi66tsxT+12x+8ad97/cV/Yps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7eps7epg6TZtJMmkkzaSbNpJm0OkyaSTNpJs2kmTSTZtLqMGkmzaSZNJNm0kyaSXtnM2kmzaSZNJNm0kyaSTNpdZg0k2bSTJpJM2kmzaTVYdJMmkkzaSbNpJk0k/YLYdJM+uX2AVN/5sraXG0wAAAAAElFTkSuQmCC';
+  static const String _demoPngBlue =
+      'iVBORw0KGgoAAAANSUhEUgAAAGAAAABICAIAAACGBWc0AAAAx0lEQVR42u3YMRGEQBREwSeG/KzgABtoONU4mISQrvrpJC/a7Y7zHve7/uO+sE2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU2dvU0dJs2kmTSTZtJMmkkzaXWYNJNm0kyaSTNpJs2k1WHSTJpJM2kmzaSZNJP2zmbSTJpJM2kmzaSZNJNm0uowaSbNpJk0k2bSTJpJq8OkmTSTZtJMmkkzaSbtF8KkmfTL7QNFnjnSFnTnPAAAAABJRU5ErkJggg==';
 
   static const Map<String, List<String>?> _defaultHours = {
     'mon': ['07:30', '17:30'],
@@ -2538,7 +2549,9 @@ class DemoStore {
   OutletCatalogue outletCatalogue(String outletId, {VehicleSize? vehicleSize}) {
     final offers = outletServices(outletId, size: vehicleSize);
     final groups = offers.map((o) => o.groupName).toSet().toList()
-      ..sort((a, b) => ServiceGroups.order(a).compareTo(ServiceGroups.order(b)));
+      ..sort(
+        (a, b) => ServiceGroups.order(a).compareTo(ServiceGroups.order(b)),
+      );
     return OutletCatalogue(
       outletId: outletId,
       offers: offers,
@@ -2581,7 +2594,8 @@ class DemoStore {
     if (!offer.isAvailable) {
       throw ApiException(
         code: 'validation_error',
-        message: '${offer.name} is not available at ${outlet?.name ?? 'this outlet'}',
+        message:
+            '${offer.name} is not available at ${outlet?.name ?? 'this outlet'}',
         statusCode: 400,
       );
     }
@@ -2595,7 +2609,8 @@ class DemoStore {
     if (offer.isByQuote) {
       throw ApiException(
         code: 'validation_error',
-        message: '${offer.name} is priced by quote — request a quotation instead.',
+        message:
+            '${offer.name} is priced by quote — request a quotation instead.',
         statusCode: 409,
         details: const [
           {'reason': 'by_quote'},
@@ -2625,7 +2640,9 @@ class DemoStore {
           statusCode: 400,
         );
       }
-      addons.add(BookingAddon(serviceId: a.serviceId, name: a.name, priceCents: price));
+      addons.add(
+        BookingAddon(serviceId: a.serviceId, name: a.name, priceCents: price),
+      );
     }
     final addonsCents = addons.fold(0, (sum, a) => sum + a.priceCents);
     final mp = customerId == null
@@ -2833,7 +2850,8 @@ class DemoStore {
   CustomerSummary customerSummary(String customerId) {
     final p = requireProfile(customerId);
     final brief = membershipBriefOf(customerId);
-    final acc = loyaltyTiers.containsKey(customerId) ||
+    final acc =
+        loyaltyTiers.containsKey(customerId) ||
             brief != null ||
             loyaltyLedger.any((e) => e.customerId == customerId)
         ? accountOf(customerId)
@@ -2869,7 +2887,8 @@ class DemoStore {
     final q = query.trim().toLowerCase();
     if (q.length < 2) return const [];
     // A pasted `+44 7400…` / `072 555…` compares against the E.164 key.
-    final digits = Phone.normalise(q)?.replaceAll('+', '') ??
+    final digits =
+        Phone.normalise(q)?.replaceAll('+', '') ??
         q.replaceAll(RegExp(r'[^0-9]'), '');
     final plate = q.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
     // Only an all-numeric query (`072 555…`, `+44 7400…`) is a phone search;
@@ -3200,8 +3219,7 @@ class DemoStore {
     if (cash && featureFlags['cash_on_collection'] != true) {
       throw const ApiException(
         code: 'validation_error',
-        message:
-            'Cash on collection is not available at the moment — please pay by card or instant EFT',
+        message: 'Cash on collection is not available at the moment — please pay by card or instant EFT',
         statusCode: 409,
         data: {
           'code': 'validation_error',
@@ -3361,7 +3379,9 @@ class DemoStore {
       );
     }
     final vehicle = vehicleById(input.vehicleId);
-    if (vehicle == null || vehicle.customerId != customer.id || !vehicle.isActive) {
+    if (vehicle == null ||
+        vehicle.customerId != customer.id ||
+        !vehicle.isActive) {
       throw ApiException(
         code: 'validation_error',
         message: 'Choose one of the customer\'s vehicles',
@@ -3525,10 +3545,14 @@ class DemoStore {
     }
     // Cash on collection recorded at the counter: the work order's `booking`
     // expansion now reports `paid`, unlocking the hand-over OTP.
-    final woForBooking = workOrders.where((w) => w.bookingId == b.id).firstOrNull;
+    final woForBooking = workOrders
+        .where((w) => w.bookingId == b.id)
+        .firstOrNull;
     if (woForBooking != null) {
       _notify('work_orders', woForBooking.id);
-      final task = tasks.where((t) => t.workOrderId == woForBooking.id).firstOrNull;
+      final task = tasks
+          .where((t) => t.workOrderId == woForBooking.id)
+          .firstOrNull;
       if (task != null) _notify('tasks', task.id);
     }
     _pushNotification(
@@ -4067,6 +4091,32 @@ class DemoStore {
 
   /// `POST /quotations/:id/photos` — bytes are kept in memory and served at
   /// `demo://photo/<attachmentId>`.
+  /// `POST /work-orders/:id/photos` — checklist photo proof (demo: metadata only).
+  Attachment uploadStepPhoto(
+    String workOrderId, {
+    required String stepKey,
+    int sizeBytes = 0,
+    String? filename,
+  }) {
+    final id =
+        'a0${DateTime.now().microsecondsSinceEpoch.toRadixString(16).padLeft(14, '0')}'
+            .padRight(32, '0');
+    final uuid =
+        '${id.substring(0, 8)}-${id.substring(8, 12)}-4${id.substring(13, 16)}-8${id.substring(17, 20)}-${id.substring(20, 32)}';
+    return Attachment.fromJson({
+      'id': uuid,
+      'entity_type': 'checklist_step',
+      'entity_id': workOrderId,
+      'kind': 'step_photo',
+      'storage_path': 'work-orders/$workOrderId/$uuid.jpg',
+      'mime_type': 'image/jpeg',
+      'size_bytes': sizeBytes,
+      'caption': stepKey,
+      'url': '/v1/work-orders/$workOrderId/photos/$uuid',
+      'created_at': now.toIso8601String(),
+    });
+  }
+
   Attachment uploadQuotationPhoto(
     String quotationId,
     Uint8List bytes, {
@@ -4214,7 +4264,10 @@ class DemoStore {
     _shareSentAt[quotationId] = now;
     _sendQuoteReady(quotations[i]);
     _notify('quotations', quotationId);
-    return SharedQuoteLink(publicUrl: quotations[i].publicUrl!, expiresAt: expires);
+    return SharedQuoteLink(
+      publicUrl: quotations[i].publicUrl!,
+      expiresAt: expires,
+    );
   }
 
   /// `GET /quotations/:id/pdf` — a small but valid single-page PDF.
@@ -5009,8 +5062,7 @@ class DemoStore {
     if (!wo.isCheckedIn) {
       throw ApiException(
         code: 'validation_error',
-        message:
-            'The vehicle has not been checked in yet — confirm the check-in before assigning this work order',
+        message: 'The vehicle has not been checked in yet — confirm the check-in before assigning this work order',
         statusCode: 409,
         data: {
           'code': 'validation_error',
@@ -5074,7 +5126,8 @@ class DemoStore {
         : const {'wash', 'detail'};
     final free = teamMembers(wo.outletId)
         .where(
-          (m) => m.availability == AvailabilityStatus.available && !m.atCapacity,
+          (m) =>
+              m.availability == AvailabilityStatus.available && !m.atCapacity,
         )
         .toList();
     if (free.isEmpty) return null;
@@ -5923,7 +5976,10 @@ class DemoStore {
     _notify('loyalty_accounts', customerId);
   }
 
-  void _validateSelections(MembershipPlan plan, Map<String, String> selections) {
+  void _validateSelections(
+    MembershipPlan plan,
+    Map<String, String> selections,
+  ) {
     for (final g in plan.chooseOneGroups) {
       final code = selections[g.code];
       if (code == null || g.entitlement(code) == null) {
@@ -6004,15 +6060,13 @@ class DemoStore {
     final plan = planById(m.planId);
     final sel = membershipSelections[m.id] ?? const <String, String>{};
     final invoices =
-        membershipInvoices.where((i) => i.membershipId == m.id).toList()
-          ..sort(
-            (a, b) => (b.periodStart ?? b.createdAt ?? now).compareTo(
-              a.periodStart ?? a.createdAt ?? now,
-            ),
-          );
-    final open =
-        invoices.where((i) => i.isPending).toList()
-          ..sort((a, b) => (a.dueAt ?? now).compareTo(b.dueAt ?? now));
+        membershipInvoices.where((i) => i.membershipId == m.id).toList()..sort(
+          (a, b) => (b.periodStart ?? b.createdAt ?? now).compareTo(
+            a.periodStart ?? a.createdAt ?? now,
+          ),
+        );
+    final open = invoices.where((i) => i.isPending).toList()
+      ..sort((a, b) => (a.dueAt ?? now).compareTo(b.dueAt ?? now));
     return MembershipSummary(
       membership: m.copyWith(planCode: plan?.code),
       plan: plan,
@@ -6149,7 +6203,8 @@ class DemoStore {
       discountLabel: q.discountLabel,
       vatCents: q.vat,
       totalCents: q.total,
-      pointsPending: (q.total / 100 * loyaltyConfig.rules.pointsPerRand).round(),
+      pointsPending: (q.total / 100 * loyaltyConfig.rules.pointsPerRand)
+          .round(),
       vehicleSize: q.size,
       pricingMode: q.offer.pricingMode,
       vatMode: q.offer.vatMode,
@@ -6467,7 +6522,8 @@ class DemoStore {
     if (!inv.isPending) {
       throw ApiException(
         code: 'conflict',
-        message: 'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
+        message:
+            'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
         statusCode: 409,
       );
     }
@@ -6658,17 +6714,18 @@ class DemoStore {
         'paid_at': j.iso(now),
       },
     );
-    final inv = _newInvoice(
-      m,
-      plan,
-      periodStart: m.currentPeriodStart!,
-      periodEnd: m.currentPeriodEnd!,
-      idempotencyKey: 'enrol:${m.id}',
-    ).copyWith(
-      status: MembershipInvoiceStatus.paid,
-      paidAt: now,
-      paymentId: p.id,
-    );
+    final inv =
+        _newInvoice(
+          m,
+          plan,
+          periodStart: m.currentPeriodStart!,
+          periodEnd: m.currentPeriodEnd!,
+          idempotencyKey: 'enrol:${m.id}',
+        ).copyWith(
+          status: MembershipInvoiceStatus.paid,
+          paidAt: now,
+          paymentId: p.id,
+        );
     payments.add(p.copyWith(status: PaymentStatus.successful));
     // The payment row needs the invoice id — rebuild with it.
     payments[payments.length - 1] = Payment(
@@ -6732,7 +6789,8 @@ class DemoStore {
     if (!inv.isPending) {
       throw ApiException(
         code: 'conflict',
-        message: 'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
+        message:
+            'Invoice ${inv.ref} is already ${inv.status.label.toLowerCase()}.',
         statusCode: 409,
       );
     }
@@ -6928,8 +6986,7 @@ class DemoStore {
         code: 'black',
         tier: LoyaltyTier.black,
         name: 'Black',
-        tagline:
-            'Washes, a monthly detail or steam clean and an annual ceramic coating',
+        tagline: 'Washes, a monthly detail or steam clean and an annual ceramic coating',
         monthlyFeeCents: 85000,
         discountPct: 10,
         discountScope: DiscountScope.planServices,
@@ -7063,8 +7120,10 @@ class DemoStore {
     var seq = 101;
     for (final m in memberships) {
       final plan = planById(m.planId)!;
-      final invId = 'c5000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
-      final payId = '60000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
+      final invId =
+          'c5000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
+      final payId =
+          '60000000-0000-4000-8000-0000000000${seq.toString().padLeft(2, '0')}';
       final card = m.paymentMethod == MembershipPaymentMethod.card;
       membershipInvoices.add(
         MembershipInvoice(
@@ -7079,7 +7138,8 @@ class DemoStore {
           dueAt: m.currentPeriodStart,
           paidAt: m.currentPeriodStart,
           paymentId: payId,
-          idempotencyKey: 'seed-minv-${m.customerId.replaceFirst('seed_', '')}-cur',
+          idempotencyKey:
+              'seed-minv-${m.customerId.replaceFirst('seed_', '')}-cur',
           createdAt: m.currentPeriodStart,
         ),
       );
@@ -7122,7 +7182,8 @@ class DemoStore {
         amountCents: planById(planBlack)!.monthlyFeeCents,
         status: MembershipInvoiceStatus.pending,
         dueAt: zanele.currentPeriodEnd,
-        idempotencyKey: 'renewal:${zanele.id}:${j.isoDate(zanele.currentPeriodEnd)}',
+        idempotencyKey:
+            'renewal:${zanele.id}:${j.isoDate(zanele.currentPeriodEnd)}',
         createdAt: n,
       ),
     );

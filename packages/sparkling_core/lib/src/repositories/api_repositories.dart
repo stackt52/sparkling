@@ -466,8 +466,8 @@ class ApiMembershipRepository extends _ApiRepositoryBase
   );
 
   @override
-  Future<PaymentIntentResult> payInvoice(String invoiceId) =>
-      api.payMembershipInvoice(invoiceId, idempotencyKey: SparklingApi.newOpId());
+  Future<PaymentIntentResult> payInvoice(String invoiceId) => api
+      .payMembershipInvoice(invoiceId, idempotencyKey: SparklingApi.newOpId());
 
   @override
   Future<MembershipSummary> changeSelections(Map<String, String> selections) =>
@@ -507,7 +507,8 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   StreamSubscription<List<QueuedOperation>>? _deferredSub;
   final Set<String> _deferredInFlight = {};
 
-  static String _deferredKey(String clientOpId) => 'deferred_photos:$clientOpId';
+  static String _deferredKey(String clientOpId) =>
+      'deferred_photos:$clientOpId';
 
   /// Damage photos kept locally for queued `quotation.raise` operations are
   /// uploaded (best effort, sequentially) once the server has applied the
@@ -533,7 +534,10 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
       _deferredInFlight.add(op.clientOpId);
       try {
         final photos = (entry.data as List? ?? const [])
-            .map((m) => DeferredPhoto.fromJson(Map<String, dynamic>.from(m as Map)))
+            .map(
+              (m) =>
+                  DeferredPhoto.fromJson(Map<String, dynamic>.from(m as Map)),
+            )
             .toList();
         for (final p in photos) {
           try {
@@ -559,6 +563,19 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
 
   /// Stops the deferred-photo listener (tests).
   Future<void> dispose() async => _deferredSub?.cancel();
+
+  @override
+  Future<Attachment> uploadStepPhoto(
+    String workOrderId, {
+    required String stepKey,
+    Uint8List? bytes,
+    String? path,
+  }) => api.uploadWorkOrderPhoto(
+    workOrderId,
+    stepKey: stepKey,
+    bytes: bytes,
+    path: path,
+  );
 
   @override
   Future<void> setAvailability(AvailabilityStatus status) =>
@@ -797,7 +814,8 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
       payload: input.toJson(),
       clientOpId: input.idempotencyKey,
       optimistic: optimistic,
-      label: '${input.method.label} payment ${Money.formatZar(input.amountCents)}',
+      label:
+          '${input.method.label} payment ${Money.formatZar(input.amountCents)}',
     );
   }
 

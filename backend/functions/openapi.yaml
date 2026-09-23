@@ -3270,6 +3270,126 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/StepRequest'
+  /work-orders/:id/photos:
+    post:
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                      step_key:
+                        type: string
+                        nullable: true
+                      mime_type:
+                        type: string
+                      size_bytes:
+                        type: integer
+                      width:
+                        type: integer
+                        nullable: true
+                      height:
+                        type: integer
+                        nullable: true
+                      url:
+                        type: string
+                      created_at:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: uploadStepPhoto
+      summary: Upload a checklist step photo (multipart photo + optional step_key); submit the step with the returned attachment id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                step_key:
+                  type: string
+              required:
+                - photo
+  /work-orders/:id/photos/:attachmentId:
+    get:
+      responses:
+        '200':
+          description: image/*
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Staff
+      operationId: getStepPhoto
+      summary: Stream a checklist step photo (staff of the outlet)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
   /work-orders/:id/checkin:
     post:
       responses:

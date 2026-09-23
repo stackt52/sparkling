@@ -92,3 +92,7 @@ export function setObjectStorageForTests(s: ObjectStorage | null): void {
 export function quotationPhotoPath(quotationId: string, attachmentId: string, ext: string): string {
   return `quotations/${quotationId}/${attachmentId}.${ext}`;
 }
+
+export function workOrderPhotoPath(workOrderId: string, attachmentId: string, ext: string): string {
+  return `work-orders/${workOrderId}/${attachmentId}.${ext}`;
+}

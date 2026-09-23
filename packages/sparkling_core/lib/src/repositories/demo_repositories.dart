@@ -203,11 +203,11 @@ class DemoLoyaltyRepository implements LoyaltyRepository {
     delay: const Duration(milliseconds: 500),
   );
   @override
-  Stream<LoyaltyAccountSummary> watchAccount() => _watch(
-    store,
-    const {'loyalty_ledger', 'memberships', 'membership_usage'},
-    store.loyaltyAccount,
-  );
+  Stream<LoyaltyAccountSummary> watchAccount() => _watch(store, const {
+    'loyalty_ledger',
+    'memberships',
+    'membership_usage',
+  }, store.loyaltyAccount);
   @override
   Stream<List<LedgerEntry>> watchLedger() =>
       _watch(store, const {'loyalty_ledger'}, store.myLedger);
@@ -275,6 +275,21 @@ class DemoMembershipRepository implements MembershipRepository {
 class DemoStaffRepository implements StaffRepository {
   DemoStaffRepository(this.store);
   final DemoStore store;
+
+  @override
+  Future<Attachment> uploadStepPhoto(
+    String workOrderId, {
+    required String stepKey,
+    Uint8List? bytes,
+    String? path,
+  }) => _later(
+    () => store.uploadStepPhoto(
+      workOrderId,
+      stepKey: stepKey,
+      sizeBytes: bytes?.length ?? 0,
+      filename: path?.split('/').last,
+    ),
+  );
 
   @override
   Future<void> setAvailability(AvailabilityStatus status) =>

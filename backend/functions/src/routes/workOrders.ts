@@ -8,6 +8,9 @@ import { assertOwnerOrOutletStaff, requireProfile, requireStaff } from '../middl
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
 import { buildTimeline, checkInWorkOrder, loadStepResults, loadTemplateForWorkOrder, progress, recordStep } from '../services/workflow.js';
+import { addStepPhoto, MAX_STEP_PHOTO_BYTES, openStepPhoto, stepPhotoView } from '../services/stepPhotos.js';
+import { parseMultipart } from '../lib/multipart.js';
+import { assertOutlet } from '../middleware/auth.js';
 import type { Task, WorkOrder } from '../types.js';
 
 export const workOrdersRouter = Router();
@@ -118,5 +121,46 @@ workOrdersRouter.post(
     const body = parseBody(checkinSchema, req.body ?? {});
     const out = await checkInWorkOrder(req.ctx, id, { bay: body.bay });
     res.status(out.already ? 200 : 201).json({ work_order: redactPickupOtp(req.auth!, out.work_order), task: out.task, already: out.already });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Checklist step photos (STF-006): upload first, then submit the step with `attachment_id`.
+// ---------------------------------------------------------------------------
+
+async function loadWorkOrderForStaff(req: import('express').Request, id: string): Promise<WorkOrder> {
+  const wo = unwrap<WorkOrder | null>(await getSupabase().from('work_orders').select('*').eq('id', id).maybeSingle(), 'work order');
+  if (!wo) throw ApiError.notFound('Work order');
+  assertOutlet(req.auth!, wo.outlet_id);
+  return wo;
+}
+
+/** Multipart `photo` (JPEG/PNG/HEIC/WebP ≤ 10 MB) + optional `step_key` → `{ attachment }` with a private `url`. */
+workOrdersRouter.post(
+  '/work-orders/:id/photos',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const wo = await loadWorkOrderForStaff(req, id);
+    const form = await parseMultipart(req, { fileField: 'photo', maxFileBytes: MAX_STEP_PHOTO_BYTES });
+    if (!form.file) throw ApiError.validation('Missing "photo" file field', [{ path: 'photo', message: 'required' }]);
+    const stepKey = form.fields.step_key ? z.string().regex(/^[a-z0-9_]{1,64}$/).parse(form.fields.step_key) : null;
+    const att = await addStepPhoto(req.ctx, wo, { buffer: form.file.buffer, stepKey });
+    res.status(201).json({ attachment: stepPhotoView(att, `/v1/work-orders/${id}`) });
+  }),
+);
+
+workOrdersRouter.get(
+  '/work-orders/:id/photos/:attachmentId',
+  requireStaff,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const attachmentId = uuid.parse(req.params.attachmentId);
+    await loadWorkOrderForStaff(req, id);
+    const { attachment, object } = await openStepPhoto(id, attachmentId);
+    res.setHeader('Content-Type', object.contentType ?? attachment.mime_type);
+    if (object.size != null) res.setHeader('Content-Length', String(object.size));
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    object.stream.pipe(res);
   }),
 );

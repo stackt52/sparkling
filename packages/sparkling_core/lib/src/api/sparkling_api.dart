@@ -553,6 +553,39 @@ class SparklingApi {
     );
   }
 
+  /// `POST /work-orders/:id/photos` (multipart `photo` + `step_key`) — the
+  /// checklist step is then submitted with the returned attachment id.
+  Future<Attachment> uploadWorkOrderPhoto(
+    String workOrderId, {
+    required String stepKey,
+    Uint8List? bytes,
+    String? path,
+    String? mimeType,
+    String? filename,
+  }) async {
+    assert(bytes != null || path != null, 'bytes or path required');
+    final type = mimeType ?? _mimeFor(filename ?? path);
+    final name =
+        filename ?? (path == null ? 'photo.jpg' : path.split('/').last);
+    final media = DioMediaType.parse(type);
+    final file = bytes != null
+        ? MultipartFile.fromBytes(bytes, filename: name, contentType: media)
+        : await MultipartFile.fromFile(
+            path!,
+            filename: name,
+            contentType: media,
+          );
+    final form = FormData.fromMap({'photo': file, 'step_key': stepKey});
+    return _run(
+      () => dio.post(
+        '/work-orders/$workOrderId/photos',
+        data: form,
+        options: _opts(),
+      ),
+      (d) => Attachment.fromJson(_entity(d, 'attachment')),
+    );
+  }
+
   static String _mimeFor(String? name) {
     final ext = (name ?? '').split('.').last.toLowerCase();
     return switch (ext) {
@@ -946,11 +979,8 @@ class SparklingApi {
   // ---------------------------------------------------------------------------
 
   /// `PUT /staff/me/availability`
-  Future<void> setAvailability(AvailabilityStatus status) => put(
-    '/staff/me/availability',
-    body: {'status': status.db},
-    map: _void,
-  );
+  Future<void> setAvailability(AvailabilityStatus status) =>
+      put('/staff/me/availability', body: {'status': status.db}, map: _void);
 
   Future<OpsSummary> opsSummary({required String outletId, DateTime? date}) =>
       get(

@@ -349,8 +349,10 @@ export async function recordStep(ctx: RequestContext, workOrderId: string, stepK
   }
   validateStepValue(step, input);
   if (input.attachmentId) {
-    const att = await db.from('attachments').select('id').eq('id', input.attachmentId).maybeSingle();
-    if (!att.data) throw ApiError.validation('attachment_id does not exist');
+    const att = await db.from('attachments').select('id, entity_type, entity_id').eq('id', input.attachmentId).maybeSingle();
+    if (!att.data) throw ApiError.validation('attachment_id does not exist — upload the photo to POST /work-orders/:id/photos first', [{ path: 'attachment_id', message: 'unknown attachment' }]);
+    const a = att.data as { entity_type: string; entity_id: string };
+    if (a.entity_type === 'checklist_step' && a.entity_id !== workOrderId) throw ApiError.validation('attachment_id belongs to another work order', [{ path: 'attachment_id', message: 'wrong work order' }]);
   }
   const now = new Date().toISOString();
   const row = {

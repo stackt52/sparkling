@@ -153,6 +153,40 @@ class _ChecklistViewState extends State<ChecklistView> {
 
   Future<void> _completeStep(ChecklistStep step, StepInputValue input) async {
     final staff = context.repositories.staff;
+    // Photo proof is uploaded first (needs a connection); the step is then
+    // submitted with the server-issued attachment id.
+    String? attachmentId = input.attachmentId;
+    if (input.photoPaths.isNotEmpty) {
+      setState(() => _busy = true);
+      try {
+        Attachment? last;
+        for (final path in input.photoPaths) {
+          last = await staff.uploadStepPhoto(
+            widget.workOrderId,
+            stepKey: step.key,
+            path: path,
+          );
+        }
+        attachmentId = last?.id;
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        setState(() => _busy = false);
+        StaffSnack.show(
+          context,
+          e.isNetwork
+              ? 'The photo needs a connection to upload — reconnect and '
+                    'complete the step again.'
+              : e.message,
+        );
+        return;
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _busy = false);
+        StaffSnack.show(context, "Couldn't upload the photo — try again.");
+        return;
+      }
+    }
+    if (!mounted) return;
     final result = await _mutate(
       () => staff.submitStep(
         widget.workOrderId,
@@ -161,7 +195,7 @@ class _ChecklistViewState extends State<ChecklistView> {
           status: StepStatus.done,
           clientOpId: SparklingApi.newOpId(),
           value: input.value,
-          attachmentId: input.attachmentId,
+          attachmentId: attachmentId,
         ),
       ),
       queued: 'Step "${step.title}"',

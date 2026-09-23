@@ -1,5 +1,5 @@
 name: sparkling_customer
-description: "Sparkling customer app — bookings, licence-disc scanning, tracking, loyalty (SRS CUS-*)."
+description: "Sparkling customer app — bookings, licence-disc scanning, tracking, loyalty."
 publish_to: 'none'
 version: 0.1.0+1
 
