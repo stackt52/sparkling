@@ -32,6 +32,11 @@ beforeAll(async () => {
     hits += 1;
     res.status(500).json({ error: { code: 'internal' } });
   });
+  app.post('/v1/strict', (req, res) => {
+    hits += 1;
+    if (req.body?.category !== 'Dent') return res.status(400).json({ error: { code: 'validation_error', message: 'Request validation failed' } });
+    res.status(201).json({ id: `strict_${hits}` });
+  });
   app.use(errorHandler);
   server = createServer(app);
   await new Promise<void>((r) => server.listen(0, r));
@@ -95,6 +100,24 @@ describe('idempotency middleware (API-003)', () => {
     await post('/v1/fail', {}, { 'Idempotency-Key': 'f1' });
     expect(hits).toBe(2);
     expect(db.rows('idempotency_keys')).toHaveLength(0);
+  });
+
+  it('does not cache 4xx responses, so a corrected retry with the same key reaches the handler', async () => {
+    // The customer app keeps one client_op_id per draft until the request succeeds.
+    const rejected = await post('/v1/strict', { category: 'Dent, Scratch' }, { 'Idempotency-Key': 'draft-1' });
+    expect(rejected.status).toBe(400);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(db.rows('idempotency_keys')).toHaveLength(0);
+    const fixed = await post('/v1/strict', { category: 'Dent' }, { 'Idempotency-Key': 'draft-1' });
+    expect(fixed.status).toBe(201);
+    expect(fixed.headers.get('idempotent-replayed')).toBeNull();
+    await new Promise((r) => setTimeout(r, 10));
+    const replay = await post('/v1/strict', { category: 'Dent' }, { 'Idempotency-Key': 'draft-1' });
+    expect(replay.status).toBe(201);
+    expect(replay.body).toEqual(fixed.body);
+    expect(replay.headers.get('idempotent-replayed')).toBe('true');
+    expect(hits).toBe(2);
+    expect(db.rows('idempotency_keys')).toHaveLength(1);
   });
 
   it('echoes and generates correlation ids', async () => {

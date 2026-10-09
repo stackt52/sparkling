@@ -1,8 +1,10 @@
 /**
  * API-003: replay protection for mutating routes.
  * Key = Idempotency-Key header or body.client_op_id, scoped by uid + method + path.
- * First response (status + JSON body) is cached in `idempotency_keys`; replays
- * return it verbatim with `Idempotent-Replayed: true`.
+ * The first *successful* (2xx) response (status + JSON body) is cached in
+ * `idempotency_keys`; replays return it verbatim with `Idempotent-Replayed: true`.
+ * Rejected requests (4xx) did nothing, so they are never cached: clients keep the
+ * same client_op_id across retries and must be able to fix the body and resend.
  */
 import type { RequestHandler } from 'express';
 import { getSupabase, PG_UNIQUE_VIOLATION } from '../lib/supabase.js';
@@ -44,8 +46,9 @@ export const idempotency: RequestHandler = asyncHandler(async (req, res, next) =
   const originalJson = res.json.bind(res);
   res.json = ((body: unknown) => {
     const status = res.statusCode;
-    // Only cache successful / deterministic outcomes; 5xx and 429 should be retried.
-    if (status < 500 && status !== 429) {
+    // Only cache successful outcomes. A 4xx (validation, auth, not found, conflict) had no
+    // side effect and a corrected retry with the same key must reach the handler; 5xx/429 are transient.
+    if (status >= 200 && status < 300) {
       void db
         .from('idempotency_keys')
         .insert({ key: scoped, profile_id: req.auth?.uid ?? null, method: req.method, path, status_code: status, response: body })

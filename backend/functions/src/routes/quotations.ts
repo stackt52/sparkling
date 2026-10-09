@@ -96,12 +96,32 @@ quotationsRouter.get(
   }),
 );
 
-const category = z.enum(['Dent', 'Scratch', 'Bumper', 'Panel', 'Paint', 'Glass', 'Other']);
+const CATEGORIES = ['Dent', 'Scratch', 'Bumper', 'Panel', 'Paint', 'Glass', 'Other'] as const;
+const category = z.enum(CATEGORIES);
+
+/**
+ * Customer requests may tick several damage categories; the app sends them as
+ * one comma-separated string (`'Dent, Scratch'`). Accept one or more known
+ * categories, de-duplicated, and store them re-joined with `', '`.
+ */
+const categoryList = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((raw, ctx) => {
+    const parts = [...new Set(raw.split(',').map((c) => c.trim()).filter(Boolean))];
+    const unknown = parts.filter((c) => !(CATEGORIES as readonly string[]).includes(c));
+    if (parts.length === 0 || unknown.length > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Expected one or more of ${CATEGORIES.join(' | ')}${unknown.length ? `, received '${unknown.join(', ')}'` : ''}` });
+      return z.NEVER;
+    }
+    return parts.join(', ');
+  });
 
 const createSchema = z.object({
   vehicle_id: uuid,
   outlet_id: uuid,
-  category,
+  category: categoryList,
   description: z.string().trim().min(5).max(2000),
   client_op_id: clientOpId,
   attachment_ids: z.array(uuid).max(10).optional(),

@@ -649,7 +649,8 @@ export async function assignTask(ctx: RequestContext, taskId: string, assigneeId
 export async function convertQuotation(ctx: RequestContext, quotation: Quotation, opts: { markConverted?: boolean; checkedIn?: boolean } = { markConverted: true, checkedIn: true }): Promise<{ quotation: Quotation; work_order: WorkOrder; task: Task }> {
   const db = getSupabase();
   const services = unwrap<Service[]>(await db.from('services').select('*').eq('category', 'auto_body').eq('is_active', true).order('sort_order'), 'services');
-  const category = (quotation.category ?? '').toLowerCase();
+  // Customer requests may carry several categories ('Dent, Scratch'); match the service on the first one.
+  const category = (quotation.category ?? '').split(',')[0].trim().toLowerCase();
   const byCategory = category ? services.find((s) => (s.code ?? '').toLowerCase() === category || (s.name ?? '').toLowerCase().startsWith(category)) : undefined;
   const service = byCategory ?? services[0];
   if (!service) throw ApiError.conflict('No auto-body service configured to convert this quotation');

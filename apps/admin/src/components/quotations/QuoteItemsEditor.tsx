@@ -7,15 +7,49 @@ import MenuItem from '@mui/material/MenuItem';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import ListItemIcon from '@mui/material/ListItemIcon';
 import MSymbol from '@/components/MSymbol';
 import Tile from '@/components/ui/Tile';
 import { QUOTE_CATEGORY_META } from './quoteCategories';
 import { rands } from '@/lib/format';
 import { shape, tk } from '@/theme/tokens';
 import { priceLabelFor } from '@/components/catalogue/pricing';
-import { QUOTE_ITEM_CATEGORIES, VAT_RATE, type OutletServiceOffer, type QuoteLineItem } from '@/lib/types';
+import { QUOTE_ITEM_CATEGORIES, VAT_RATE, type OutletServiceOffer, type QuoteItemCategory, type QuoteLineItem } from '@/lib/types';
 
 export const emptyQuoteItem = (): QuoteLineItem => ({ label: '', description: '', category: null, service_id: null, amount_cents: 0, quantity: 1 });
+
+/** An item the assessor has not touched yet (fresh `emptyQuoteItem()`), safe to replace. */
+export const isBlankQuoteItem = (i: QuoteLineItem) => !i.label.trim() && !(i.description ?? '').trim() && !i.category && !i.service_id && !i.amount_cents;
+
+/** Outlet price → amount incl. VAT (`excl` prices × 1.15); null when the offer is by-quote / unpriced. */
+export const offerAmountInclVat = (s: OutletServiceOffer): number | null => {
+  const cents = s.price_from_cents ?? s.price_cents ?? null;
+  return cents === null || cents === undefined ? null : Math.round(cents * (s.vat_mode === 'excl' ? 1 + VAT_RATE : 1));
+};
+
+/** Attention-area category implied by an auto-body service code (`PDR` → dent, `BUMPER_SCUFF` → bumper…). */
+export function categoryForServiceCode(code: string | null | undefined): QuoteItemCategory | null {
+  const c = (code ?? '').toUpperCase();
+  if (!c) return null;
+  if (c.includes('BUMPER')) return 'bumper';
+  if (c.includes('PDR') || c.includes('DENT')) return 'dent';
+  if (c.includes('WINDSHIELD') || c.includes('GLASS') || c.includes('SMASH')) return 'glass';
+  if (c.includes('SCRATCH') || c.includes('SPOT')) return 'scratch';
+  if (c.includes('PANEL')) return 'panel';
+  if (c.includes('PAINT') || c.includes('POLISH') || c.includes('CERAMIC') || c.includes('RESPRAY')) return 'paint';
+  return null;
+}
+
+/** A line item prefilled from an outlet offer: label, description, category, amount incl. VAT (0 when by-quote). */
+export const quoteItemFromService = (s: OutletServiceOffer): QuoteLineItem => ({
+  label: s.name,
+  description: s.description ?? '',
+  category: categoryForServiceCode(s.code),
+  service_id: s.service_id ?? s.id,
+  amount_cents: offerAmountInclVat(s) ?? 0,
+  quantity: 1,
+});
 
 export const quoteItemsTotal = (items: QuoteLineItem[]) => items.reduce((s, i) => s + (i.amount_cents || 0) * (i.quantity ?? 1), 0);
 
@@ -37,17 +71,26 @@ export default function QuoteItemsEditor({ items, onChange, services, disabled, 
 }) {
   const update = (i: number, patch: Partial<QuoteLineItem>) => onChange(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const total = quoteItemsTotal(items);
+  const [serviceMenu, setServiceMenu] = React.useState<null | HTMLElement>(null);
   /** Picking an outlet offer prefills the amount incl. VAT (excl. price × 1.15) and the label when empty. */
   const pickService = (i: number, id: string) => {
     const s = services?.find((x) => (x.service_id ?? x.id) === id);
-    const cents = s ? s.price_from_cents ?? s.price_cents ?? null : null;
+    const cents = s ? offerAmountInclVat(s) : null;
     const it = items[i];
     update(i, {
       service_id: id || null,
-      ...(s && cents !== null && cents !== undefined ? { amount_cents: Math.round(cents * (s.vat_mode === 'excl' ? 1 + VAT_RATE : 1)) } : {}),
+      ...(s && cents !== null ? { amount_cents: cents } : {}),
       ...(s && !it.label.trim() ? { label: s.name } : {}),
     });
   };
+  /** "Add service": appends a prefilled item (or fills the untouched first item) from the outlet's auto-body catalogue. */
+  const addService = (s: OutletServiceOffer) => {
+    setServiceMenu(null);
+    const item = quoteItemFromService(s);
+    const blank = items.length === 1 && isBlankQuoteItem(items[0]) ? 0 : -1;
+    onChange(blank === 0 ? [item] : [...items, item]);
+  };
+  const canAdd = !disabled && items.length < 20;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       {items.map((it, i) => (
@@ -97,9 +140,34 @@ export default function QuoteItemsEditor({ items, onChange, services, disabled, 
           </Box>
         </Box>
       ))}
-      <Button size="small" variant="text" onClick={() => onChange([...items, emptyQuoteItem()])} startIcon={<MSymbol name="add" size={18} />} sx={{ alignSelf: 'flex-start' }} disabled={disabled || items.length >= 20}>
-        Add item
-      </Button>
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+        {services && services.length > 0 && (
+          <>
+            <Button size="small" variant="outlined" onClick={(e) => setServiceMenu(e.currentTarget)} startIcon={<MSymbol name="playlist_add" size={18} />} endIcon={<MSymbol name="arrow_drop_down" size={18} />} disabled={!canAdd} aria-haspopup="menu" aria-expanded={Boolean(serviceMenu)} data-testid="quote-add-service">
+              Add service
+            </Button>
+            <Menu anchorEl={serviceMenu} open={Boolean(serviceMenu)} onClose={() => setServiceMenu(null)} slotProps={{ paper: { sx: { maxHeight: 360, minWidth: 300 } }, list: { 'aria-label': 'Auto-body services at this outlet', dense: true } }}>
+              {services.map((s) => {
+                const incl = offerAmountInclVat(s);
+                return (
+                  <MenuItem key={s.service_id ?? s.id} onClick={() => addService(s)} sx={{ alignItems: 'flex-start', gap: 1.25, py: 1 }}>
+                    <ListItemIcon sx={{ mt: 0.25, minWidth: 0 }}><MSymbol name={s.icon || 'build'} size={20} /></ListItemIcon>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                      <span>{s.name}</span>
+                      <Typography variant="caption" color="text.secondary">
+                        {incl === null ? 'By quote · enter the amount' : `${rands(incl, { decimals: true })} incl. VAT${s.pricing_mode === 'from' ? ' (from)' : ''}`}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+            </Menu>
+          </>
+        )}
+        <Button size="small" variant="text" onClick={() => onChange([...items, emptyQuoteItem()])} startIcon={<MSymbol name="add" size={18} />} disabled={!canAdd}>
+          {services?.length ? 'Add custom item' : 'Add item'}
+        </Button>
+      </Box>
       {showTotal && (
         <Tile sx={{ justifyContent: 'space-between' }}>
           <Box>

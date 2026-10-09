@@ -211,8 +211,11 @@ plus "Download PDF", photo lightbox, `tel:` link and "Save link".
   through `GET /quotations/:id/photos/:attachmentId` with the bearer token → object URLs, never a bucket URL),
   decision line ("Accepted via link by Thabo N. on …"), **Public link** row (Copy · Open · Resend WhatsApp →
   `POST /quotations/:id/share`, 60 s cooldown / 429-aware), **Download PDF** (`GET /quotations/:id/pdf`).
-* **Quote form:** per-item category chips, description, optional auto-body service (outlet services filtered to
-  `auto_body`), amount; notes; photo dropzone (`multipart/form-data` → `POST /quotations/:id/photos`).
+* **Quote form:** an **Add service** menu lists the outlet's auto-body catalogue (`GET /outlets/:id/services`, group
+  "Auto Body Repair" or category `auto_body`) and appends a priced item per pick — label, description, category from
+  the service code, `service_id`, amount incl. VAT (by-quote services start at R 0) — next to **Add custom item**;
+  each item keeps its category chips, description, optional service select and amount; notes; photo dropzone
+  (`multipart/form-data` → `POST /quotations/:id/photos`).
 * **Raise quote** (header pill, `quote:write`): customer search / register and vehicle pick / add reuse the walk-in
   components, then items + photos + validity → `POST /quotations` (staff shape, `send_to_customer`) → success with
   the public link.
@@ -222,7 +225,8 @@ plus "Download PDF", photo lightbox, `tel:` link and "Save link".
   action (`payment:record`, same dialog as bookings with `quotation_id`; amount fixed to the quote total, 409 once
   paid) while `amount_due_cents > 0`, and **Check in & start** (`quote:convert` → `POST /quotations/:id/convert`,
   which now just confirms the car on the existing work order and marks the quote `converted`) — hidden once the work
-  order is checked in. The grid's status cell adds "Awaiting check-in" / "Paid · cash" chips. Reports → Payments lists
+  order is checked in. The drawer footer puts those two counter actions side by side on one row (stacked full-width
+  on phones) with **Download PDF** on its own row beneath. The grid's status cell adds "Awaiting check-in" / "Paid · cash" chips. Reports → Payments lists
   quotation payments under "Booking / quote" (`quotation_id` / `quotation_ref`, `booking_id: null`).
 
 ## Environment

@@ -119,7 +119,8 @@ function QuoteForm({ q, onDone, onToast }: { q: Quotation; onDone: () => void; o
   const [items, setItems] = React.useState<QuoteLineItem[]>(source.length ? source.map((i) => ({ ...i })) : [emptyQuoteItem()]);
   const [validUntil, setValidUntil] = React.useState(q.valid_until ?? format(addDays(new Date(), 14), 'yyyy-MM-dd'));
   const [note, setNote] = React.useState(q.items_note ?? '');
-  const services = useQuery({ queryKey: ['outlet-services-for', q.outlet.id], queryFn: () => api.listOutletServicesFor(q.outlet.id), select: (rows) => rows.filter((s) => s.category === 'auto_body') });
+  // Same catalogue filter as the Raise-quote flow: outlets may file auto-body work under the price-sheet group rather than the category.
+  const services = useQuery({ queryKey: ['outlet-services-for', q.outlet.id], queryFn: () => api.listOutletServicesFor(q.outlet.id), select: (rows) => rows.filter((s) => s.group_name === 'Auto Body Repair' || s.category === 'auto_body') });
   const clean = cleanQuoteItems(items);
   const total = quoteItemsTotal(clean);
   const m = useMutation({
@@ -130,6 +131,11 @@ function QuoteForm({ q, onDone, onToast }: { q: Quotation; onDone: () => void; o
   return (
     <Box component="form" onSubmit={(e) => { e.preventDefault(); m.mutate(); }} sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 1 }}>
       <Typography variant="h4" component="h3">{q.status === 'quoted' ? 'Revise quote' : 'Build quote'}</Typography>
+      {q.status !== 'quoted' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: -1 }}>
+          {services.data?.length ? `Add services from the ${q.outlet.name.replace('Sparkling ', '')} auto-body catalogue — each one becomes a priced item — or add custom items.` : 'Add an item per attention area with its price incl. VAT.'}
+        </Typography>
+      )}
       <QuoteItemsEditor items={items} onChange={setItems} services={services.data} disabled={m.isPending} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '180px 1fr' }, gap: 1.5 }}>
         <TextField label="Valid until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} size="small" slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: format(new Date(), 'yyyy-MM-dd') } }} />
@@ -187,19 +193,25 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
         </>
       )}
       subtitle={d && <>{d.customer_name} · {d.vehicle.make} {d.vehicle.model} · <span className="mono">{d.vehicle.registration_no}</span></>}
-      footer={d && (
-        <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
-          {quoted && <DownloadPdfButton q={d} onToast={onToast} />}
-          {canRecordPayment && (
-            <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" sx={{ flex: 1 }} onClick={() => setPayTarget({ kind: 'quotation', id: d.id, ref: d.ref, amount_cents: amountDue, customer_name: d.customer_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="quote-record-payment">
-              Record payment · {rands(amountDue)}
-            </Button>
+      footer={d && (quoted || canRecordPayment || canCheckin) && (
+        // Accepted quotes: the two counter actions share one row (full-width on phones, never wrapping mid-label);
+        // the PDF download sits on its own row underneath as the secondary action.
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }} data-testid="quote-footer">
+          {(canRecordPayment || canCheckin) && (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: canRecordPayment && canCheckin ? '1fr 1fr' : '1fr' }, gap: 1.25 }}>
+              {canRecordPayment && (
+                <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" fullWidth sx={{ whiteSpace: 'nowrap', px: 1.5 }} onClick={() => setPayTarget({ kind: 'quotation', id: d.id, ref: d.ref, amount_cents: amountDue, customer_name: d.customer_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="quote-record-payment">
+                  Record payment · {rands(amountDue)}
+                </Button>
+              )}
+              {canCheckin && (
+                <Button variant="contained" color="secondary" fullWidth sx={{ whiteSpace: 'nowrap', px: 1.5 }} onClick={() => convert.mutate()} disabled={convert.isPending} startIcon={<MSymbol name="login" size={20} />} data-testid="quote-checkin-start">
+                  Check in &amp; start
+                </Button>
+              )}
+            </Box>
           )}
-          {canCheckin && (
-            <Button variant="contained" color="secondary" sx={{ flex: 1 }} onClick={() => convert.mutate()} disabled={convert.isPending} startIcon={<MSymbol name="login" size={20} />} data-testid="quote-checkin-start">
-              Check in &amp; start
-            </Button>
-          )}
+          {quoted && <DownloadPdfButton q={d} onToast={onToast} fullWidth variant={canRecordPayment || canCheckin ? 'text' : 'outlined'} />}
         </Box>
       )}
     >

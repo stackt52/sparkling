@@ -106,7 +106,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (apiErr.status >= 500) {
     req.log?.error({ err, correlation_id: correlationId }, 'unhandled error');
   } else {
-    req.log?.warn({ code: apiErr.code, message: apiErr.message, correlation_id: correlationId }, 'request failed');
+    req.log?.warn({ code: apiErr.code, message: apiErr.message, details: apiErr.details, correlation_id: correlationId }, 'request failed');
   }
   if (res.headersSent) return;
   res.status(apiErr.status).json({

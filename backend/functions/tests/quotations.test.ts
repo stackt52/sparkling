@@ -282,6 +282,30 @@ describe('POST /quotations — staff raise', () => {
     expect(staffShape.body.quotation.status).toBe('requested');
     expect(staffShape.body.quotation.customer_id).toBe('cust_1');
   });
+
+  it('accepts several damage categories from a customer (comma-separated, as the app sends them)', async () => {
+    const post = (category: string, op: string) =>
+      call('/v1/quotations', 'cust', { method: 'POST', body: JSON.stringify({ vehicle_id: VEH_1, outlet_id: OUTLET, category, description: 'Dent and a long scratch on the left rear door.', client_op_id: op }) });
+    const multi = await post('Dent, Scratch', 'op-cust-multi-1');
+    expect(multi.status).toBe(201);
+    expect(multi.body.quotation.category).toBe('Dent, Scratch');
+    expect(dbQuote(multi.body.quotation.id).category).toBe('Dent, Scratch');
+    // whitespace and duplicates are normalised; a single category still works
+    const messy = await post(' Glass ,Paint,Glass', 'op-cust-multi-2');
+    expect(messy.status).toBe(201);
+    expect(messy.body.quotation.category).toBe('Glass, Paint');
+    expect((await post('Other', 'op-cust-multi-3')).status).toBe(201);
+    // unknown or empty categories are still rejected on the `category` field
+    const unknown = await post('Dent, Wheels', 'op-cust-multi-4');
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error.message).toBe('Request validation failed');
+    expect(unknown.body.error.details[0].path).toBe('category');
+    expect((await post(', ,', 'op-cust-multi-5')).status).toBe(400);
+    // staff raise keeps the strict single-category contract
+    const staffMulti = await call('/v1/quotations', 'sup', { method: 'POST', body: JSON.stringify(raiseBody({ category: 'Dent, Scratch', client_op_id: 'op-staff-multi-1' })) });
+    expect(staffMulti.status).toBe(400);
+    expect(staffMulti.body.error.details[0].path).toBe('category');
+  });
 });
 
 describe('GET /quotations and /quotations/:id', () => {
