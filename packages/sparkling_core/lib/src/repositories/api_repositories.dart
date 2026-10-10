@@ -241,20 +241,38 @@ class ApiCustomerRepository extends _ApiRepositoryBase
     decode: (d) => Booking.fromJson(Map<String, dynamic>.from(d as Map)),
   );
 
-  @override
-  Future<Booking> createBooking(BookingInput input) => api.createBooking(input);
+  // Every mutation below announces the table it changed so live streams
+  // (`watchBookings`, `watchBooking`, the home hero) refetch immediately —
+  // the UI must not depend on Supabase Realtime echoing our own write back.
 
   @override
-  Future<Booking> cancelBooking(String id, {String? reason}) =>
-      api.cancelBooking(
-        id,
-        reason: reason,
-        idempotencyKey: SparklingApi.newOpId(),
-      );
+  Future<Booking> createBooking(BookingInput input) async {
+    final b = await api.createBooking(input);
+    _ApiRepositoryBase.notifyLocal('bookings', id: b.id);
+    return b;
+  }
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime slotStart) => api
-      .rescheduleBooking(id, slotStart, idempotencyKey: SparklingApi.newOpId());
+  Future<Booking> cancelBooking(String id, {String? reason}) async {
+    final b = await api.cancelBooking(
+      id,
+      reason: reason,
+      idempotencyKey: SparklingApi.newOpId(),
+    );
+    _ApiRepositoryBase.notifyLocal('bookings', id: id);
+    return b;
+  }
+
+  @override
+  Future<Booking> rescheduleBooking(String id, DateTime slotStart) async {
+    final b = await api.rescheduleBooking(
+      id,
+      slotStart,
+      idempotencyKey: SparklingApi.newOpId(),
+    );
+    _ApiRepositoryBase.notifyLocal('bookings', id: id);
+    return b;
+  }
 
   @override
   Future<List<Quotation>> quotations() async =>
@@ -264,20 +282,27 @@ class ApiCustomerRepository extends _ApiRepositoryBase
   Future<Quotation> quotation(String id) => api.quotation(id);
 
   @override
-  Future<Quotation> createQuotation(QuotationInput input) =>
-      api.createQuotation(input);
+  Future<Quotation> createQuotation(QuotationInput input) async {
+    final q = await api.createQuotation(input);
+    _ApiRepositoryBase.notifyLocal('quotations', id: q.id);
+    return q;
+  }
 
   @override
   Future<Quotation> decideQuotation(
     String id, {
     required bool accept,
     String? note,
-  }) => api.decideQuotation(
-    id,
-    accept: accept,
-    note: note,
-    idempotencyKey: SparklingApi.newOpId(),
-  );
+  }) async {
+    final q = await api.decideQuotation(
+      id,
+      accept: accept,
+      note: note,
+      idempotencyKey: SparklingApi.newOpId(),
+    );
+    _ApiRepositoryBase.notifyLocal('quotations', id: id);
+    return q;
+  }
 
   @override
   Future<Uint8List> quotationPdf(String id) => api.quotationPdf(id);
@@ -1211,3 +1236,11 @@ class ApiNotificationsRepository extends _ApiRepositoryBase
     () async => (await list(limit: 50)).items,
   );
 }
+
+/// Announces a change on [table] made outside the repositories — a push
+/// notification received while the app is open, or the app resuming after
+/// being backgrounded — so every live stream built with `refetchOn`
+/// (bookings, quotations, vehicles, loyalty, …) refetches at once instead of
+/// waiting for Supabase Realtime.
+void announceLocalChange(String table, {String? id}) =>
+    _ApiRepositoryBase.notifyLocal(table, id: id);

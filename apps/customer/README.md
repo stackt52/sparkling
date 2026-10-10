@@ -266,12 +266,25 @@ accepted state (work order awaiting the car, amount due → paid), the 409
 path and decline with a note. Screenshots:
 `screenshots/quote-detail-{quoted,accepted}.png`.
 
+## Push notifications
+
+`lib/app/push_registration.dart` registers the FCM token with `POST /devices` after sign-in (iOS waits up to
+10 s for the APNs token, which arrives asynchronously after the permission prompt; token rotations are
+re-registered). The API delivers pushes that were stored `queued` while the profile had no device as soon as
+one registers, so a quote sent before the app was installed still arrives. `lib/app/push_messages.dart`
+handles messages at runtime: in the foreground a push bumps the live streams (`announceLocalChange`, so the
+quotes list, bookings and home hero refetch) and shows a snack with **View**; tapping a notification opens the
+linked screen from the `{type, <type>_id}` payload (`quotation` → quote detail, `booking` / `payment` →
+booking detail, `work_order` → tracking). The app also refetches every live stream on resume. iOS needs
+`ios/Runner/Runner.entitlements` (`aps-environment`, wired through `CODE_SIGN_ENTITLEMENTS`), the
+`remote-notification` background mode and the APNs key uploaded to the Firebase project.
+
 ## Structure
 
 ```
 lib/main.dart                 Firebase init (live only) → SparklingCore.bootstrap → CustomerApp
 lib/app/                      app widget, router (go_router), session (auth + profile),
-                              settings (theme override), push registration
+                              settings (theme override), push registration + push messages
 lib/widgets/                  shared chrome: ScreenHeader, BottomActionBar, AsyncView …
 lib/features/auth             sign in / sign up / reset (+ "Continue as Thabo" in demo)
 lib/features/home             1a / 1k home

@@ -312,6 +312,53 @@ export async function resendNotification(ctx: RequestContext, id: string): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Queued push flush (device registered after the notification was created)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delivers push notifications stored `queued` because the recipient had no device token at the
+ * time (e.g. `quote_ready` sent before the customer app registered with APNs/FCM). Called after
+ * `POST /devices`; never throws. Rows older than `maxAgeDays` or beyond `limit` stay in-app only.
+ */
+export async function flushQueuedPush(profileId: string, opts: { maxAgeDays?: number; limit?: number } = {}): Promise<NotifyOutcome[]> {
+  const db = getSupabase();
+  const since = new Date(Date.now() - (opts.maxAgeDays ?? 7) * 86_400_000).toISOString();
+  const { data, error } = await db
+    .from('notifications')
+    .select('*')
+    .eq('recipient_id', profileId)
+    .eq('channel', 'push')
+    .eq('status', 'queued')
+    .gte('created_at', since)
+    .order('created_at', { ascending: true })
+    .limit(opts.limit ?? 10);
+  if (error) {
+    logger.warn({ err: error, profile_id: profileId }, 'queued push lookup failed');
+    return [];
+  }
+  const rows = (data ?? []) as Notification[];
+  if (rows.length === 0) return [];
+  const { data: profile } = await db.from('profiles').select('*').eq('id', profileId).maybeSingle();
+  const recipient = profile as Profile | null;
+  if (!recipient || !recipient.push_opt_in) return [];
+
+  const outcomes: NotifyOutcome[] = [];
+  for (const row of rows) {
+    const { data: tplRow } = await db.from('notification_templates').select('*').eq('key', row.template_key).eq('channel', 'push').eq('is_active', true).maybeSingle();
+    const tpl = tplRow as TemplateRow | null;
+    if (!tpl) continue;
+    const storedVars = (row.payload?.vars ?? {}) as Record<string, unknown>;
+    const vars: Record<string, unknown> = { first_name: firstName(recipient.full_name), name: recipient.full_name, ...storedVars };
+    const payload: Record<string, unknown> = { ...(row.payload ?? {}), vars: serialisableVars(vars) };
+    const result = await deliver(tpl, recipient, row.id, row.title ?? null, row.body, vars, payload, false);
+    if (result.status === 'queued') continue; // still no accepted device
+    await db.from('notifications').update(deliveryPatch(result, (row.attempts ?? 0) + 1)).eq('id', row.id);
+    outcomes.push({ channel: 'push', status: result.status, id: row.id });
+  }
+  return outcomes;
+}
+
+// ---------------------------------------------------------------------------
 // Twilio status callback
 // ---------------------------------------------------------------------------
 

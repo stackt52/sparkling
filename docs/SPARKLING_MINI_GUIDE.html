@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sparkling — Mini Guide</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  :root { --primary:#006398; --navy:#203060; --azure:#00A0E0; --gold:#C9A227; --ink:#1b1c1e; --muted:#5b6470; --line:#d9dee5; --tint:#eef5fa; --warn:#fff6e0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 26pt; color: var(--navy); margin: 0 0 4pt; letter-spacing: -0.3pt; }
+  h2 { font-size: 15pt; color: var(--primary); margin: 0 0 8pt; padding-bottom: 4pt; border-bottom: 2px solid var(--primary); page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: var(--navy); margin: 12pt 0 4pt; page-break-after: avoid; }
+  p { margin: 0 0 7pt; }
+  ul, ol { margin: 0 0 8pt 0; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  section { page-break-before: auto; }
+  section + section { margin-top: 14pt; }
+  .cover { background: linear-gradient(135deg, var(--navy), var(--primary) 60%, var(--azure)); color: #fff; border-radius: 16pt; padding: 28pt 26pt; margin-bottom: 16pt; }
+  .cover h1 { color: #fff; }
+  .cover .sub { font-size: 12pt; opacity: .92; margin-top: 6pt; }
+  .cover .meta { font-size: 9pt; opacity: .8; margin-top: 14pt; }
+  .toc { columns: 2; column-gap: 24pt; font-size: 10pt; }
+  .toc div { break-inside: avoid; margin-bottom: 4pt; }
+  .toc b { color: var(--primary); display: inline-block; width: 16pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 5pt 7pt; vertical-align: top; text-align: left; }
+  th { background: var(--tint); color: var(--navy); font-weight: 600; }
+  .tag { display: inline-block; border-radius: 10pt; padding: 1pt 7pt; font-size: 8.5pt; font-weight: 600; background: var(--tint); color: var(--primary); }
+  .callout { border-left: 4px solid var(--azure); background: var(--tint); padding: 7pt 10pt; border-radius: 0 8pt 8pt 0; margin: 8pt 0 10pt; page-break-inside: avoid; }
+  .callout.warn { border-color: var(--gold); background: var(--warn); }
+  .steps li { margin-bottom: 5pt; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; }
+  .card { border: 1px solid var(--line); border-radius: 10pt; padding: 9pt 11pt; page-break-inside: avoid; }
+  .card h4 { margin: 0 0 4pt; font-size: 10.5pt; color: var(--navy); }
+  .flow { display: flex; gap: 6pt; align-items: stretch; margin: 6pt 0 10pt; page-break-inside: avoid; }
+  .flow div { flex: 1; background: var(--tint); border-radius: 8pt; padding: 7pt 8pt; font-size: 9pt; }
+  .flow div b { display: block; color: var(--primary); font-size: 9.5pt; margin-bottom: 2pt; }
+  .hl { background: linear-gradient(90deg, #fff3cf, #fff9e6); border: 1px solid #ead9a0; border-radius: 10pt; padding: 10pt 12pt; margin: 8pt 0 12pt; page-break-inside: avoid; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .footer-note { font-size: 8.5pt; color: var(--muted); margin-top: 14pt; border-top: 1px solid var(--line); padding-top: 6pt; }
+  /* figures */
+  .fig { display: flex; gap: 10pt; margin: 8pt 0 12pt; page-break-inside: avoid; align-items: flex-start; }
+  .fig figure { margin: 0; flex: 1; min-width: 0; }
+  .fig img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 8pt; }
+  .fig figcaption { font-size: 8.5pt; color: var(--muted); margin-top: 3pt; line-height: 1.3; }
+  .fig.phones figure { flex: 0 0 23%; }
+  .fig.wide figure { flex: 1 1 100%; }
+  .fig.center { justify-content: center; }
+</style>
+</head>
+<body>
+
+<section class="first">
+  <div class="cover">
+    <h1>Sparkling — Mini Guide</h1>
+    <div class="sub">Installing the beta apps, onboarding staff and admins, managing outlets, and how customers sign in, book and add their cars.</div>
+    <div class="meta">Customer app &amp; Staff app v0.1.1 beta · Admin dashboard · 9 October 2026</div>
+  </div>
+
+  <h2>Contents</h2>
+  <div class="toc">
+    <div><b>1</b> What makes up Sparkling</div>
+    <div><b>2</b> Downloading and running the shared APKs</div>
+    <div><b>3</b> Adding staff users and signing in on the Staff app</div>
+    <div><b>4</b> Outlets: how they are managed and how they work</div>
+    <div><b>5</b> Admin users and who can sign in on the Admin dashboard</div>
+    <div><b>6</b> Customers: signing in and placing an order at an outlet</div>
+    <div><b>7</b> Spotlight: adding a car by scanning the licence disc</div>
+    <div><b>8</b> Quick reference: who signs in where</div>
+  </div>
+
+  <h2 style="margin-top:16pt">1. What makes up Sparkling</h2>
+  <p>Sparkling runs car-wash and auto-body outlets. There are three apps, and they all share the same live information:</p>
+  <table>
+    <tr><th style="width:26%">App</th><th>Who uses it</th><th>What it is for</th></tr>
+    <tr><td><b>Customer app</b> (“Sparkling”)</td><td>Customers</td><td>Phone app for adding vehicles (licence-disc scan), booking a service at an outlet, paying, tracking progress, loyalty points and quotes.</td></tr>
+    <tr><td><b>Staff app</b> (“Sparkling Staff”)</td><td>Technicians, supervisors, managers</td><td>Phone app for the day’s tasks, checklists, check-in, hand-over, walk-in bookings and stock.</td></tr>
+    <tr><td><b>Admin dashboard</b></td><td>Managers, admins, finance, supervisors</td><td>Website for running the business: outlets, staff accounts, services and prices, loyalty, reports and the audit trail.</td></tr>
+  </table>
+  <p>The one idea to keep in mind for the rest of this guide: <b>every person has one account with one role</b>. The role (customer, technician, supervisor, manager, finance or admin) decides which app they can open and what they can do inside it.</p>
+
+  <div class="callout"><b>Roles at a glance.</b> <span class="tag">customer</span> customer app only · <span class="tag">technician</span> staff app · <span class="tag">supervisor</span> staff app + admin dashboard · <span class="tag">manager</span> staff app + admin dashboard (their outlets) · <span class="tag">finance</span> admin dashboard (viewing and reports) · <span class="tag">admin</span> everything, including creating users and outlets.</div>
+
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-home.png" alt="Customer app home"><figcaption>Customer app: Home, with Book a wash, Request a quote and the garage.</figcaption></figure>
+    <figure><img src="guide-images/staff-01b-task-list-light.png" alt="Staff app task list"><figcaption>Staff app: My tasks for the day at the technician’s outlet.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>2. Downloading and running the shared APKs</h2>
+  <p>Two Android installer files (APKs) are shared for the beta. Both already point at the live Sparkling system, so there is nothing to configure on the phone.</p>
+  <table>
+    <tr><th>App</th><th>Name on the phone</th><th>Needs</th></tr>
+    <tr><td>Customer app</td><td>Sparkling</td><td>Android 6.0 or newer, internet, camera (for disc scanning)</td></tr>
+    <tr><td>Staff app</td><td>Sparkling Staff</td><td>Android 6.0 or newer, internet (keeps working offline after the first sign-in), camera (for disc scanning)</td></tr>
+  </table>
+
+  <h3>Installing on an Android phone</h3>
+  <ol class="steps">
+    <li><b>Open the shared link on the phone</b> (WhatsApp, e-mail or Drive) and download the APK. Chrome may warn that “this type of file can harm your device”; choose <b>Download anyway</b>.</li>
+    <li>Tap the downloaded file (from the notification or from <b>Files → Downloads</b>).</li>
+    <li>When the phone says it is <b>not allowed to install unknown apps</b> from this source, tap <b>Settings</b>, switch on <b>Allow from this source</b>, then go back.</li>
+    <li>Tap <b>Install</b>. If Google Play Protect asks to scan the app, allow it; if it says the app is from an unknown developer, choose <b>Install anyway</b> (it is an internal beta, not a Play Store app).</li>
+    <li>Tap <b>Open</b>. On first launch allow <b>notifications</b> (booking and hand-over updates) and, when you scan a disc, the <b>camera</b>.</li>
+  </ol>
+
+  <div class="callout warn"><b>Updating to a newer build.</b> Install the new APK over the old one; your sign-in is kept. If the phone refuses with “app not installed”, uninstall the old copy first and install again. Beta builds cannot be updated automatically by the Play Store.</div>
+  <div class="callout"><b>iPhone users.</b> APK files are Android only. iPhone builds of both apps exist but are shared separately; ask the project owner.</div>
+
+  <h3>First run</h3>
+  <ul>
+    <li><b>Customer app:</b> you land on the sign-in screen. Tap <b>Create account</b> or <b>Continue with Google</b> (section 6).</li>
+    <li><b>Staff app:</b> you land on “Outlet staff sign in”. Use the e-mail and temporary password your manager gave you (section 3). A personal or customer account will be refused.</li>
+    <li>Both apps show their version on the profile screen; quote it when reporting a problem.</li>
+  </ul>
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-auth-sign-in.png" alt="Customer sign-in"><figcaption>Customer app on first run: Welcome back / Create account.</figcaption></figure>
+    <figure><img src="guide-images/staff-08-sign-in.png" alt="Staff sign-in"><figcaption>Staff app on first run: Outlet staff sign in.</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>3. Adding staff users and signing in on the Staff app</h2>
+  <p>Staff never register themselves. An <b>admin</b> creates each account in the Admin dashboard, and the system sets up the sign-in, the role, the outlet assignment and a one-time temporary password in a single step.</p>
+
+  <h3>How a staff user is added (Admin dashboard)</h3>
+  <ol class="steps">
+    <li>Sign in to the Admin dashboard as an <b>admin</b> and open <b>Staff → Users</b>.</li>
+    <li>Click <b>Add staff member</b> and fill in: <b>full name</b>, <b>work e-mail</b> (this becomes their login), <b>mobile number</b> (optional), <b>role</b> (technician, supervisor, manager, finance or admin), the <b>outlet(s)</b> they work at (the first one chosen is their home outlet) and optional <b>skills</b> used when work is handed out.</li>
+    <li>Click <b>Create</b>. A <b>Credentials</b> box shows the e-mail and a <b>temporary password</b> starting with <b>Spk-</b>. <b>It is shown only once</b>; copy it and hand it to the person privately, or use <b>Send these details</b>.</li>
+    <li>The person appears in the list with a <b>Must change password</b> badge until they finish their first sign-in.</li>
+  </ol>
+  <div class="fig">
+    <figure><img src="guide-images/admin-staff-add.png" alt="Add staff member dialog"><figcaption>Staff → Users → Add staff member: name, e-mail, phone, role, outlets and skills.</figcaption></figure>
+    <figure><img src="guide-images/admin-staff-credentials.png" alt="Credentials dialog"><figcaption>The Credentials box with the one-time temporary password.</figcaption></figure>
+  </div>
+
+  <h3>Everyday management</h3>
+  <ul>
+    <li><b>Edit</b> (pencil) to change role, outlets, skills, name or phone. The change applies the next time the person opens the app, at the latest within an hour.</li>
+    <li><b>Reset password</b> (lock icon) issues a fresh temporary password, signs the person out of every device and makes them choose a new password at the next sign-in. Use it when someone is locked out.</li>
+    <li><b>Deactivate</b> (switch in the editor) blocks sign-in immediately; the record stays for the audit trail. Reactivate the same way.</li>
+    <li>Admins cannot deactivate or demote <b>themselves</b>. Managers can view the list but only admins can add, edit or reset.</li>
+  </ul>
+
+  <h3>Signing in on the Staff app</h3>
+  <div class="flow">
+    <div><b>1 · Sign in</b>Enter the work e-mail and temporary password, or tap <i>Continue with Google</i> if the work e-mail is a Google account.</div>
+    <div><b>2 · Check</b>Only staff accounts are let in. A customer account sees “This account is not an outlet staff account. Ask your manager to add you as staff…”.</div>
+    <div><b>3 · Choose a password</b>On a temporary password the app opens <i>Choose your password</i>: enter the temporary one, then a new one of at least 10 characters with a letter and a digit.</div>
+    <div><b>4 · Work</b>The day’s tasks for your outlet(s) load. The temporary password stops working once the new one is set.</div>
+  </div>
+  <div class="fig phones center">
+    <figure><img src="guide-images/staff-auth-sign-in-not-staff.png" alt="Not a staff account"><figcaption>2 · A non-staff account is refused with a clear message.</figcaption></figure>
+    <figure><img src="guide-images/staff-change-password.png" alt="Choose your password"><figcaption>3 · Choose your password after a temporary password.</figcaption></figure>
+    <figure><img src="guide-images/staff-01b-task-list-light.png" alt="My tasks"><figcaption>4 · My tasks for your outlet once you are in.</figcaption></figure>
+  </div>
+  <ul>
+    <li>The staff app <b>locks after 30 minutes without activity</b>; unlock with your password or Google.</li>
+    <li>Once signed in, the app keeps working without signal; what you do is sent when the connection returns.</li>
+    <li>A technician sees only tasks at their own outlet(s). Supervisors and managers also get the floor overview, leaderboard and stock views for their outlets.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4. Outlets: how they are managed and how they work</h2>
+  <p>An outlet is one physical Sparkling site. Everything hangs off it: staff belong to outlets, customers book at an outlet, each outlet has its own services and prices, and quotations print the outlet’s company details.</p>
+
+  <h3>Managing outlets (Admin dashboard → Config → Outlets)</h3>
+  <ol class="steps">
+    <li>Open <b>Config</b> and choose the <b>Outlets</b> tab. Managers and finance can view the list; only <b>admins</b> see <b>New outlet</b> and can edit (pencil).</li>
+    <li>In the editor capture:
+      <ul>
+        <li><b>Identity:</b> a short <b>code</b> (e.g. MEN), <b>name</b>, address, city, province, phone and e-mail.</li>
+        <li><b>Capacity:</b> number of <b>bays</b> and the booking <b>slot length</b> in minutes. Together these decide which time slots customers can book.</li>
+        <li><b>Opening hours:</b> open and close time for each day, or closed. Customers cannot book on a closed day.</li>
+        <li><b>Legal &amp; banking:</b> legal name, trading-as, company registration number, VAT number, registered office and bank account. The list shows “Not captured” until this is filled in, because quotations print it.</li>
+        <li><b>Active</b> switch: an inactive outlet disappears from the customer app but keeps its history.</li>
+      </ul>
+    </li>
+    <li>Open the outlet’s <b>Catalogue</b> to choose <b>which services it offers and at what price</b>: add services from the shared service list, set small/large vehicle prices, mark add-ons, or <b>Copy prices from outlet</b> to clone another outlet’s price list.</li>
+  </ol>
+  <div class="fig">
+    <figure><img src="guide-images/admin-outlets.png" alt="Outlets list"><figcaption>Config → Outlets: the five outlets with code, city, bays, hours, contact and whether the legal entity is captured.</figcaption></figure>
+    <figure><img src="guide-images/admin-outlet-editor.png" alt="New outlet editor"><figcaption>New outlet: identity, bays and slot length, legal &amp; banking, opening hours.</figcaption></figure>
+  </div>
+  <div class="fig wide">
+    <figure><img src="guide-images/admin-catalogue-outlet-matrix.png" alt="Outlet catalogue"><figcaption>An outlet’s Catalogue: which services are available here, their display names and small/large prices.</figcaption></figure>
+  </div>
+
+  <h3>How outlets tie everything together</h3>
+  <div class="grid2">
+    <div class="card"><h4>Staff see their own outlet</h4>Each staff member is linked to one or more outlets when their account is created. The Staff app and the dashboard only show them bookings, tasks, stock and quotes for those outlets. Admins and finance see all outlets.</div>
+    <div class="card"><h4>Customers see active outlets</h4>The customer app lists every active outlet with its rating. When the phone’s location is on, the nearest outlet is suggested first.</div>
+    <div class="card"><h4>Slots come from the outlet’s settings</h4>Available times are worked out from the outlet’s opening hours, slot length and number of bays, minus bookings already taken. A booking always belongs to exactly one outlet and one time slot.</div>
+    <div class="card"><h4>Prices come from the outlet’s catalogue</h4>A service can cost different amounts at different outlets. The customer always sees the prices of the outlet they chose, for the size of the car they chose.</div>
+  </div>
+</section>
+
+<section>
+  <h2>5. Admin users and who can sign in on the Admin dashboard</h2>
+  <h3>Adding an admin user</h3>
+  <p>Admin users are created exactly like staff users (section 3): <b>Staff → Users → Add staff member</b>, choosing the role <b>admin</b>, <b>manager</b>, <b>finance</b> or <b>supervisor</b>. They receive the same one-time temporary password and must change it on first sign-in. There is no separate “admin account” type; the role is what opens the dashboard.</p>
+  <div class="callout"><b>The first admin.</b> Someone must already be an admin to create others. The project owner sets up the first admin account when the system is installed; from then on, every further admin is created in the dashboard.</div>
+
+  <h3>Who can sign in on the Admin dashboard</h3>
+  <table>
+    <tr><th>Role</th><th>Can sign in?</th><th>What they can do</th></tr>
+    <tr><td>admin</td><td>Yes</td><td>Everything: outlets, services and prices, staff accounts, loyalty settings, system settings and message templates.</td></tr>
+    <tr><td>manager</td><td>Yes</td><td>Run their outlets day to day, view staff and customers, draft loyalty changes, memberships, staff performance, resend messages. Cannot create accounts or outlets.</td></tr>
+    <tr><td>finance</td><td>Yes</td><td>View only: outlets, services, customers, payments, reports, exports and the audit trail.</td></tr>
+    <tr><td>supervisor</td><td>Yes</td><td>Operational views for their outlets (bookings, work, quotations).</td></tr>
+    <tr><td>technician</td><td>No</td><td>Sees a <b>Not authorised</b> page explaining the dashboard is for managers, admins, finance and supervisors, with a Sign out button.</td></tr>
+    <tr><td>customer</td><td>No</td><td>Same Not authorised page.</td></tr>
+  </table>
+
+  <h3>Signing in</h3>
+  <ol class="steps">
+    <li>Open the dashboard address in a browser (Chrome, Safari or Edge). It works on a phone but is designed for a laptop.</li>
+    <li>Enter your <b>e-mail and password</b>, or click <b>Continue with Google</b> if your work e-mail is a Google account.</li>
+    <li>If you were given a temporary password you are taken to <b>Set a new password</b> first and cannot open any other page until it is done.</li>
+    <li>A deactivated account is signed out everywhere within the hour and cannot sign in again until reactivated.</li>
+  </ol>
+  <div class="fig">
+    <figure><img src="guide-images/admin-change-password.png" alt="Set a new password"><figcaption>First sign-in with a temporary password: Set a new password.</figcaption></figure>
+    <figure><img src="guide-images/admin-not-authorised.png" alt="Not authorised page"><figcaption>A technician who signs in sees Not authorised.</figcaption></figure>
+  </div>
+  <div class="fig wide">
+    <figure><img src="guide-images/admin-staff-users.png" alt="Staff users list"><figcaption>Staff → Users: every staff and admin account with role, outlets, skills and status.</figcaption></figure>
+  </div>
+  <p class="small">Every change made in the dashboard is recorded in <b>Audit</b> with who did it, what changed and when.</p>
+</section>
+
+<section>
+  <h2>6. Customers: signing in and placing an order at an outlet</h2>
+  <h3>Creating an account and signing in</h3>
+  <ul>
+    <li><b>Create account:</b> name, e-mail, password (8+ characters) and an optional “Send me offers and news” tick. The account works immediately; no approval is needed.</li>
+    <li><b>Continue with Google:</b> one tap, same result.</li>
+    <li><b>Forgot password?</b> sends a reset link by e-mail. Customers reset their own passwords; admins cannot do it for them.</li>
+    <li>If the customer was first captured at the counter as a <b>walk-in</b> with the same e-mail or mobile number, signing up links that history, so earlier bookings and loyalty points appear.</li>
+  </ul>
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-auth-sign-in.png" alt="Sign in"><figcaption>Welcome back: e-mail + password, Google, or Create account.</figcaption></figure>
+    <figure><img src="guide-images/customer-auth-sign-up.png" alt="Create account"><figcaption>Create account: name, e-mail, password and the offers tick.</figcaption></figure>
+    <figure><img src="guide-images/customer-home.png" alt="Home"><figcaption>Home after signing in: Book a wash, Request quote, your vehicles.</figcaption></figure>
+  </div>
+
+  <h3>Booking (ordering) a service</h3>
+  <p>From <b>Home</b> tap <b>Book a wash</b>. The order takes three steps and is tied to one outlet from the first step:</p>
+  <div class="flow">
+    <div><b>Step 1 · Outlet, car and service</b>The outlet chip opens a list of outlets with rating and distance (nearest pre-selected). Pick a car from your garage; prices then show for that car’s size. Choose a service and any add-ons from that outlet’s own list.</div>
+    <div><b>Step 2 · Date and time</b>A calendar shows the outlet’s open days; closed days say “Choose another date”. Time slots follow the outlet’s slot length and number of bays.</div>
+    <div><b>Step 3 · Review and pay</b>Pay by card or instant EFT on the secure payment page, choose <b>cash on collection</b>, or confirm at no charge if the service is included in your membership plan. Points to be earned are shown.</div>
+  </div>
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-service_select.png" alt="Step 1"><figcaption>Step 1 of 3: outlet, car and service with prices for that car.</figcaption></figure>
+    <figure><img src="guide-images/customer-slot_picker.png" alt="Step 2"><figcaption>Step 2 of 3: date and available slots at the outlet.</figcaption></figure>
+    <figure><img src="guide-images/customer-payment.png" alt="Step 3"><figcaption>Step 3 of 3: review and pay (card, instant EFT or cash on collection).</figcaption></figure>
+  </div>
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-cash-option.png" alt="Cash on collection"><figcaption>Cash on collection: pay at the counter when you fetch the car.</figcaption></figure>
+    <figure><img src="guide-images/customer-confirmation.png" alt="Booking confirmed"><figcaption>Booking confirmed, with the outlet, car, time and receipt.</figcaption></figure>
+    <figure><img src="guide-images/customer-tracking.png" alt="Tracking"><figcaption>Tracking: live progress through the outlet’s checklist.</figcaption></figure>
+  </div>
+  <ul>
+    <li>After <b>Confirm</b> the booking is placed at that outlet. It shows under <b>Bookings</b> with live status (confirmed → in service → completed) as the outlet’s staff check the car in and work through the checklist.</li>
+    <li>Notifications arrive when a quote is ready, when the car is ready and when the keys are handed over. Collection uses a one-time code shown in the app.</li>
+    <li>An unfinished booking is kept as a draft on the phone and restored next time. Cancel or move a booking from its detail page while it has not started.</li>
+  </ul>
+  <p class="small">For body-work, customers can instead <b>Request a quote</b> with photos; the outlet assesses it, sends the quotation, and once accepted it becomes a job at that outlet.</p>
+</section>
+
+<section>
+  <h2>7. Spotlight: adding a car by scanning the licence disc</h2>
+  <div class="hl">
+    <b>Why it matters.</b> Every South African licence disc carries a barcode with the registration, make, model, colour, VIN, engine number and expiry date. Scanning it fills in the car in seconds, avoids typing mistakes, and marks the car as <b>disc-verified</b>, which lets it skip the check-in queue at the outlet.
+  </div>
+
+  <h3>Step by step (Customer app)</h3>
+  <ol class="steps">
+    <li>Open <b>Garage</b> (or tap <b>Add vehicle</b> when prompted during booking) and choose <b>Scan licence disc</b>.</li>
+    <li>Allow <b>camera access</b> when asked.</li>
+    <li>Point the phone at the disc on the windscreen and <b>line the barcode up inside the frame</b>. Hold steady; the disc is read on the phone itself, even without signal. Good light helps on faded discs.</li>
+    <li>When the app shows <b>Disc decoded — opening review…</b>, the <b>Confirm vehicle</b> screen appears with the registration, make, model, colour, VIN, engine number and disc expiry filled in. Details taken from the disc are locked (“From the disc — not editable”); you can add a nickname and check everything.</li>
+    <li>Tap <b>Save</b>. The car appears in your garage with a <b>verified</b> badge.</li>
+  </ol>
+
+  <h3>If scanning is not possible</h3>
+  <ul>
+    <li><b>Import a photo instead:</b> if the car is not with you, pick a photo of the disc from the gallery; the same reader runs on the picture.</li>
+    <li><b>Enter details manually:</b> registration, make and model by hand. The car is saved but stays unverified until a disc is scanned later.</li>
+    <li><b>Could not read the disc:</b> a message offers Retry, a sharper photo, or manual entry. A damaged or dirty barcode is never guessed; nothing is saved from an unreadable scan.</li>
+    <li><b>Expired disc:</b> the review screen flags it so the customer can renew; the car can still be saved.</li>
+    <li><b>Already in your garage:</b> if the registration or VIN matches a car you already have, the app says so and offers <b>Update existing vehicle</b> or <b>Add as a separate vehicle</b>, so there are no duplicates.</li>
+    <li><b>No camera (e.g. a tablet):</b> the app explains and offers photo import or manual entry.</li>
+  </ul>
+  <div class="fig phones center">
+    <figure><img src="guide-images/customer-scan-import.png" alt="Scan licence disc"><figcaption>Scan licence disc with the fall-backs: Try again, Import photo, Enter manually. (Shown here on a device without a camera.)</figcaption></figure>
+    <figure><img src="guide-images/customer-scan-import-failed.png" alt="Could not read photo"><figcaption>“Couldn’t read that photo”: retry with a sharper picture, scan live, or enter the details.</figcaption></figure>
+  </div>
+
+  <h3>Good to know</h3>
+  <ul>
+    <li>Only the licence-disc barcode is read, nothing else on the windscreen.</li>
+    <li>The details are checked before they are shown, and checked again when the car is saved, so a bad scan can never create a wrong car.</li>
+    <li>The barcode itself is not kept; only the car details and the expiry date.</li>
+    <li>Outlet staff have the same scanner in the Staff app for capturing a customer’s car at the counter.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>8. Quick reference: who signs in where</h2>
+  <table>
+    <tr><th>I am a…</th><th>Which app</th><th>How my account is created</th><th>How I sign in</th></tr>
+    <tr><td>Customer</td><td>Sparkling (customer app)</td><td>Myself: Create account or Google</td><td>E-mail + password, or Google</td></tr>
+    <tr><td>Technician</td><td>Sparkling Staff</td><td>An admin adds me under Staff → Users with my outlet(s)</td><td>Work e-mail + temporary password, then my own (10+ characters, letter + digit)</td></tr>
+    <tr><td>Supervisor / Manager</td><td>Sparkling Staff <i>and</i> Admin dashboard</td><td>Same as technician, with role supervisor or manager</td><td>The same details work on both</td></tr>
+    <tr><td>Finance</td><td>Admin dashboard</td><td>An admin adds me with role finance</td><td>E-mail + password, or Google</td></tr>
+    <tr><td>Admin</td><td>Admin dashboard (and Staff app if needed)</td><td>Another admin adds me; the project owner sets up the first admin</td><td>E-mail + password, or Google</td></tr>
+  </table>
+
+  <h3>Common problems</h3>
+  <table>
+    <tr><th style="width:38%">What you see</th><th>Why, and what to do</th></tr>
+    <tr><td>Staff app: “This account is not an outlet staff account”</td><td>The e-mail has no staff role. An admin must add it under Staff → Users (or change the role of the existing account).</td></tr>
+    <tr><td>Admin dashboard: “Not authorised”</td><td>Signed in as a technician or customer. Only manager, admin, finance and supervisor roles may enter.</td></tr>
+    <tr><td>“Couldn’t reach Sparkling servers”</td><td>No internet or the system is briefly unavailable. Tap Retry; staff who have signed in before can keep working offline.</td></tr>
+    <tr><td>Temporary password rejected</td><td>It was already replaced, or a reset was issued since. Ask an admin for Reset password.</td></tr>
+    <tr><td>Outlet missing in the customer app</td><td>The outlet is switched to inactive. Check the Active switch in Config → Outlets, and that its Catalogue has the service.</td></tr>
+    <tr><td>No time slots on a date</td><td>The outlet is closed that day, or all bays are booked. Adjust opening hours or bays in Config → Outlets.</td></tr>
+    <tr><td>APK will not install over the old one</td><td>Uninstall the previous beta first, then install the new one.</td></tr>
+  </table>
+
+  <div class="footer-note">Sparkling mini guide · 9 October 2026 · apps v0.1.1 beta. Screenshots come from the current beta builds and may differ slightly from your phone.</div>
+</section>
+
+</body>
+</html>

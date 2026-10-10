@@ -3,7 +3,7 @@ import { setFirebaseMessagingForTests } from '../src/lib/firebase.js';
 import { setSupabaseClient } from '../src/lib/supabase.js';
 import { setWhatsAppAdapterForTests, type WhatsAppAdapter, type WhatsAppSendInput, type WhatsAppSendResult } from '../src/lib/whatsapp.js';
 import { invalidateFlags } from '../src/services/flags.js';
-import { buildContentVariables, firstName, formatRand, notify, renderTemplate, resendNotification } from '../src/services/notifications.js';
+import { buildContentVariables, firstName, flushQueuedPush, formatRand, notify, renderTemplate, resendNotification } from '../src/services/notifications.js';
 import { fakeSupabase, type FakeSupabase } from './helpers/fakeSupabase.js';
 import { makeCtx } from './helpers/context.js';
 
@@ -68,6 +68,29 @@ describe('notify() (NOT-002..004)', () => {
     expect(rows.find((r) => r.channel === 'push')?.dedupe_key).toBe('service_ready:wo1:push');
     expect(sent[0]).toEqual(['tok_c1', 'tok_dead']);
     expect(db.rows('device_tokens').map((t) => t.token)).toEqual(['tok_c1']);
+  });
+
+  it('flushQueuedPush delivers pushes that were queued before the device registered', async () => {
+    db.seed('device_tokens', []);
+    const out = await notify({ recipientId: 'c1', templateKey: 'service_ready', vars: { vehicle: 'Polo', outlet: 'Menlyn', ref: 'WO-9' }, dedupeKey: 'service_ready:flush', channels: ['push'] });
+    expect(out.map((o) => o.status)).toEqual(['queued']);
+    // Still no device: nothing to deliver and the row stays queued.
+    expect(await flushQueuedPush('c1')).toEqual([]);
+    expect(db.rows('notifications')[0]).toMatchObject({ status: 'queued', attempts: 1 });
+    // The app registers its token (POST /devices) → the queued push goes out with the stored payload.
+    db.seed('device_tokens', [{ profile_id: 'c1', token: 'tok_new', platform: 'ios', app: 'customer' }]);
+    const flushed = await flushQueuedPush('c1');
+    expect(flushed.map((o) => o.status)).toEqual(['sent']);
+    expect(sent.at(-1)).toEqual(['tok_new']);
+    expect(db.rows('notifications')[0]).toMatchObject({ status: 'sent', attempts: 2 });
+    expect(db.rows('notifications')[0].sent_at).toBeTruthy();
+    // Idempotent: nothing left to flush.
+    expect(await flushQueuedPush('c1')).toEqual([]);
+    // Opted-out recipients are left alone.
+    db.seed('profiles', [{ id: 'c3', role: 'customer', full_name: 'C', push_opt_in: false, whatsapp_opt_in: false, marketing_opt_in: false, is_active: true }]);
+    db.seed('notifications', [{ recipient_id: 'c3', channel: 'push', template_key: 'service_ready', title: 'Ready', body: 'x', payload: { vars: {} }, status: 'queued', dedupe_key: 'k3', attempts: 1, created_at: new Date().toISOString() }]);
+    db.seed('device_tokens', [{ profile_id: 'c3', token: 'tok_c3', platform: 'ios', app: 'customer' }]);
+    expect(await flushQueuedPush('c3')).toEqual([]);
   });
 
   it('dedupes by dedupe_key', async () => {

@@ -48,7 +48,52 @@ Map<String, Object?> _task(int done) => {
   },
 };
 
+Map<String, Object?> _booking(String status) => {
+  'id': 'b1',
+  'ref': 'SPK-2026-0097',
+  'status': status,
+  'customer_id': 'c1',
+  'slot_start': '2026-09-09T07:00:00Z',
+  'slot_end': '2026-09-09T07:20:00Z',
+};
+
 void main() {
+  test('cancelling a booking re-emits the customer bookings stream without realtime', () async {
+    final adapter = _FakeAdapter();
+    var status = 'confirmed';
+    adapter.handler = (o) async {
+      if (o.path.endsWith('/cancel')) {
+        status = 'cancelled';
+        return _json(_booking(status));
+      }
+      return _json({'data': [_booking(status)], 'next_cursor': null});
+    };
+    final api = SparklingApi(
+      baseUrl: 'https://api.test/v1/',
+      tokenProvider: () async => 'tok',
+      clientApp: 'customer',
+      clientVersion: '1.0.0+1',
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    final repo = ApiCustomerRepository(api: api, uidProvider: () => 'c1');
+
+    final seen = <String>[];
+    final sub = repo.watchBookings().listen((l) => seen.add(l.first.status.db));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(seen, ['confirmed']);
+
+    await repo.cancelBooking('b1', reason: 'Plans changed');
+    // refetchOn debounces local changes by 250 ms.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(seen, ['confirmed', 'cancelled']);
+
+    // Apps can bump the same bus themselves (push received / app resumed).
+    announceLocalChange('bookings');
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(seen, ['confirmed', 'cancelled', 'cancelled']);
+    await sub.cancel();
+  });
+
   test('a completed step re-emits the task list without realtime (local change bus)', () async {
     final adapter = _FakeAdapter();
     var done = 0;

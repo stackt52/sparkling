@@ -13,6 +13,7 @@ import { audit } from '../services/audit.js';
 import { findProfileByContact, isClaimableProfileId, WALK_IN_PREFIX } from '../services/customers.js';
 import { ledgerBalance } from '../services/loyalty.js';
 import { membershipBrief } from '../services/memberships.js';
+import { flushQueuedPush } from '../services/notifications.js';
 import { normalisePhone, optionalPhoneSchema } from '../lib/phone.js';
 
 export const authRouter = Router();
@@ -226,7 +227,15 @@ authRouter.post(
         .single(),
       'device token',
     );
-    res.status(201).json({ device: row });
+    // Pushes created while this profile had no device (e.g. a quote sent before the app registered
+    // with APNs/FCM) are stored `queued`; deliver them now that a token exists.
+    let flushed = 0;
+    try {
+      flushed = (await flushQueuedPush(req.auth!.uid)).length;
+    } catch (e) {
+      req.log?.warn({ err: e }, 'queued push flush failed');
+    }
+    res.status(201).json({ device: row, flushed });
   }),
 );
 

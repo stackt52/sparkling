@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
+import '../quotes/quote_widgets.dart';
 
 /// Customer home (1a light / 1k dark): greeting, tier pill, booking hero,
 /// quick actions, vehicles.
@@ -18,6 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late Stream<List<Booking>> _bookings;
+  late Stream<List<Quotation>> _quotes;
   late Stream<List<Vehicle>> _vehicles;
   late Stream<LoyaltyAccountSummary> _loyalty;
   late Future<int> _unread;
@@ -36,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _init() {
     final repos = context.repos;
     _bookings = repos.customer.watchBookings();
+    _quotes = repos.customer.watchQuotations();
     _vehicles = repos.customer.watchVehicles();
     _loyalty = repos.loyalty.watchAccount();
     _unread = repos.notifications.unreadCount().catchError((_) => 0);
@@ -97,6 +100,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 22),
                 _Greeting(loyalty: _loyalty),
                 const SizedBox(height: 18),
+                // A quote the estimator sent and that still needs an answer
+                // (CUS-032/033) — always one child, see the note above.
+                StreamBuilder<List<Quotation>>(
+                  key: const ValueKey('home-quotes'),
+                  stream: _quotes,
+                  builder: (context, snap) {
+                    final pending =
+                        (snap.data ?? const <Quotation>[])
+                            .where((q) => q.canDecide)
+                            .toList()
+                          ..sort(
+                            (a, b) => _quoteSentAt(b).compareTo(_quoteSentAt(a)),
+                          );
+                    if (pending.isEmpty) return const SizedBox.shrink();
+                    return _QuoteReadyBanner(
+                      quotation: pending.first,
+                      others: pending.length - 1,
+                    );
+                  },
+                ),
                 StreamBuilder<List<Booking>>(
                   key: const ValueKey('home-bookings'),
                   stream: _bookings,
@@ -187,6 +210,48 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+DateTime _quoteSentAt(Quotation q) =>
+    q.quotedAt ?? q.updatedAt ?? q.createdAt ?? DateTime(0);
+
+/// "Quote QT-… is ready" call-out above the booking hero: amount, validity
+/// and a Review action straight into the accept / decline screen.
+class _QuoteReadyBanner extends StatelessWidget {
+  const _QuoteReadyBanner({required this.quotation, this.others = 0});
+
+  final Quotation quotation;
+
+  /// Further quotes also awaiting a decision.
+  final int others;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = quotation;
+    final amount = q.amountCents ?? (q.items.isEmpty ? null : q.itemsTotalCents);
+    final outlet = q.outletName == null ? null : shortOutletName(q.outletName);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: InfoBanner(
+        key: ValueKey('home-quote-ready-${q.id}'),
+        tone: InfoTone.warning,
+        icon: Symbols.request_quote_rounded,
+        title: others > 0
+            ? '${others + 1} quotes need your answer'
+            : 'Quote ${q.ref} is ready',
+        text: [
+          if (amount != null) Money.formatZar(amount),
+          if (outlet != null) outlet,
+          validityLabel(q),
+          'Accept or decline in the app — nothing is booked until you approve.',
+        ].join(' · '),
+        actionLabel: 'Review',
+        onAction: () => context.push(
+          others > 0 ? Routes.quotes : Routes.quote(q.id),
         ),
       ),
     );
