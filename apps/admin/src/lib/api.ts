@@ -5,6 +5,7 @@
  */
 import { env } from './env';
 import type {
+  ChecklistStep,
   ActivityItem,
   ApiError,
   AuditEvent,
@@ -208,6 +209,13 @@ export interface AdminApi {
   /** Refused with 409 `validation_error` `{ reason: 'not_checked_in', work_order_id }` while `checked_in_at` is null. */
   assignTask(taskId: string, body: { assignee_id: string; reason?: string }): Promise<WorkOrder>;
   transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }): Promise<WorkOrder>;
+  /**
+   * Supervisor verification of a booking's work order (STF-033) from the Bookings drawer: records the checklist's
+   * `supervisor_verify` step when the template has one, moves an `in_progress` task to `completed`, then to
+   * `verified` (ready for collection; the collection OTP goes out). Required steps still open answer 409 `conflict`
+   * `{ missing, override_allowed }` — retry with `override_reason` to record a supervisor override.
+   */
+  verifyWorkOrder(id: string, body?: { note?: string | null; override_reason?: string | null }): Promise<WorkOrder>;
   /**
    * Confirms the car is on site (`POST /work-orders/:id/checkin { bay? }`): records `checked_in_at` / `checked_in_by`
    * and runs auto-assignment when the flag is on and the work order is unassigned. Idempotent (200 `already: true`).
@@ -588,6 +596,32 @@ export class HttpApi implements AdminApi {
     const override = body.to === 'verified' && body.reason ? { override: { reason: body.reason } } : {};
     const { work_order } = await this.request<{ task: Task; work_order: { id: string } }>('POST', `/tasks/${taskId}/transition`, { ...body, ...override, client_op_id: uuid() });
     return this.getWorkOrder(work_order.id);
+  }
+  /**
+   * `GET /work-orders/:id` (template + results + task) → optional `POST /work-orders/:id/steps/:key` for the
+   * supervisor step → `POST /tasks/:id/transition` (`completed` when still in progress, then `verified`).
+   */
+  async verifyWorkOrder(id: string, body: { note?: string | null; override_reason?: string | null } = {}) {
+    const detail = await this.request<{ work_order: { id: string; status: WorkStatus }; template: { steps: ChecklistStep[] } | null; results: Array<{ step_key: string; status: string }>; task: Task | null }>('GET', `/work-orders/${id}`);
+    const task = detail.task;
+    if (!task) throw new ApiRequestError(409, { code: 'conflict', message: 'This work order has no task to verify' });
+    if (!['in_progress', 'completed'].includes(task.status)) {
+      throw new ApiRequestError(409, { code: 'invalid_transition', message: `Work must be in progress or completed before verification (it is ${task.status.replace('_', ' ')})` });
+    }
+    const override = body.override_reason ? { override: { reason: body.override_reason } } : {};
+    const step = detail.template?.steps.find((s) => s.type === 'supervisor_verify');
+    const stepDone = !step || (detail.results ?? []).some((r) => r.step_key === step.key && r.status === 'done');
+    if (step && !stepDone) {
+      try {
+        await this.request('POST', `/work-orders/${id}/steps/${encodeURIComponent(step.key)}`, { status: 'done', value: true, note: body.note ?? null, client_op_id: uuid() });
+      } catch (e) {
+        // Required steps still open: without an override the drawer asks for a reason; with one the transition records it.
+        if (!(e instanceof ApiRequestError && e.status === 409 && body.override_reason)) throw e;
+      }
+    }
+    if (task.status === 'in_progress') await this.request('POST', `/tasks/${task.id}/transition`, { to: 'completed', ...override, client_op_id: uuid() });
+    await this.request('POST', `/tasks/${task.id}/transition`, { to: 'verified', ...(body.note && !body.override_reason ? { reason: body.note } : {}), ...override, client_op_id: uuid() });
+    return this.getWorkOrder(id);
   }
   team(p: OutletScoped) {
     return this.list<TeamMember>(`/staff/team${qs(p)}`);

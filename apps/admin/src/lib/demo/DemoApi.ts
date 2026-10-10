@@ -743,6 +743,23 @@ export class DemoApi implements AdminApi {
     this.emit('work_orders');
     return clone(w);
   }
+  /** Seed templates end with the supervisor step, so the technician steps are `step_count - 1`. */
+  async verifyWorkOrder(id: string, body: { note?: string | null; override_reason?: string | null } = {}): Promise<WorkOrder> {
+    await delay();
+    this.requireRole('supervisor', 'manager', 'admin');
+    const w = this.workOrders.find((x) => x.id === id);
+    if (!w || !w.task_id) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found', correlation_id: nextId('corr') });
+    if (!['in_progress', 'completed'].includes(w.status)) {
+      throw new ApiRequestError(409, { code: 'invalid_transition', message: `Work must be in progress or completed before verification (it is ${w.status.replace('_', ' ')})`, correlation_id: nextId('corr') });
+    }
+    const techSteps = Math.max(0, w.step_count - 1);
+    if (w.steps_done < techSteps && !body.override_reason) {
+      throw new ApiRequestError(409, { code: 'conflict', message: 'Required checklist steps are not done', details: { missing: Array.from({ length: techSteps - w.steps_done }, (_x, i) => ({ key: `step_${w.steps_done + i + 1}`, title: `Step ${w.steps_done + i + 1}` })), override_allowed: true }, correlation_id: nextId('corr') });
+    }
+    if (!body.override_reason) w.steps_done = w.step_count; // the supervisor step itself is recorded as done
+    if (w.status === 'in_progress') await this.transitionTask(w.task_id, { to: 'completed', reason: body.override_reason ?? undefined });
+    return this.transitionTask(w.task_id, { to: 'verified', reason: body.override_reason ?? body.note ?? undefined });
+  }
   /* ------------------------------------------------------------ vehicle hand-over (collection OTP) */
   private static randomOtp(): string {
     return String(10000 + Math.floor(Math.random() * 90000));

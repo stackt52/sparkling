@@ -22,6 +22,7 @@ import RecordPaymentDialog, { type RecordPaymentTarget } from '@/components/paym
 import { ErrorState, LoadingRows } from '@/components/ui/States';
 import Toast from '@/components/ui/Toast';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
+import { ApiRequestError } from '@/lib/api';
 import { can } from '@/lib/rbac';
 import { useToast } from '@/lib/hooks';
 import { fonts, tk } from '@/theme/tokens';
@@ -77,7 +78,35 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const [bay, setBay] = React.useState('');
   const [priority, setPriority] = React.useState<WalkInPriority>(2);
   const [payTarget, setPayTarget] = React.useState<RecordPaymentTarget | null>(null);
+  const [verifyOpen, setVerifyOpen] = React.useState(false);
+  const [verifyNote, setVerifyNote] = React.useState('');
+  const [overrideReason, setOverrideReason] = React.useState('');
+  /** Titles of required steps the API reported open (409 `override_allowed`) — switches the dialog to override mode. */
+  const [missingSteps, setMissingSteps] = React.useState<string[] | null>(null);
   const q = useQuery({ queryKey: ['booking', bookingId], queryFn: () => api.getBooking(bookingId!), enabled: Boolean(bookingId) });
+  const closeVerify = () => { setVerifyOpen(false); setVerifyNote(''); setOverrideReason(''); setMissingSteps(null); };
+  // Supervisor verification (STF-033) straight from the booking: records the supervisor step and moves the work
+  // order to verified → ready for collection (collection OTP sent), booking completed.
+  const verify = useMutation({
+    mutationFn: () => api.verifyWorkOrder(q.data!.work_order!.id, { note: verifyNote.trim() || null, override_reason: missingSteps ? overrideReason.trim() || null : null }),
+    onSuccess: (w) => {
+      toast.success(`${w.ref} verified · ready for collection`);
+      closeVerify();
+      void qc.invalidateQueries({ queryKey: ['bookings'] });
+      void qc.invalidateQueries({ queryKey: ['booking', bookingId] });
+      void qc.invalidateQueries({ queryKey: ['work-orders'] });
+      void qc.invalidateQueries({ queryKey: ['kpis'] });
+      void qc.invalidateQueries({ queryKey: ['activity'] });
+    },
+    onError: (e) => {
+      const details = e instanceof ApiRequestError ? (e.error.details as { missing?: Array<string | { key: string; title?: string }>; override_allowed?: boolean } | undefined) : undefined;
+      if (e instanceof ApiRequestError && e.status === 409 && e.error.code === 'conflict' && details?.override_allowed) {
+        setMissingSteps((details.missing ?? []).map((m) => (typeof m === 'string' ? m : m.title ?? m.key)));
+        return;
+      }
+      toast.error(e);
+    },
+  });
   const cancel = useMutation({
     mutationFn: () => api.cancelBooking(bookingId!, reason),
     onSuccess: () => {
@@ -110,8 +139,14 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const canRecordPayment = can(role, 'payment:record') && b && ['confirmed', 'in_service', 'completed'].includes(b.status) && b.total_cents > 0 && b.payment?.status !== 'successful';
   // Hand-over: the booking's work order is verified and the keys have not been released — opens the Work board drawer with the OTP form.
   const canHandover = can(role, 'work_order:handover') && b?.work_order?.status === 'verified' && !b.work_order.collected_at;
+  // "Supervisor verification" stage: the technician steps are done (timeline's current step is the supervisor one, or
+  // the task is already `completed`) and the order is not verified yet.
+  const currentStage = b?.timeline.find((s) => s.state === 'current');
+  const wo = b?.work_order ?? null;
+  const awaitingVerification = Boolean(wo) && !['verified', 'cancelled'].includes(wo!.status) && !wo!.collected_at && (wo!.status === 'completed' || /supervisor/i.test(currentStage?.title ?? ''));
+  const canVerify = can(role, 'task:transition') && b && wo && awaitingVerification;
   const workOrderLine = b?.work_order
-    ? `${b.work_order.ref} · ${b.work_order.collected_at ? `collected ${fmtTime(b.work_order.collected_at)}` : b.work_order.status === 'verified' ? 'ready for collection' : b.work_order.checked_in_at ? `checked in ${fmtTime(b.work_order.checked_in_at)}` : 'awaiting check-in'}${b.work_order.assignee_name ? ` · ${b.work_order.assignee_name}` : ''}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`
+    ? `${b.work_order.ref} · ${b.work_order.collected_at ? `collected ${fmtTime(b.work_order.collected_at)}` : b.work_order.status === 'verified' ? 'ready for collection' : awaitingVerification ? 'awaiting supervisor verification' : b.work_order.checked_in_at ? `checked in ${fmtTime(b.work_order.checked_in_at)}` : 'awaiting check-in'}${b.work_order.assignee_name ? ` · ${b.work_order.assignee_name}` : ''}${b.work_order.bay ? ` · ${b.work_order.bay}` : ''}`
     : null;
 
   return (
@@ -127,6 +162,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
             <Typography variant="h2" className="mono" sx={{ color: tk.primary }}>{b.ref}</Typography>
             <StatusChip status={b.status} />
             {b.work_order?.collected_at && <StatusChip tone="success" label={`Collected ${fmtTime(b.work_order.collected_at)}`} icon={<MSymbol name="key" filled size={16} />} sx={{ '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="booking-collected-chip" />}
+            {awaitingVerification && <StatusChip tone="warning" label="Supervisor verification" icon={<MSymbol name="verified_user" filled size={16} />} sx={{ '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="booking-awaiting-verification" />}
           </>
         )}
         subtitle={b && (
@@ -135,15 +171,20 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
             {b.walk_in && <> · <Box component="span" sx={{ color: tk.secondary, fontWeight: 600 }}>Walk-in</Box>{b.created_by_name ? ` · created by ${b.created_by_name}` : ''}</>}
           </>
         )}
-        footer={(canCheckin || canCancel || canRecordPayment || canHandover) && (
+        footer={(canCheckin || canCancel || canRecordPayment || canHandover || canVerify) && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {canVerify && (
+              <Button variant="contained" color="secondary" fullWidth onClick={() => setVerifyOpen(true)} startIcon={<MSymbol name="verified" filled size={20} />} data-testid="booking-verify">
+                Verify work · {wo.ref}
+              </Button>
+            )}
             {canHandover && b.work_order && (
               <Button variant="contained" color="secondary" fullWidth component={NextLink} href={`/work-orders?focus=${b.work_order.id}`} startIcon={<MSymbol name="key" filled size={20} />} data-testid="booking-handover">
                 Hand over vehicle · {b.work_order.ref}
               </Button>
             )}
             {canRecordPayment && (
-              <Button variant={canCheckin ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
+              <Button variant={canCheckin || canVerify ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
                 Record payment · {rands(b.total_cents)}
               </Button>
             )}
@@ -244,6 +285,33 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
         <DialogActions sx={{ p: 2.5, pt: 0 }}>
           <Button onClick={() => setCheckinOpen(false)}>Not yet</Button>
           <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={checkin.isPending} onClick={() => checkin.mutate()}>Confirm check-in</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={verifyOpen} onClose={closeVerify} aria-labelledby="booking-verify-title" fullWidth maxWidth="xs">
+        <DialogTitle id="booking-verify-title">Supervisor verification · {b?.ref}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            Confirms the checklist on work order {b?.work_order?.ref} passed inspection. The verification is recorded under your name, the order becomes <b>verified</b>, the customer receives the ready-for-collection notice with their collection OTP, and the booking is completed.
+          </Typography>
+          {missingSteps && (
+            <Tile tone="warning" sx={{ alignItems: 'flex-start' }} data-testid="booking-verify-override">
+              <MSymbol name="warning" filled size={22} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2">Required steps are not done</Typography>
+                <Typography variant="body2">{missingSteps.length ? missingSteps.join(', ') : 'Some required checklist steps are still open'} — verifying now records a supervisor override in the audit trail. Give the reason.</Typography>
+              </Box>
+            </Tile>
+          )}
+          <TextField label="Note (optional)" placeholder="e.g. Spot-checked wheels and interior" value={verifyNote} onChange={(e) => setVerifyNote(e.target.value)} size="small" multiline minRows={2} autoFocus={!missingSteps} slotProps={{ htmlInput: { maxLength: 500 } }} />
+          {missingSteps && (
+            <TextField label="Override reason" required value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} size="small" multiline minRows={2} autoFocus slotProps={{ htmlInput: { maxLength: 500 } }} />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 0 }}>
+          <Button onClick={closeVerify}>Not yet</Button>
+          <Button variant="contained" color="secondary" startIcon={<MSymbol name="verified" filled size={18} />} disabled={verify.isPending || (Boolean(missingSteps) && !overrideReason.trim())} onClick={() => verify.mutate()} data-testid="booking-verify-confirm">
+            {missingSteps ? 'Verify with override' : 'Verify & mark ready'}
+          </Button>
         </DialogActions>
       </Dialog>
       <RecordPaymentDialog
