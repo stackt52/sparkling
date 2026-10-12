@@ -6,6 +6,7 @@ import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import Chip from '@mui/material/Chip';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import { useQuery } from '@tanstack/react-query';
 import MSymbol from '@/components/MSymbol';
 import { tk } from '@/theme/tokens';
@@ -38,23 +39,48 @@ export function NavyPill({ icon, children, ...rest }: { icon?: string; children:
   );
 }
 
+/**
+ * Header outlet scope. Admins get the full switcher ("All outlets" + every outlet). Other roles are confined to
+ * the outlets linked to their account: one linked outlet renders as a static, locked pill; several render a
+ * switcher limited to those outlets, without "All outlets" (see `FiltersProvider`).
+ */
 export function OutletPill() {
   const api = useApi();
-  const { outletId, setOutletId } = useFilters();
+  const { outletId, setOutletId, outletLocked, allowedOutletIds } = useFilters();
   const { data: outlets } = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
   const [anchor, setAnchor] = React.useState<null | HTMLElement>(null);
   const current = outlets?.find((o) => o.id === outletId);
   const label = outletId ? (current?.name ?? 'Outlet') : 'All outlets';
+  const choices = allowedOutletIds === null ? (outlets ?? []) : (outlets ?? []).filter((o) => allowedOutletIds.includes(o.id));
+  if (outletLocked) {
+    const lockedLabel = outletId ? label : 'No outlet assigned';
+    return (
+      <Tooltip title={outletId ? 'Your account is linked to this outlet. Ask an admin to change it.' : 'No outlet is linked to your account yet. Ask an admin to assign one.'}>
+        <TonalPill
+          icon="storefront"
+          endIcon="lock"
+          disableRipple
+          aria-label={`Outlet: ${lockedLabel} (assigned to your account)`}
+          data-testid="outlet-pill-locked"
+          sx={{ bgcolor: tk.surfaceContainerHigh, color: tk.onSurface, px: 2.25, fontWeight: 600, cursor: 'default', '&:hover': { bgcolor: tk.surfaceContainerHigh } }}
+        >
+          {lockedLabel}
+        </TonalPill>
+      </Tooltip>
+    );
+  }
   return (
     <>
-      <TonalPill icon="storefront" onClick={(e) => setAnchor(e.currentTarget)} aria-haspopup="menu" aria-expanded={Boolean(anchor)} aria-label={`Outlet filter: ${label}`}>
+      <TonalPill icon="storefront" onClick={(e) => setAnchor(e.currentTarget)} aria-haspopup="menu" aria-expanded={Boolean(anchor)} aria-label={allowedOutletIds === null ? `Outlet filter: ${label}` : `Outlet: ${label} (switch between your ${choices.length} outlets)`} data-testid={allowedOutletIds === null ? 'outlet-pill' : 'outlet-pill-assigned'}>
         {label}
       </TonalPill>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
-        <MenuItem selected={!outletId} onClick={() => { setOutletId(null); setAnchor(null); }}>
-          <ListItemIcon><MSymbol name="apps" size={20} /></ListItemIcon>All outlets
-        </MenuItem>
-        {(outlets ?? []).map((o) => (
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)} slotProps={{ list: { 'aria-label': allowedOutletIds === null ? 'Outlet filter' : 'Your outlets' } }}>
+        {allowedOutletIds === null && (
+          <MenuItem selected={!outletId} onClick={() => { setOutletId(null); setAnchor(null); }}>
+            <ListItemIcon><MSymbol name="apps" size={20} /></ListItemIcon>All outlets
+          </MenuItem>
+        )}
+        {choices.map((o) => (
           <MenuItem key={o.id} selected={o.id === outletId} onClick={() => { setOutletId(o.id); setAnchor(null); }}>
             <ListItemIcon><MSymbol name="storefront" size={20} filled={o.id === outletId} /></ListItemIcon>{o.name}
           </MenuItem>

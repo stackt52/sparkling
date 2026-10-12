@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { clientOpId, parseBody, parseQuery, uuid } from '../lib/validate.js';
-import { canSeeOutlet, requireProfile, requireStaff, requireSupervisor } from '../middleware/auth.js';
+import { canSeeOutlet, requireProfile, requireStaff, requireSupervisor, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { assignTask, transitionTask } from '../services/workflow.js';
 import type { Task, WorkOrder } from '../types.js';
@@ -57,7 +57,7 @@ tasksRouter.get(
     if (q.outlet_id) {
       if (!canSeeOutlet(auth, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
       query = query.eq('outlet_id', q.outlet_id);
-    } else if (auth.role !== 'admin' && auth.role !== 'finance') {
+    } else if (!seesAllOutlets(auth.role)) {
       if (!auth.outletIds.length) return res.json({ data: [] });
       query = query.in('outlet_id', auth.outletIds);
     }

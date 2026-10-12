@@ -4,7 +4,8 @@
  */
 import type { Logger } from 'pino';
 
-export type UserRole = 'customer' | 'technician' | 'supervisor' | 'manager' | 'admin' | 'finance';
+/** `director` has exactly the rights of `admin` (migration 0018). */
+export type UserRole = 'customer' | 'technician' | 'supervisor' | 'manager' | 'admin' | 'director' | 'finance';
 export type ServiceCategory = 'car_wash' | 'auto_body';
 export type BookingStatus = 'draft' | 'pending' | 'confirmed' | 'in_service' | 'completed' | 'cancelled';
 export type QuotationStatus = 'requested' | 'assessing' | 'quoted' | 'accepted' | 'declined' | 'expired' | 'converted';
@@ -32,9 +33,13 @@ export const VAT_MODES: VatMode[] = ['incl', 'excl'];
 /** South African VAT rate applied on top of `excl` prices. */
 export const VAT_RATE = 0.15;
 
-export const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'admin', 'finance'];
-export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin'];
-export const MANAGER_ROLES: UserRole[] = ['manager', 'admin'];
+export const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'admin', 'director', 'finance'];
+export const SUPERVISOR_ROLES: UserRole[] = ['supervisor', 'manager', 'admin', 'director'];
+export const MANAGER_ROLES: UserRole[] = ['manager', 'admin', 'director'];
+/** Roles with unrestricted (platform-wide) rights. */
+export const ADMIN_ROLES: UserRole[] = ['admin', 'director'];
+/** Roles that see every outlet without being linked to it (admin-level plus finance). */
+export const ALL_OUTLET_ROLES: UserRole[] = ['admin', 'director', 'finance'];
 
 export interface Profile {
   id: string;

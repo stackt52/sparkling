@@ -8,6 +8,7 @@ All JSON, snake_case, timestamps ISO-8601 UTC, money in integer cents (`ZAR`).
 ## Conventions
 
 - **Auth**: `Authorization: Bearer <Firebase ID token>` on every route except `/health`, `/payments/webhook` and `/notifications/twilio/status` (provider-signed).
+- **Roles**: `customer`, `technician`, `supervisor`, `manager`, `admin`, `director`, `finance`. `director` is an alias of `admin` with identical rights everywhere (`requireAdmin`, `app.is_admin()`, every outlet, user management); where this document says "admin" it includes director.
 - **Idempotency** (API-003): mutating routes accept `Idempotency-Key: <uuid>` (or `client_op_id` in the body). Replays return the cached first response (`idempotency_keys`).
 - **Errors** (API-004):
   ```json

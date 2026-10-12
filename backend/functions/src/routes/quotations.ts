@@ -5,7 +5,7 @@ import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
 import { parseMultipart } from '../lib/multipart.js';
 import { clientOpId, isoDate, pagination, parseBody, parseQuery, uuid } from '../lib/validate.js';
-import { assertOutlet, assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff, requireSupervisor } from '../middleware/auth.js';
+import { assertOutlet, assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff, requireSupervisor, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { pdfFilename, renderQuotationPdf } from '../services/quotationPdf.js';
 import { addPhoto, deletePhoto, MAX_PHOTO_BYTES, openPhoto, PHOTO_CACHE_CONTROL } from '../services/quotationPhotos.js';
@@ -67,7 +67,7 @@ quotationsRouter.get(
       if (q.outlet_id) {
         if (!canSeeOutlet(auth, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
         query = query.eq('outlet_id', q.outlet_id);
-      } else if (auth.role !== 'admin' && auth.role !== 'finance') {
+      } else if (!seesAllOutlets(auth.role)) {
         if (auth.outletIds.length === 0) return res.json({ data: [], next_cursor: null });
         query = query.in('outlet_id', auth.outletIds);
       }

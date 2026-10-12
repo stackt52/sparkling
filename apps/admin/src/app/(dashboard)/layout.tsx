@@ -38,7 +38,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Typography variant="h2">Not authorised</Typography>
           <Typography color="text.secondary">
             {profile
-              ? `${profile.full_name} is signed in as ${roleLabel[profile.role].toLowerCase()}. The admin dashboard is limited to managers, admins, finance and supervisors.`
+              ? `${profile.full_name} is signed in as ${roleLabel[profile.role].toLowerCase()}. The admin dashboard is limited to managers, admins, directors, finance and supervisors.`
               : error ?? 'We could not establish an admin session for this account.'}
           </Typography>
           <Button variant="contained" color="secondary" onClick={() => void signOut()}>Sign out</Button>

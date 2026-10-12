@@ -5616,7 +5616,7 @@ class DemoStore {
       final p = profiles[entry.key];
       if (p == null ||
           !p.role.isStaff ||
-          p.role == UserRole.admin ||
+          p.role.isAdmin ||
           p.role == UserRole.finance ||
           p.role == UserRole.manager) {
         continue;

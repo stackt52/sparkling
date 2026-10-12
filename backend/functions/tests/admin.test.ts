@@ -25,7 +25,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   setFirebaseAuthForTests({
     verifyIdToken: async (token: string) => {
-      const users: Record<string, string> = { admin: 'uid_admin', manager: 'uid_manager', finance: 'uid_finance', customer: 'uid_customer', fresh: 'uid_fresh', stale: 'uid_fresh' };
+      const users: Record<string, string> = { admin: 'uid_admin', director: 'uid_director', manager: 'uid_manager', finance: 'uid_finance', customer: 'uid_customer', fresh: 'uid_fresh', stale: 'uid_fresh' };
       if (users[token]) return { uid: users[token], email: `${token}@example.com`, auth_time: Math.floor(Date.now() / 1000) - (token === 'stale' ? 3600 : 30) };
       throw new Error('bad token');
     },
@@ -48,6 +48,7 @@ beforeEach(() => {
   db = fakeSupabase();
   db.seed('profiles', [
     { id: 'uid_admin', role: 'admin', full_name: 'Ada Admin', email: 'admin@example.com', is_active: true },
+    { id: 'uid_director', role: 'director', full_name: 'Dineo Director', email: 'director@example.com', is_active: true },
     { id: 'uid_manager', role: 'manager', full_name: 'Musa Manager', email: 'manager@example.com', is_active: true },
     { id: 'uid_finance', role: 'finance', full_name: 'Fikile Finance', email: 'finance@example.com', is_active: true },
     { id: 'uid_customer', role: 'customer', full_name: 'Thabo', email: 'customer@example.com', is_active: true },
@@ -274,5 +275,20 @@ describe('staff accounts (ADM-010): create → temporary password → forced cha
     expect(ok.body.profile).toMatchObject({ id: 'uid_fresh', must_change_password: false });
     expect(ok.body.profile.password_changed_at).toBeTruthy();
     expect(db.rows('audit_events').some((a) => a.action === 'auth.password_changed')).toBe(true);
+  });
+});
+
+describe('director role (migration 0018) has the same rights as admin', () => {
+  it('passes requireAdmin routes, sees every outlet and manages users like an admin', async () => {
+    expect((await get('/v1/admin/users', 'director')).status).toBe(200);
+    expect((await get('/v1/admin/outlet-services', 'director')).status).toBe(200);
+    const invite = await post('/v1/admin/users', 'director', { email: 'dir2@example.com', full_name: 'Second Director', role: 'director', outlet_ids: [] });
+    expect(invite.status).toBe(201);
+    expect(invite.body.profile).toMatchObject({ role: 'director', must_change_password: true });
+    // Same self-protection as admin: a director cannot demote or deactivate their own account.
+    const demote = await fetch(`${base}/v1/admin/users/uid_director`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer director' }, body: JSON.stringify({ role: 'manager' }) });
+    expect(demote.status).toBe(400);
+    // Managers are still refused on admin-only routes.
+    expect((await post('/v1/admin/users', 'manager', { email: 'nope@example.com', full_name: 'Nope', role: 'technician' })).status).toBe(403);
   });
 });

@@ -26,6 +26,7 @@ import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { fmtTime, rands } from '@/lib/format';
 import { tk } from '@/theme/tokens';
 import { SERVICE_GROUPS, type AvailabilitySlot, type MembershipSummary, type Outlet, type OutletServiceOffer, type VehicleSize } from '@/lib/types';
+import { isAdminRole } from '@/lib/types';
 
 function ServiceCard({ s, size, onQuote, membership }: { s: OutletServiceOffer; size: VehicleSize; onQuote: () => void; membership: MembershipSummary | null }) {
   const cents = offerPriceFor(s, size);
@@ -81,7 +82,7 @@ export default function ServiceStep({ draft, patch, onToast }: { draft: WalkInDr
   const outletsQ = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets() });
   const outlets = React.useMemo<Outlet[]>(() => {
     const all = (outletsQ.data ?? []).filter((o) => o.is_active);
-    return role === 'admin' ? all : all.filter((o) => profile?.outlet_ids.includes(o.id));
+    return isAdminRole(role) ? all : all.filter((o) => profile?.outlet_ids.includes(o.id));
   }, [outletsQ.data, role, profile]);
 
   // Default the outlet to the only / first one the user may book at.

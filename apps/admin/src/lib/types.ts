@@ -3,8 +3,13 @@
  * admin routes in docs/API.md. All money is integer cents (ZAR), timestamps ISO-8601.
  */
 
-export type UserRole = 'customer' | 'technician' | 'supervisor' | 'manager' | 'admin' | 'finance';
-export const ADMIN_ROLES: UserRole[] = ['manager', 'admin', 'finance', 'supervisor'];
+/** `director` has exactly the rights of `admin`. */
+export type UserRole = 'customer' | 'technician' | 'supervisor' | 'manager' | 'admin' | 'director' | 'finance';
+/** Roles that may sign in to this dashboard. */
+export const ADMIN_ROLES: UserRole[] = ['manager', 'admin', 'director', 'finance', 'supervisor'];
+/** Unrestricted roles: full RBAC matrix, every outlet, user management. */
+export const ADMIN_LEVEL_ROLES: UserRole[] = ['admin', 'director'];
+export const isAdminRole = (role: UserRole | null | undefined): boolean => Boolean(role) && ADMIN_LEVEL_ROLES.includes(role!);
 
 export type ServiceCategory = 'car_wash' | 'auto_body';
 /** Price-sheet groups (migration 0008). */

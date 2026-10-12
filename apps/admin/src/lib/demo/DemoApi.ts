@@ -4,6 +4,7 @@
  * dataset every few seconds so the dashboard feels real.
  */
 import { buildCsv } from '../csv';
+import { isAdminRole } from '../types';
 import { ApiRequestError, uuid, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type MembershipFilters, type NotificationFilters, type OutletOfferFilters, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
 import {
   SERVICE_GROUPS, VAT_RATE, priceLabel, vehicleSizeOf,
@@ -124,8 +125,11 @@ export class DemoApi implements AdminApi {
   private actor() {
     return this.profiles.find((p) => p.id === this.actorId) ?? this.profiles[0];
   }
+  /** `director` carries admin rights everywhere. */
   private requireRole(...roles: UserRole[]) {
-    if (!roles.includes(this.actor().role)) {
+    const role = this.actor().role;
+    const effective: UserRole = role === 'director' ? 'admin' : role;
+    if (!roles.includes(role) && !roles.includes(effective)) {
       throw new ApiRequestError(403, { code: 'forbidden', message: `This action requires role ${roles.join(' or ')}`, correlation_id: nextId('corr') });
     }
   }
@@ -1015,7 +1019,7 @@ export class DemoApi implements AdminApi {
   private requireOutletAccess(outletId: string) {
     const a = this.actor();
     if (!this.outlets.some((o) => o.id === outletId)) throw new ApiRequestError(404, { code: 'not_found', message: 'Outlet not found' });
-    if (a.role !== 'admin' && !a.outlet_ids.includes(outletId)) throw new ApiRequestError(403, { code: 'forbidden', message: 'outlet_id must be one of your outlets' });
+    if (!isAdminRole(a.role) && !a.outlet_ids.includes(outletId)) throw new ApiRequestError(403, { code: 'forbidden', message: 'outlet_id must be one of your outlets' });
   }
 
   async searchWalkInCustomers(search: string): Promise<WalkInCustomer[]> {

@@ -38,6 +38,7 @@ import { fmtDate, rands } from '@/lib/format';
 import { formatPhone } from '@/lib/phone';
 import { fonts, tk } from '@/theme/tokens';
 import { QUOTE_ITEM_CATEGORIES, type QuoteLineItem, type Quotation, type WalkInCustomer, type WalkInVehicle } from '@/lib/types';
+import { isAdminRole } from '@/lib/types';
 
 const STEPS = ['Customer', 'Vehicle', 'Quote'] as const;
 const HINTS = ['Find or register the customer', 'Pick the vehicle being repaired', 'Items, photos and validity'];
@@ -105,7 +106,7 @@ function RaiseQuoteDialogBody({ open, onClose, onOpenQuotation, onToast, initial
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
 
   const outlets = useQuery({ queryKey: ['outlets'], queryFn: () => api.listOutlets(), enabled: open });
-  const allowedOutlets = React.useMemo(() => (outlets.data ?? []).filter((o) => o.is_active && (profile?.role === 'admin' || !profile || profile.outlet_ids.includes(o.id))), [outlets.data, profile]);
+  const allowedOutlets = React.useMemo(() => (outlets.data ?? []).filter((o) => o.is_active && (isAdminRole(profile?.role) || !profile || profile.outlet_ids.includes(o.id))), [outlets.data, profile]);
   // Falls back to the first outlet the user may quote for until they pick one.
   const outletIdSel = draft.outlet_id || allowedOutlets[0]?.id || '';
   const services = useQuery({ queryKey: ['outlet-services-for', outletIdSel], queryFn: () => api.listOutletServicesFor(outletIdSel), enabled: open && Boolean(outletIdSel), select: (rows) => rows.filter((s) => s.group_name === 'Auto Body Repair' || s.category === 'auto_body') });

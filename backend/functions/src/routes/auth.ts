@@ -118,7 +118,7 @@ authRouter.post(
 
     const role = profile.role;
     if (body.app === 'staff' && !STAFF_ROLES.includes(role)) throw ApiError.forbidden('This account is a customer account. Ask your manager to add you as staff in the admin dashboard.', { reason: 'not_staff' });
-    if (body.app === 'admin' && !['manager', 'admin', 'finance'].includes(role)) throw ApiError.forbidden('Admin dashboard requires manager, admin or finance role');
+    if (body.app === 'admin' && !['manager', 'admin', 'director', 'finance'].includes(role)) throw ApiError.forbidden('Admin dashboard requires manager, admin, director or finance role');
 
     const outletIds = STAFF_ROLES.includes(role) ? await loadOutletIds(auth.uid) : [];
     const claimsUpdated = await syncClaims(auth.uid, role, outletIds, auth.tokenClaims);

@@ -3,6 +3,7 @@
  * Aggregations are done in JS over Supabase queries (no SQL views needed).
  */
 import { stringify } from 'csv-stringify/sync';
+import { ALL_OUTLET_ROLES } from '../types.js';
 import { pageResult } from '../lib/refs.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import type { AuthContext } from '../types.js';
@@ -456,7 +457,7 @@ export function csvWithMetadata(meta: Record<string, unknown>, columns: string[]
 export const PAYMENT_CSV_COLUMNS = ['id', 'booking_ref', 'outlet', 'customer', 'status', 'amount_cents', 'currency', 'receipt_no', 'provider', 'provider_ref', 'method_brand', 'method_last4', 'verified_at', 'created_at', 'failure_reason'];
 
 export async function buildReport(report: ReportName, auth: AuthContext, filters: { outlet_id?: string; from?: string; to?: string }, outletIds: string[] | null) {
-  const scopeLabel = auth.role === 'admin' || auth.role === 'finance' ? (filters.outlet_id ? `outlet:${filters.outlet_id}` : 'all outlets') : `outlets:${(outletIds ?? []).join('|')}`;
+  const scopeLabel = ALL_OUTLET_ROLES.includes(auth.role) ? (filters.outlet_id ? `outlet:${filters.outlet_id}` : 'all outlets') : `outlets:${(outletIds ?? []).join('|')}`;
   const meta = { generated_at: new Date().toISOString(), generated_by: auth.uid, role: auth.role, report, filters: { ...filters }, scope: scopeLabel };
   const from = filters.from ?? new Date(Date.now() - 30 * 86400_000).toISOString();
   const to = filters.to ?? new Date().toISOString();

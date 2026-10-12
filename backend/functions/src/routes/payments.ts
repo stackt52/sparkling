@@ -189,7 +189,7 @@ paymentsRouter.get(
     );
     if (!payment) throw ApiError.notFound('Payment');
     const auth = req.auth!;
-    if (payment.customer_id !== auth.uid && !['finance', 'admin', 'manager'].includes(auth.role)) throw ApiError.forbidden();
+    if (payment.customer_id !== auth.uid && !['finance', 'admin', 'director', 'manager'].includes(auth.role)) throw ApiError.forbidden();
     const receipt =
       payment.status === 'successful'
         ? { receipt_no: payment.receipt_no, amount_cents: payment.amount_cents, currency: payment.currency, paid_at: payment.verified_at, provider: payment.provider, provider_ref: payment.provider_ref }

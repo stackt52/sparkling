@@ -206,6 +206,7 @@ const person = (id: string, role: UserRole, full_name: string, email: string, ph
 export const DEMO_PROFILES: DemoProfile[] = [
   person('seed_admin', 'admin', 'Sparkling Admin', 'admin@sparklingauto.co.za', '+27820000001', ALL_OUTLETS),
   person('seed_finance', 'finance', 'Nomvula Finance', 'finance@sparklingauto.co.za', '+27820000002', ALL_OUTLETS),
+  person('seed_director', 'director', 'Kgosi Molefe', 'director@sparklingauto.co.za', '+27820000003', ALL_OUTLETS),
   person('seed_ayesha', 'manager', 'Ayesha Patel', 'ayesha@sparklingauto.co.za', '+27820000010', [OUTLET_MEN, OUTLET_GLV]),
   person('seed_johan', 'supervisor', 'Johan Botha', 'johan@sparklingauto.co.za', '+27820000011', [OUTLET_MEN], [], 'available'),
   person('seed_pieter', 'technician', 'Pieter van der Merwe', 'pieter@sparklingauto.co.za', '+27820000012', [OUTLET_MEN], ['wash', 'detail'], 'available'),

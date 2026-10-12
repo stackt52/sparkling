@@ -7,7 +7,7 @@ import { logger } from './correlation.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { ApiError, asyncHandler } from './errors.js';
 import type { AuthContext, Profile, RequestContext, UserRole } from '../types.js';
-import { MANAGER_ROLES, STAFF_ROLES, SUPERVISOR_ROLES } from '../types.js';
+import { MANAGER_ROLES, STAFF_ROLES, SUPERVISOR_ROLES, ADMIN_ROLES, ALL_OUTLET_ROLES } from '../types.js';
 
 export async function loadProfile(uid: string): Promise<Profile | null> {
   const db = getSupabase();
@@ -96,7 +96,7 @@ export function requireRole(...roles: UserRole[]): RequestHandler {
 export const requireStaff = requireRole(...STAFF_ROLES);
 export const requireSupervisor = requireRole(...SUPERVISOR_ROLES);
 export const requireManager = requireRole(...MANAGER_ROLES);
-export const requireAdmin = requireRole('admin');
+export const requireAdmin = requireRole(...ADMIN_ROLES);
 
 export function isStaff(role: UserRole): boolean {
   return STAFF_ROLES.includes(role);
@@ -107,10 +107,18 @@ export function isSupervisor(role: UserRole): boolean {
 export function isManager(role: UserRole): boolean {
   return MANAGER_ROLES.includes(role);
 }
+/** `admin` or `director` — identical rights. */
+export function isAdmin(role: UserRole): boolean {
+  return ADMIN_ROLES.includes(role);
+}
+/** Admin-level roles and finance see every outlet. */
+export function seesAllOutlets(role: UserRole): boolean {
+  return ALL_OUTLET_ROLES.includes(role);
+}
 
 /** Admin and finance see every outlet; other staff only their assigned ones. */
 export function canSeeOutlet(auth: AuthContext, outletId: string | null | undefined): boolean {
-  if (auth.role === 'admin' || auth.role === 'finance') return true;
+  if (seesAllOutlets(auth.role)) return true;
   if (!outletId) return false;
   return auth.outletIds.includes(outletId);
 }

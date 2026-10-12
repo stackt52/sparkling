@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult, parseSort } from '../lib/refs.js';
 import { clientOpId, isoDateTime, pagination, parseBody, parseQuery, uuid, vehicleSize } from '../lib/validate.js';
-import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff } from '../middleware/auth.js';
+import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { bookingLimiter } from '../middleware/rateLimit.js';
 import { attachPricing, cancelBooking, checkInBooking, createBooking, rescheduleBooking } from '../services/bookings.js';
@@ -76,7 +76,7 @@ bookingsRouter.get(
       if (q.outlet_id) {
         if (!canSeeOutlet(auth, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
         query = query.eq('outlet_id', q.outlet_id);
-      } else if (auth.role !== 'admin' && auth.role !== 'finance') {
+      } else if (!seesAllOutlets(auth.role)) {
         if (auth.outletIds.length === 0) return res.json({ data: [], next_cursor: null });
         query = query.in('outlet_id', auth.outletIds);
       }

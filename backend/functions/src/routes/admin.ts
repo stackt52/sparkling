@@ -8,7 +8,7 @@ import { optionalPhoneSchema } from '../lib/phone.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult } from '../lib/refs.js';
 import { isoDate, isoDateTime, pagination, parseBody, parseQuery, pricingMode, uuid, vatMode } from '../lib/validate.js';
-import { canSeeOutlet, requireAdmin, requireProfile, requireRole } from '../middleware/auth.js';
+import { canSeeOutlet, requireAdmin, requireProfile, requireRole, isAdmin, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { audit } from '../services/audit.js';
 import { buildReport, computeActivity, computeExceptions, computeKpis, computeSummary, dayRangeFor, listAdminPayments, periodRange, REPORTS, staffPerformance, todayRange, type ReportName } from '../services/admin.js';
@@ -27,8 +27,8 @@ import { STAFF_ROLES } from '../types.js';
 export const adminRouter = Router();
 adminRouter.use('/admin', requireProfile);
 
-const managerPlus = requireRole('manager', 'admin');
-const managerFinance = requireRole('manager', 'admin', 'finance');
+const managerPlus = requireRole('manager', 'admin', 'director');
+const managerFinance = requireRole('manager', 'admin', 'director', 'finance');
 
 /** Resolve outlet scope: explicit outlet (must be visible) or the caller's visible set (null = all). */
 function scopeFor(req: import('express').Request, outletId?: string): string[] | null {
@@ -37,7 +37,7 @@ function scopeFor(req: import('express').Request, outletId?: string): string[] |
     if (!canSeeOutlet(auth, outletId)) throw ApiError.forbidden('Outlet is outside your scope');
     return [outletId];
   }
-  if (auth.role === 'admin' || auth.role === 'finance') return null;
+  if (seesAllOutlets(auth.role)) return null;
   return auth.outletIds;
 }
 
@@ -397,7 +397,7 @@ adminRouter.get('/admin/users', managerPlus, asyncHandler(async (req, res) => {
   res.json(pageResult(users, q.limit, offset));
 }));
 
-const roleEnum = z.enum(['customer', 'technician', 'supervisor', 'manager', 'admin', 'finance']);
+const roleEnum = z.enum(['customer', 'technician', 'supervisor', 'manager', 'admin', 'director', 'finance']);
 const createUserSchema = z.object({
   email: z.string().email(),
   full_name: z.string().trim().min(2).max(120),
@@ -506,7 +506,7 @@ adminRouter.patch('/admin/users/:id', requireAdmin, asyncHandler(async (req, res
   const db = getSupabase();
   const before = unwrap<Profile | null>(await db.from('profiles').select('*').eq('id', id).maybeSingle(), 'profile');
   if (!before) throw ApiError.notFound('User');
-  if (id === req.auth!.uid && (body.is_active === false || (body.role && body.role !== 'admin'))) throw ApiError.validation('You cannot deactivate or demote yourself');
+  if (id === req.auth!.uid && (body.is_active === false || (body.role && !isAdmin(body.role)))) throw ApiError.validation('You cannot deactivate or demote yourself');
   const patch: Partial<Profile> = {};
   if (body.role) patch.role = body.role;
   if (body.full_name) patch.full_name = body.full_name;
@@ -860,7 +860,7 @@ adminRouter.get('/admin/audit', managerFinance, asyncHandler(async (req, res) =>
   const db = getSupabase();
   const offset = decodeCursor(q.cursor);
   let query = db.from('audit_events').select('*').order('created_at', { ascending: false }).range(offset, offset + q.limit);
-  if (req.auth!.role !== 'admin' && req.auth!.role !== 'finance') {
+  if (!seesAllOutlets(req.auth!.role)) {
     if (!req.auth!.outletIds.length) return res.json({ data: [], next_cursor: null });
     query = query.in('outlet_id', req.auth!.outletIds);
   }

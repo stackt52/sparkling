@@ -21,6 +21,9 @@ enum UserRole implements SparklingEnum {
   supervisor('supervisor'),
   manager('manager'),
   admin('admin'),
+
+  /// Same rights as [admin] everywhere (title only).
+  director('director'),
   finance('finance');
 
   const UserRole(this.db);
@@ -29,7 +32,8 @@ enum UserRole implements SparklingEnum {
   static UserRole fromDb(String? v) => _find(values, v, customer);
 
   bool get isStaff => this != customer;
-  bool get isManager => this == manager || this == admin;
+  bool get isAdmin => this == admin || this == director;
+  bool get isManager => this == manager || isAdmin;
   bool get canSupervise => this == supervisor || isManager;
 }
 

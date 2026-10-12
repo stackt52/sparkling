@@ -314,6 +314,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     UserRole.supervisor => 'Supervisor',
     UserRole.manager => 'Manager',
     UserRole.admin => 'Admin',
+    UserRole.director => 'Director',
     UserRole.finance => 'Finance',
     UserRole.customer => 'Customer',
   };

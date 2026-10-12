@@ -20,6 +20,18 @@ npx tsc --noEmit
 npm run build
 ```
 
+## Outlet scope (header pill)
+
+The header's outlet pill drives every outlet-scoped page (Overview KPIs, Bookings, Quotes, Work, Stock, Reports,
+CSV exports, realtime subscriptions) through `useFilters()` (`src/lib/filters.tsx`). Only **admin** gets the full
+switcher ("All outlets" or any outlet). Every other dashboard role — manager, finance, supervisor — is confined to
+the outlets linked to their account (`profile.outlet_ids`): `FiltersProvider` keeps `outletId` inside that list
+(the stored choice when linked, otherwise the first), rejects anything else in `setOutletId`, and exposes
+`allowedOutletIds`. With **one** linked outlet the pill is locked (`outletLocked`: lock icon, no menu, tooltip
+"Your account is linked to this outlet. Ask an admin to change it."); with **several** it opens a menu limited to
+those outlets, without "All outlets". A user with no linked outlet sees "No outlet assigned" (the API already scopes
+their data to their own outlets). Outlet links are managed per staff account under Staff (admin).
+
 ## Membership plans (`/loyalty`, "Memberships" in the rail)
 
 Tier = plan (docs/MEMBERSHIPS.md): Gold R295 · Platinum R475 · Black R850 per month; a customer without a
@@ -56,6 +68,11 @@ included washes come from the plan.
   paints Silver / Gold / Platinum / Black.
 
 ## Staff accounts (`/staff`, ADM-010)
+
+Roles: `technician` and `supervisor` (Staff app; supervisors also use this dashboard for ops), `manager`, `finance`,
+`admin` and **`director`** — a director has exactly the rights of an admin everywhere (full RBAC matrix, "All outlets",
+user management, config, flags); the two differ only in title. Migration 0018 adds the enum value and widens the RLS
+helpers (`app.is_admin()` / `is_manager()` / `is_staff()`).
 
 Admins (`user:manage`) create staff accounts from the dashboard; the account gets a **temporary password** that
 works in the Sparkling Staff app (any staff role) and in this dashboard (manager / admin / finance / supervisor),

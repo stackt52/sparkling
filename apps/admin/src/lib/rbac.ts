@@ -2,7 +2,7 @@ import type { UserRole } from './types';
 
 /**
  * UI-side RBAC (the server enforces the same matrix).
- *  - admin: everything
+ *  - admin / director: everything (director is an alias of admin)
  *  - manager: ops + config except user/flag admin and template/outlet/service CRUD
  *  - finance: read-only + exports (Messages visible, no resend)
  *  - supervisor: ops, work orders, inventory only
@@ -47,14 +47,17 @@ export type Capability =
   | 'template:manage'
   | 'flags:manage';
 
-const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capability>> = {
-  admin: new Set<Capability>([
+const ADMIN_CAPABILITIES = new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
     'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record', 'user:manage',
     'loyalty:draft', 'loyalty:publish', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'catalogue:manage', 'service:manage',
     'template:manage', 'flags:manage', 'notification:resend',
-  ]),
+  ]);
+
+const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capability>> = {
+  admin: ADMIN_CAPABILITIES,
+  director: ADMIN_CAPABILITIES,
   manager: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
@@ -82,5 +85,6 @@ export const roleLabel: Record<UserRole, string> = {
   supervisor: 'Supervisor',
   manager: 'Manager',
   admin: 'Admin',
+  director: 'Director',
   finance: 'Finance',
 };

@@ -39,8 +39,9 @@ import { fonts, tk } from '@/theme/tokens';
 import { fmtAgo, initials } from '@/lib/format';
 import { formatPhone } from '@/lib/phone';
 import { ADMIN_ROLES, type CreateStaffResult, type Profile, type StaffUser, type UserRole } from '@/lib/types';
+import { isAdminRole } from '@/lib/types';
 
-const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'finance', 'admin'];
+const STAFF_ROLES: UserRole[] = ['technician', 'supervisor', 'manager', 'finance', 'admin', 'director'];
 const AVAILABILITY_LABEL: Record<NonNullable<StaffUser['availability']>, string> = { available: 'Available', busy: 'Busy', break: 'On break', off: 'Off shift' };
 
 const FIRST_SIGN_IN_NOTE = "They'll be asked to choose a new password the first time they sign in to the Sparkling Staff app or this dashboard.";
@@ -297,7 +298,7 @@ export default function StaffPage() {
         </Box>
       </Box>
     ) },
-    { field: 'role', headerName: 'Role', flex: 0.8, minWidth: 120, renderCell: (p) => <StatusChip tone={p.row.role === 'admin' ? 'primary' : p.row.role === 'manager' ? 'secondary' : 'neutral'} label={roleLabel[p.row.role]} /> },
+    { field: 'role', headerName: 'Role', flex: 0.8, minWidth: 120, renderCell: (p) => <StatusChip tone={isAdminRole(p.row.role) ? 'primary' : p.row.role === 'manager' ? 'secondary' : 'neutral'} label={roleLabel[p.row.role]} /> },
     { field: 'outlet_names', headerName: 'Outlets', flex: 1.2, minWidth: 160, valueGetter: (_v, r) => r.outlet_names.join(', ') || '—' },
     { field: 'skills', headerName: 'Skills', flex: 1, minWidth: 140, sortable: false, renderCell: (p) => <Box sx={{ display: 'flex', gap: 0.5 }}>{p.row.skills.map((s) => <Chip key={s} size="small" label={s} sx={{ height: 22, fontSize: 11, bgcolor: tk.surfaceContainerHigh }} />)}</Box> },
     { field: 'last_seen_at', headerName: 'Last seen', flex: 0.8, minWidth: 110, renderCell: (p) => (p.row.last_seen_at ? fmtAgo(p.row.last_seen_at) : 'Never') },
