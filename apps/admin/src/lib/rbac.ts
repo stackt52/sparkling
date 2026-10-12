@@ -4,8 +4,9 @@ import type { UserRole } from './types';
  * UI-side RBAC (the server enforces the same matrix).
  *  - admin / director: everything (director is an alias of admin)
  *  - manager: ops + config except user/flag admin and template/outlet/service CRUD
- *  - finance: read-only + exports (Messages visible, no resend)
+ *  - finance: read-only + exports (Messages visible, no resend); no Staff, no Config (incl. audit log)
  *  - supervisor: ops, work orders, inventory only
+ *  Staff and Config (Settings, Outlets, Services, Checklists, Audit log) are limited to admin / director / manager.
  */
 export type Capability =
   | 'view:overview'
@@ -66,7 +67,7 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   ]),
   finance: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:customers', 'view:loyalty', 'view:inventory',
-    'view:reports', 'view:audit', 'view:notifications', 'export:csv',
+    'view:reports', 'view:notifications', 'export:csv',
   ]),
   supervisor: new Set<Capability>([
     'view:overview', 'view:work_orders', 'view:inventory', 'view:bookings', 'view:quotations',

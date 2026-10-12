@@ -278,7 +278,9 @@ src/components                MSymbol (Material Symbols Rounded), layout (nav ra
 src/lib/api.ts                AdminApi interface + HttpApi (error envelope, Idempotency-Key, X-Correlation-Id, X-Client-App)
 src/lib/demo                  DemoApi + seed-mirroring dataset
 src/lib/supabase.ts           Supabase client with accessToken = Firebase ID token; admin realtime channels
-src/lib/rbac.ts               UI capability matrix (admin / manager / finance / supervisor) — server enforces too
+src/lib/rbac.ts               UI capability matrix (admin·director / manager / finance / supervisor) — server enforces too;
+                              Staff + Config (Settings, Outlets, Services, Checklists, Audit) are admin / director / manager only,
+                              and the dashboard layout's PageGuard blocks direct URLs to pages the role cannot see
 ```
 
 ## Deploy (Firebase App Hosting)
