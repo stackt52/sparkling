@@ -690,6 +690,34 @@ describe('POST /quotations/:id/quote (supervisor quoting a request) also issues 
     expect(pub.status).toBe(200);
     expect(pub.body.status).toBe('accepted');
   });
+
+  it('revises a quoted quotation in place: new items, fresh public token, quote_ready sent again; decided ones are refused', async () => {
+    const req = await call('/v1/quotations', 'cust', { method: 'POST', body: JSON.stringify({ vehicle_id: VEH_1, outlet_id: OUTLET, category: 'Dent', description: 'Door ding on driver door.', client_op_id: 'op-cust-6' }) });
+    const id = req.body.quotation.id;
+    const first = await call(`/v1/quotations/${id}/quote`, 'sup', { method: 'POST', body: JSON.stringify({ amount_cents: 85000, line_items: [{ label: 'PDR', amount_cents: 85000 }], valid_until: futureDate(10) }) });
+    expect(first.status).toBe(200);
+    const token1 = dbQuote(id).public_token;
+    const sendsBefore = waSends.length;
+
+    const revised = await call(`/v1/quotations/${id}/quote`, 'sup', { method: 'POST', body: JSON.stringify({ amount_cents: 120000, line_items: [{ label: 'PDR', amount_cents: 85000 }, { label: 'Polish', amount_cents: 35000 }], valid_until: futureDate(14), items_note: 'Updated after inspection' }) });
+    expect(revised.status).toBe(200);
+    expect(revised.body.quotation).toMatchObject({ status: 'quoted', amount_cents: 120000, items_note: 'Updated after inspection' });
+    expect(revised.body.quotation.items).toHaveLength(2);
+    const token2 = dbQuote(id).public_token;
+    expect(token2).toMatch(/^[0-9a-f-]{36}$/);
+    expect(token2).not.toBe(token1);
+    // the customer gets the updated quote with the new link; the old link is gone
+    expect(waSends).toHaveLength(sendsBefore + 1);
+    expect(waSends.at(-1)!.contentVariables).toEqual({ '1': 'Naledi', '2': token2 });
+    expect((await call(`/v1/public/quotations/${token1}`, null)).status).toBe(404);
+    expect(db.rows('audit_events').filter((a) => a.action === 'quotation.quote' && a.entity_id === id).at(-1)?.after).toMatchObject({ revision: true, amount_cents: 120000 });
+
+    // once answered the quote is final
+    expect((await call(`/v1/quotations/${id}/decision`, 'cust', { method: 'POST', body: JSON.stringify({ decision: 'accept' }) })).status).toBe(200);
+    const after = await call(`/v1/quotations/${id}/quote`, 'sup', { method: 'POST', body: JSON.stringify({ amount_cents: 1000, line_items: [{ label: 'x', amount_cents: 1000 }], valid_until: futureDate(3) }) });
+    expect(after.status).toBe(409);
+    expect(after.body.error.code).toBe('invalid_transition');
+  });
 });
 
 describe('accepted quotation → cash payment → check-in', () => {

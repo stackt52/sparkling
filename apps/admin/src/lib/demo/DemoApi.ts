@@ -469,13 +469,17 @@ export class DemoApi implements AdminApi {
     this.requireRole('supervisor', 'manager', 'admin');
     const q = this.quotations.find((x) => x.id === id);
     if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
-    if (!['requested', 'assessing', 'quoted'].includes(q.status)) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Quotation is ${q.status}` });
+    if (!['requested', 'assessing', 'quoted'].includes(q.status) || q.decided_at) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Cannot move quotation from '${q.status}' to 'quoted'` });
+    const revision = q.status === 'quoted';
     const a = this.actor();
     const items = DemoApi.normaliseItems(body.line_items);
+    const before = { amount_cents: q.amount_cents };
     Object.assign(q, { status: 'quoted', amount_cents: body.amount_cents, line_items: items, items_note: body.items_note?.trim() || null, valid_until: body.valid_until, quoted_at: nowIso(), assessor_id: a.id, assessor_name: a.full_name });
+    // A revision rotates the public link (the old one stops working) and re-sends quote_ready.
+    if (revision) this.publicTokens.delete(q.id);
     if (!this.publicTokens.has(q.id)) this.issuePublicToken(q);
-    this.log('quotation.quote', 'quotation', q.id, null, { amount_cents: body.amount_cents }, q.outlet.id);
-    this.pushActivity({ kind: 'quote', title: `Quote ${q.ref} sent · ${this.fmtR(body.amount_cents)}`, subtitle: `${q.customer_name} notified via push + WhatsApp`, icon: 'request_quote', tone: 'warning' });
+    this.log('quotation.quote', 'quotation', q.id, revision ? before : null, { amount_cents: body.amount_cents, revision }, q.outlet.id);
+    this.pushActivity({ kind: 'quote', title: `Quote ${q.ref} ${revision ? 're-sent' : 'sent'} · ${this.fmtR(body.amount_cents)}`, subtitle: `${q.customer_name} notified via push + WhatsApp${revision ? ' · new link' : ''}`, icon: 'request_quote', tone: 'warning' });
     this.emit('quotations');
     return this.staffQuotation(q);
   }

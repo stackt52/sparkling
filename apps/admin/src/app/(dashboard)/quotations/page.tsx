@@ -112,7 +112,11 @@ function PhotosSection({ q, canEdit, onToast }: { q: Quotation; canEdit: boolean
   );
 }
 
-function QuoteForm({ q, onDone, onToast }: { q: Quotation; onDone: () => void; onToast: ToastFn }) {
+/**
+ * Builds the first quote for a request, or — once sent — updates a `quoted` quotation: the API replaces the items,
+ * rotates the public link and re-sends quote_ready, so "Save & re-send" is the only way to change a sent quote.
+ */
+function QuoteForm({ q, onDone, onCancel, onToast }: { q: Quotation; onDone: () => void; onCancel?: () => void; onToast: ToastFn }) {
   const api = useApi();
   const qc = useQueryClient();
   const source = q.items ?? q.line_items;
@@ -125,12 +129,15 @@ function QuoteForm({ q, onDone, onToast }: { q: Quotation; onDone: () => void; o
   const total = quoteItemsTotal(clean);
   const m = useMutation({
     mutationFn: () => api.submitQuote(q.id, { amount_cents: total, line_items: clean, valid_until: validUntil, items_note: note.trim() || null }),
-    onSuccess: () => { onToast('success', `Quote ${q.ref} sent to ${q.customer_name}`); void qc.invalidateQueries({ queryKey: ['quotations'] }); onDone(); },
+    onSuccess: () => { onToast('success', q.status === 'quoted' ? `Quote ${q.ref} updated and re-sent to ${q.customer_name} with a new link` : `Quote ${q.ref} sent to ${q.customer_name}`); void qc.invalidateQueries({ queryKey: ['quotations'] }); onDone(); },
     onError: (e) => onToast('error', e),
   });
   return (
     <Box component="form" onSubmit={(e) => { e.preventDefault(); m.mutate(); }} sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 1 }}>
-      <Typography variant="h4" component="h3">{q.status === 'quoted' ? 'Revise quote' : 'Build quote'}</Typography>
+      <Typography variant="h4" component="h3">{q.status === 'quoted' ? 'Update quote' : 'Build quote'}</Typography>
+      {q.status === 'quoted' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: -1 }}>Saving replaces the sent quote, issues a new public link (the previous one stops working) and notifies {q.customer_name} again.</Typography>
+      )}
       {q.status !== 'quoted' && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: -1 }}>
           {services.data?.length ? `Add services from the ${q.outlet.name.replace('Sparkling ', '')} auto-body catalogue — each one becomes a priced item — or add custom items.` : 'Add an item per attention area with its price incl. VAT.'}
@@ -142,9 +149,12 @@ function QuoteForm({ q, onDone, onToast }: { q: Quotation; onDone: () => void; o
         <TextField label="Notes for the customer (optional)" value={note} onChange={(e) => setNote(e.target.value)} size="small" multiline minRows={1} maxRows={3} slotProps={{ htmlInput: { maxLength: 500 } }} />
       </Box>
       <Typography variant="body2" color="text.secondary">The customer accepts or declines via the public link or in the app — nothing is booked until they approve (CUS-033).</Typography>
-      <Button type="submit" variant="contained" color="secondary" disabled={m.isPending || total <= 0 || clean.length === 0} startIcon={<MSymbol name="send" size={20} />}>
-        {q.status === 'quoted' ? 'Re-send quote' : 'Send quote'}
-      </Button>
+      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        {onCancel && <Button variant="text" onClick={onCancel} disabled={m.isPending}>Cancel</Button>}
+        <Button type="submit" variant="contained" color="secondary" disabled={m.isPending || total <= 0 || clean.length === 0} startIcon={<MSymbol name="send" size={20} />} data-testid="quote-submit">
+          {q.status === 'quoted' ? 'Save & re-send quote' : 'Send quote'}
+        </Button>
+      </Box>
     </Box>
   );
 }
@@ -157,6 +167,11 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
   const onToast: ToastFn = (kind, message) => (kind === 'error' ? toast.error(message) : kind === 'info' ? toast.info(String(message)) : toast.success(String(message)));
   const q = useQuery({ queryKey: ['quotation', id], queryFn: () => api.getQuotation(id!), enabled: Boolean(id) });
   const [payTarget, setPayTarget] = React.useState<RecordPaymentTarget | null>(null);
+  // A sent (`quoted`) quotation is read-only until "Update quote" opens the editor; keyed on the quotation id so
+  // opening another quote closes it again (no effect needed).
+  const [editingFor, setEditingFor] = React.useState<string | null>(null);
+  const editing = Boolean(id) && editingFor === id;
+  const setEditing = (on: boolean) => setEditingFor(on ? id : null);
   // "Check in & start" (`POST /quotations/:id/convert`): the work order exists since acceptance — this confirms the car on site and marks the quote converted.
   const convert = useMutation({
     mutationFn: () => api.convertQuotation(id!),
@@ -261,7 +276,7 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
             </Tile>
           )}
 
-          <PhotosSection q={d} canEdit={canWrite} onToast={onToast} />
+          <PhotosSection q={d} canEdit={canWrite && (d.status !== 'quoted' || editing)} onToast={onToast} />
 
           {items.length > 0 && (
             <>
@@ -306,10 +321,25 @@ function QuotationDrawer({ id, onClose }: { id: string | null; onClose: () => vo
             </Box>
           )}
 
-          {['requested', 'assessing', 'quoted'].includes(d.status) && canWrite && (
+          {['requested', 'assessing'].includes(d.status) && canWrite && (
             <>
               <Divider sx={{ my: 2.5 }} />
               <QuoteForm key={`${d.id}-${d.quoted_at ?? ''}`} q={d} onToast={onToast} onDone={() => void qc.invalidateQueries({ queryKey: ['quotation', id] })} />
+            </>
+          )}
+          {d.status === 'quoted' && canWrite && (
+            <>
+              <Divider sx={{ my: 2.5 }} />
+              {editing ? (
+                <QuoteForm key={`${d.id}-${d.quoted_at ?? ''}`} q={d} onToast={onToast} onCancel={() => setEditing(false)} onDone={() => { setEditing(false); void qc.invalidateQueries({ queryKey: ['quotation', id] }); }} />
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="body2" color="text.secondary">This quote has been sent and is read-only. Updating it re-sends the quotation to {d.customer_name} with a new link.</Typography>
+                  <Button variant="outlined" onClick={() => setEditing(true)} startIcon={<MSymbol name="edit" size={20} />} sx={{ alignSelf: 'flex-start' }} data-testid="quote-update">
+                    Update quote
+                  </Button>
+                </Box>
+              )}
             </>
           )}
           {!canWrite && ['requested', 'assessing'].includes(d.status) && <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Only supervisors and managers can issue quotes.</Typography>}

@@ -347,11 +347,17 @@ export const OUTLET_LEGAL_COLUMNS = 'name, code, phone, email, address_line, cit
 // Supervisor quote of a customer request
 // ---------------------------------------------------------------------------
 
+/**
+ * Prices a request (`requested` / `assessing` → `quoted`) or revises a quotation that is already `quoted` and not
+ * yet answered: the items, amount, validity and note are replaced, a fresh public token is issued (the old link
+ * stops working) and `quote_ready` is sent again. Decided / expired / converted quotations are refused (409).
+ */
 export async function quote(ctx: RequestContext, id: string, input: { amount_cents: number; line_items: QuotationLineItem[]; valid_until: string; items_note?: string | null }): Promise<Quotation> {
   const db = getSupabase();
   const q = await getQuotationOrThrow(id);
   assertOutlet(ctx.auth, q.outlet_id);
-  if (!canTransitionQuotation(q.status, 'quoted')) throw ApiError.invalidTransition(q.status, 'quoted', 'quotation');
+  const revision = q.status === 'quoted' && !q.decided_at;
+  if (!revision && !canTransitionQuotation(q.status, 'quoted')) throw ApiError.invalidTransition(q.status, 'quoted', 'quotation');
   const sum = sumItems(input.line_items);
   if (input.line_items.length && sum !== input.amount_cents) throw ApiError.validation('line_items must sum to amount_cents', { sum, amount_cents: input.amount_cents });
   const now = new Date();
@@ -374,7 +380,14 @@ export async function quote(ctx: RequestContext, id: string, input: { amount_cen
     'quote',
   );
   await sendQuoteReady(updated);
-  await audit(ctx, { action: 'quotation.quote', entity_type: 'quotation', entity_id: id, outlet_id: q.outlet_id, after: { amount_cents: input.amount_cents } });
+  await audit(ctx, {
+    action: 'quotation.quote',
+    entity_type: 'quotation',
+    entity_id: id,
+    outlet_id: q.outlet_id,
+    ...(revision ? { before: { amount_cents: q.amount_cents, valid_until: q.valid_until, public_token_expires_at: q.public_token_expires_at } } : {}),
+    after: { amount_cents: input.amount_cents, valid_until: input.valid_until, revision },
+  });
   return updated;
 }
 

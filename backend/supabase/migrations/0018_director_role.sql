@@ -17,3 +17,10 @@ drop policy if exists payments_finance on public.payments;
 create policy payments_finance on public.payments for select using (app.role() in ('finance','admin','director','manager'));
 drop policy if exists payment_events_finance on public.payment_events;
 create policy payment_events_finance on public.payment_events for select using (app.role() in ('finance','admin','director'));
+
+-- `create or replace` drops the search_path pin from 0003 — restore it on every function touched here (and on
+-- app.role(), which a hotfix on the project replaced without the pin).
+alter function app.is_staff()   set search_path = pg_catalog, public, extensions;
+alter function app.is_manager() set search_path = pg_catalog, public, extensions;
+alter function app.is_admin()   set search_path = pg_catalog, public, extensions;
+alter function app.role()       set search_path = pg_catalog, public, extensions;

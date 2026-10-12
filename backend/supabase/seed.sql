@@ -158,7 +158,7 @@ insert into public.notification_templates (key, channel, title, body, is_promoti
  ('payment_successful','push','Payment received','R {{amount}} received. Receipt {{receipt}}.',false,null,null,'{}'),
  ('payment_failed','push','Payment failed','We could not process R {{amount}}. Tap to retry.',false,null,null,'{}'),
  ('quote_ready','push','Your quotation is ready','{{ref}}: R {{amount}}. Accept or decline in the app.',false,null,null,'{}'),
- ('quote_ready','whatsapp',null,'Hi {{first_name}}, your quotation {{ref}} is ready. Review it in the Sparkling app.',false,'twilio','HX011c7f1b31697f8e21d36ff6b4d02b06','{"1":"first_name","2":"quotation_id"}'),
+ ('quote_ready','whatsapp',null,'Hi {{first_name}}, your quotation {{ref}} is ready. Review it in the Sparkling app.',false,'twilio','HXded96b02f33c4fa2ff9881a05d918172','{"1":"first_name","2":"public_token"}'),
  ('points_posted','push','Points posted','+{{points}} pts added. Balance {{balance}}.',false,null,null,'{}'),
  ('low_stock','push','Low stock alert','{{item}} at {{outlet}} is below threshold ({{on_hand}}/{{threshold}}).',false,null,null,'{}'),
  ('task_assigned','push','New task','{{ref}} assigned to you · {{service}} · bay {{bay}}.',false,null,null,'{}'),
