@@ -8,6 +8,8 @@ export interface PushMessage {
   title: string;
   body: string;
   data?: Record<string, string>;
+  /** Absolute same-origin URL the admin dashboard opens when a browser notification is clicked (web push only). */
+  link?: string | null;
 }
 
 export interface PushResult {
@@ -26,6 +28,8 @@ export async function sendPush(tokens: string[], msg: PushMessage): Promise<Push
       data: msg.data,
       android: { priority: 'high', notification: { channelId: 'sparkling_default' } },
       apns: { payload: { aps: { sound: 'default' } } },
+      // Browser tokens (admin dashboard): the Firebase service worker shows the notification and opens `link`.
+      webpush: { notification: { icon: '/icon-192.png' }, ...(msg.link ? { fcmOptions: { link: msg.link } } : {}) },
     });
     const invalid: string[] = [];
     res.responses.forEach((r, i) => {

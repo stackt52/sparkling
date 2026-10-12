@@ -183,6 +183,9 @@ export interface AdminApi {
    * moves the booking to `in_service` and auto-assigns it when the `auto_assignment` flag is on.
    */
   checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult>;
+  /** `POST /devices` — registers this browser's FCM token so staff pushes (quote_decided …) reach the dashboard. */
+  registerDevice(input: { token: string; platform: 'web'; app: 'admin' }): Promise<void>;
+
   /* quotations */
   listQuotations(filters: QuotationFilters): Promise<Quotation[]>;
   getQuotation(id: string): Promise<Quotation>;
@@ -525,6 +528,9 @@ export class HttpApi implements AdminApi {
       ? { id: w.id, ref: w.ref, status: w.status, stage: w.stage ?? 0, stage_count: w.stage_count ?? 0, progress_pct: w.progress_pct ?? 0, assignee_id: w.assignee_id ?? null, assignee_name: w.assignee_name ?? null, bay: w.bay ?? body.bay ?? null, eta_at: w.eta_at ?? null, blocked_reason: w.blocked_reason ?? null, checked_in_at: w.checked_in_at ?? new Date().toISOString() }
       : null;
     return { booking: res.booking, work_order, created: res.created ?? false };
+  }
+  async registerDevice(input: { token: string; platform: 'web'; app: 'admin' }) {
+    await this.request('POST', '/devices', input);
   }
   listQuotations(f: QuotationFilters) {
     return this.list<Quotation>(`/quotations${qs({ limit: 200, ...f })}`);

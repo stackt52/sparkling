@@ -11,6 +11,7 @@
  * be re-sent later (admin resend) and Twilio status callbacks update the row
  * by `provider_ref` (Message SID).
  */
+import { config } from '../config.js';
 import { sendPush } from '../lib/fcm.js';
 import { getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { getWhatsAppAdapter, twilioStatusCallbackUrl } from '../lib/whatsapp.js';
@@ -103,6 +104,23 @@ async function loadTemplates(key: string): Promise<TemplateRow[]> {
   return (data ?? []) as TemplateRow[];
 }
 
+/**
+ * Dashboard page for a push payload (`{ type, <type>_id }`), used as the click target of browser notifications:
+ * quotations → the quote drawer, bookings / payments → the booking, work orders / tasks → the Work board. Null when
+ * no public web base URL is configured.
+ */
+export function webLinkFor(data: Record<string, unknown>): string | null {
+  const base = config.publicWebBaseUrl;
+  if (!base) return null;
+  const id = (k: string) => (typeof data[k] === 'string' && data[k] ? encodeURIComponent(data[k] as string) : null);
+  const type = typeof data.type === 'string' ? data.type : '';
+  let path = '/notifications';
+  if (type === 'quotation' && id('quotation_id')) path = `/quotations?focus=${id('quotation_id')}`;
+  else if ((type === 'booking' || type === 'payment' || type === 'loyalty') && id('booking_id')) path = `/bookings?focus=${id('booking_id')}`;
+  else if ((type === 'work_order' || type === 'task') && id('work_order_id')) path = `/work-orders?focus=${id('work_order_id')}`;
+  return `${base}${path}`;
+}
+
 interface DeliveryResult {
   status: NotifyStatus;
   provider_ref: string | null;
@@ -120,7 +138,7 @@ async function deliver(tpl: TemplateRow, recipient: Profile, id: string, title: 
     const { data: tokens } = await db.from('device_tokens').select('token').eq('profile_id', recipient.id);
     const list = ((tokens ?? []) as Array<{ token: string }>).map((t) => t.token);
     const { vars: _vars, ...data } = payload;
-    const res = await sendPush(list, { title: title ?? 'Sparkling', body, data: stringifyData({ template: tpl.key, notification_id: id, ...data }) });
+    const res = await sendPush(list, { title: title ?? 'Sparkling', body, data: stringifyData({ template: tpl.key, notification_id: id, ...data }), link: webLinkFor(data) });
     if (res.invalidTokens.length) await db.from('device_tokens').delete().in('token', res.invalidTokens);
     if (list.length === 0) {
       out.status = 'queued'; // no device yet: stays in-app only

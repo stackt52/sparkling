@@ -63,6 +63,9 @@ beforeEach(() => {
     p('sup_2', 'supervisor', 'Lerato Dube'),
     p('tech_1', 'technician', 'Pieter van der Merwe'),
     p('sup_other', 'supervisor', 'Elsewhere Person'),
+    p('admin_1', 'admin', 'Ada Admin'),
+    p('dir_1', 'director', 'Dineo Director'),
+    p('admin_gone', 'admin', 'Former Admin', { is_active: false }),
     p('cust_1', 'customer', 'naledi mokoena', { phone: '+27831112222' }),
     p('cust_2', 'customer', 'Someone Else', { phone: '+27839998888' }),
     p('cust_inactive', 'customer', 'Gone Customer', { is_active: false }),
@@ -87,9 +90,10 @@ beforeEach(() => {
     { key: 'quote_ready', channel: 'whatsapp', title: null, body: 'Hi {{first_name}}, your Sparkling quotation {{ref}} is ready: {{public_url}}', is_promotional: false, is_active: true, provider: 'twilio', provider_template_sid: 'HX011c7f1b31697f8e21d36ff6b4d02b06', provider_variables: { '1': 'first_name', '2': 'public_token' } },
     { key: 'quote_decided', channel: 'push', title: 'Quotation {{decision}}', body: '{{ref}} {{decision}} by {{customer}}', is_promotional: false, is_active: true },
     { key: 'quote_decision_receipt', channel: 'push', title: 'Quotation {{decision}}', body: 'Thanks {{first_name}}, quotation {{ref}} was {{decision}}.', is_promotional: false, is_active: true },
-    { key: 'quote_decision_receipt', channel: 'whatsapp', title: null, body: 'Thanks {{first_name}}, quotation {{ref}} was {{decision}}.', is_promotional: false, is_active: true },
+    // WhatsApp receipt switched off by migration 0020 (free-form sends fail outside the 24 h session window).
+    { key: 'quote_decision_receipt', channel: 'whatsapp', title: null, body: 'Thanks {{first_name}}, quotation {{ref}} was {{decision}}.', is_promotional: false, is_active: false },
   ]);
-  db.seed('device_tokens', [{ profile_id: 'cust_1', token: 'tok_c1', platform: 'android', app: 'customer' }, { profile_id: 'sup_1', token: 'tok_s1', platform: 'ios', app: 'staff' }, { profile_id: 'sup_2', token: 'tok_s2', platform: 'ios', app: 'staff' }]);
+  db.seed('device_tokens', [{ profile_id: 'cust_1', token: 'tok_c1', platform: 'android', app: 'customer' }, { profile_id: 'sup_1', token: 'tok_s1', platform: 'ios', app: 'staff' }, { profile_id: 'sup_2', token: 'tok_s2', platform: 'ios', app: 'staff' }, { profile_id: 'admin_1', token: 'tok_a1', platform: 'web', app: 'admin' }, { profile_id: 'dir_1', token: 'tok_d1', platform: 'web', app: 'admin' }]);
   setSupabaseClient(db as any);
   setObjectStorageForTests(storage);
   setWhatsAppAdapterForTests({
@@ -579,14 +583,14 @@ describe('public quote page', () => {
     expect(audit.after).toMatchObject({ decision: 'accept', status: 'accepted', accepted_by_name: 'Naledi Mokoena', ip: expect.stringMatching(/127\.0\.0\.1$/), user_agent: 'QuotePage/1.0' });
 
     const decided = db.rows('notifications').filter((n) => n.template_key === 'quote_decided');
-    expect(decided.map((n) => n.recipient_id).sort()).toEqual(['sup_1', 'sup_2']); // assessor + outlet supervisor; technician excluded
+    expect(decided.map((n) => n.recipient_id).sort()).toEqual(['admin_1', 'dir_1', 'sup_1', 'sup_2']); // assessor + outlet supervisor + active admins/directors; technician, other outlet and inactive admin excluded
     expect(decided[0].body).toBe(`${q.ref} accepted by naledi mokoena`);
     expect(decided.every((n) => n.status === 'sent')).toBe(true);
     const receipts = db.rows('notifications').filter((n) => n.template_key === 'quote_decision_receipt');
-    expect(receipts.map((n) => [n.channel, n.status]).sort()).toEqual([['push', 'sent'], ['whatsapp', 'sent']]);
+    // push + in-app only: no free-form WhatsApp receipt is attempted
+    expect(receipts.map((n) => [n.channel, n.status])).toEqual([['push', 'sent']]);
     expect(receipts[0].body).toBe(`Thanks Naledi, quotation ${q.ref} was accepted.`);
-    expect(waSends).toHaveLength(1);
-    expect(waSends[0].contentSid).toBeNull();
+    expect(waSends).toHaveLength(0);
 
     // one-time: link again, then the app
     const again = await call(`/v1/public/quotations/${token}/decision`, null, { method: 'POST', body: JSON.stringify({ decision: 'decline' }) });
@@ -598,7 +602,7 @@ describe('public quote page', () => {
     expect(dbQuote(q.id).status).toBe('accepted');
     expect(db.rows('audit_events').filter((a) => a.action === 'quotation.decision_public')).toHaveLength(2);
     expect(db.rows('audit_events').filter((a) => a.action === 'quotation.decision_public')[1].outcome).toBe('refused');
-    expect(db.rows('notifications').filter((n) => n.template_key === 'quote_decided')).toHaveLength(2);
+    expect(db.rows('notifications').filter((n) => n.template_key === 'quote_decided')).toHaveLength(4);
 
     // still viewable
     const view = await call(`/v1/public/quotations/${token}`, null);
@@ -636,7 +640,7 @@ describe('public quote page', () => {
     expect(pub.status).toBe(409);
     expect(pub.body.error.details.status).toBe('accepted');
     expect((await call(`/v1/quotations/${q.id}/decision`, 'other', { method: 'POST', body: JSON.stringify({ decision: 'accept' }) })).status).toBe(403);
-    expect(db.rows('notifications').filter((n) => n.template_key === 'quote_decided')).toHaveLength(2);
+    expect(db.rows('notifications').filter((n) => n.template_key === 'quote_decided')).toHaveLength(4);
   });
 
   it('accepting after valid_until → 410 gone (status expired); declining a requested quotation → 409 invalid_transition', async () => {

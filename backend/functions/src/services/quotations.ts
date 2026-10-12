@@ -533,7 +533,10 @@ async function workOrderOnAcceptance(ctx: RequestContext, q: Quotation): Promise
   }
 }
 
-/** `quote_decided` push to the assessor + outlet supervisors/managers; `quote_decision_receipt` to the customer. */
+/**
+ * `quote_decided` push to the assessor, the outlet's supervisors / managers and every active admin / director
+ * (platform-wide — they are not linked to outlets); `quote_decision_receipt` to the customer.
+ */
 export async function notifyDecision(q: Quotation, customerName: string | null): Promise<{ staff: NotifyOutcome[]; customer: NotifyOutcome[] }> {
   const db = getSupabase();
   const decision = q.status === 'accepted' ? 'accepted' : 'declined';
@@ -546,6 +549,8 @@ export async function notifyDecision(q: Quotation, customerName: string | null):
       const leads = unwrap<Array<{ id: string }>>(await db.from('profiles').select('id').in('id', ids).in('role', ['supervisor', 'manager']).eq('is_active', true), 'outlet leads');
       for (const l of leads) staffIds.add(l.id);
     }
+    const execs = unwrap<Array<{ id: string }>>(await db.from('profiles').select('id').in('role', ['admin', 'director']).eq('is_active', true), 'admins');
+    for (const e of execs) staffIds.add(e.id);
   } catch (err) {
     logger.warn({ err, quotation_id: q.id }, 'could not resolve outlet staff for quote_decided');
   }

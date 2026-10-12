@@ -3,6 +3,7 @@ import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './auth/AuthProvider';
 import { FiltersProvider } from './filters';
+import { PushProvider } from '@/components/layout/PushProvider';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [client] = React.useState(
@@ -16,7 +17,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <FiltersProvider>{children}</FiltersProvider>
+        <FiltersProvider>
+          <PushProvider>{children}</PushProvider>
+        </FiltersProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

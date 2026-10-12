@@ -3,7 +3,7 @@ import { setFirebaseMessagingForTests } from '../src/lib/firebase.js';
 import { setSupabaseClient } from '../src/lib/supabase.js';
 import { setWhatsAppAdapterForTests, type WhatsAppAdapter, type WhatsAppSendInput, type WhatsAppSendResult } from '../src/lib/whatsapp.js';
 import { invalidateFlags } from '../src/services/flags.js';
-import { buildContentVariables, firstName, flushQueuedPush, formatRand, notify, renderTemplate, resendNotification } from '../src/services/notifications.js';
+import { buildContentVariables, firstName, flushQueuedPush, formatRand, notify, renderTemplate, resendNotification, webLinkFor } from '../src/services/notifications.js';
 import { fakeSupabase, type FakeSupabase } from './helpers/fakeSupabase.js';
 import { makeCtx } from './helpers/context.js';
 
@@ -36,8 +36,10 @@ describe('template rendering (NOT-001)', () => {
 describe('notify() (NOT-002..004)', () => {
   let db: FakeSupabase;
   let sent: string[][] = [];
+  let messages: Array<Record<string, any>> = [];
   beforeEach(() => {
     sent = [];
+    messages = [];
     db = fakeSupabase();
     db.seed('feature_flags', [{ key: 'whatsapp_enabled', enabled: false }]);
     db.seed('profiles', [
@@ -53,8 +55,10 @@ describe('notify() (NOT-002..004)', () => {
     setSupabaseClient(db as any);
     invalidateFlags();
     setFirebaseMessagingForTests({
-      sendEachForMulticast: async ({ tokens }: { tokens: string[] }) => {
+      sendEachForMulticast: async (msg: { tokens: string[] } & Record<string, any>) => {
+        const { tokens } = msg;
         sent.push(tokens);
+        messages.push(msg);
         return { successCount: tokens.filter((t) => t !== 'tok_dead').length, failureCount: tokens.filter((t) => t === 'tok_dead').length, responses: tokens.map((t) => (t === 'tok_dead' ? { success: false, error: { code: 'messaging/registration-token-not-registered' } } : { success: true })) };
       },
     } as any);
@@ -91,6 +95,21 @@ describe('notify() (NOT-002..004)', () => {
     db.seed('notifications', [{ recipient_id: 'c3', channel: 'push', template_key: 'service_ready', title: 'Ready', body: 'x', payload: { vars: {} }, status: 'queued', dedupe_key: 'k3', attempts: 1, created_at: new Date().toISOString() }]);
     db.seed('device_tokens', [{ profile_id: 'c3', token: 'tok_c3', platform: 'ios', app: 'customer' }]);
     expect(await flushQueuedPush('c3')).toEqual([]);
+  });
+
+  it('browser push carries the dashboard link for the payload (webLinkFor) when PUBLIC_WEB_BASE_URL is set', async () => {
+    process.env.PUBLIC_WEB_BASE_URL = 'https://admin.example.com';
+    try {
+      expect(webLinkFor({ type: 'quotation', quotation_id: 'q-1' })).toBe('https://admin.example.com/quotations?focus=q-1');
+      expect(webLinkFor({ type: 'booking', booking_id: 'b-1' })).toBe('https://admin.example.com/bookings?focus=b-1');
+      expect(webLinkFor({ type: 'work_order', work_order_id: 'w-1', booking_id: 'b-1' })).toBe('https://admin.example.com/work-orders?focus=w-1');
+      expect(webLinkFor({ type: 'membership' })).toBe('https://admin.example.com/notifications');
+      await notify({ recipientId: 'c1', templateKey: 'service_ready', vars: { vehicle: 'Polo', outlet: 'Menlyn', ref: 'WO-1' }, dedupeKey: 'service_ready:web', channels: ['push'], payload: { type: 'work_order', work_order_id: 'w-1', booking_id: 'b-1' } });
+      expect(messages.at(-1)?.webpush).toEqual({ notification: { icon: '/icon-192.png' }, fcmOptions: { link: 'https://admin.example.com/work-orders?focus=w-1' } });
+    } finally {
+      delete process.env.PUBLIC_WEB_BASE_URL;
+    }
+    expect(webLinkFor({ type: 'quotation', quotation_id: 'q-1' })).toBeNull();
   });
 
   it('dedupes by dedupe_key', async () => {

@@ -15,6 +15,7 @@ import { useColorScheme } from '@mui/material/styles';
 import MSymbol from '@/components/MSymbol';
 import { tk } from '@/theme/tokens';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { usePush } from './PushProvider';
 import { can, roleLabel } from '@/lib/rbac';
 import { initials } from '@/lib/format';
 import { ADMIN_ROLES } from '@/lib/types';
@@ -72,6 +73,7 @@ export function NavDestination({ item, active, horizontal, onNavigate }: { item:
 export function UserMenu({ compact }: { compact?: boolean }) {
   const { profile, role, signOut, isDemo, switchDemoRole } = useAuth();
   const { mode, setMode } = useColorScheme();
+  const push = usePush();
   const [anchor, setAnchor] = React.useState<null | HTMLElement>(null);
   const name = profile?.full_name ?? 'Admin';
   const nextMode = mode === 'dark' ? 'light' : 'dark';
@@ -108,6 +110,18 @@ export function UserMenu({ compact }: { compact?: boolean }) {
           <ListItemIcon><MSymbol name="contrast" size={20} /></ListItemIcon>
           <ListItemText>Follow system</ListItemText>
         </MenuItem>
+        {push.supported && (
+          <MenuItem
+            disabled={push.permission === 'denied'}
+            onClick={() => { if (push.permission === 'granted') return; setAnchor(null); void push.enable(); }}
+            data-testid="push-enable"
+          >
+            <ListItemIcon><MSymbol name={push.permission === 'granted' ? 'notifications_active' : push.permission === 'denied' ? 'notifications_off' : 'notifications'} size={20} filled={push.permission === 'granted'} /></ListItemIcon>
+            <ListItemText secondary={push.permission === 'granted' ? 'Quote decisions and job updates pop up here' : push.permission === 'denied' ? 'Blocked in the browser settings' : 'Quote decisions and job updates'}>
+              {push.permission === 'granted' ? 'Browser notifications on' : push.permission === 'denied' ? 'Browser notifications blocked' : 'Enable browser notifications'}
+            </ListItemText>
+          </MenuItem>
+        )}
         {isDemo && <Divider sx={{ my: 0.5 }} />}
         {isDemo && (
           <Box sx={{ px: 2, pt: 0.5 }}>

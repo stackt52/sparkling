@@ -22,6 +22,12 @@ env:
     value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3FjemdwaXFrY3p3eXNzZGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA1OTIzMTYsImV4cCI6MjA2NjE2ODMxNn0.DKyzN_ZlwAVMIdES2FlUcw4yH6SR0v9CUnSwtc4KWpI"
     availability: [BUILD, RUNTIME]
 
+  # Browser push (quote decisions, job updates): the FCM web push certificate public key from
+  # Firebase console → Project settings → Cloud Messaging → Web push certificates. Empty = feature off.
+  - variable: NEXT_PUBLIC_FIREBASE_VAPID_KEY
+    value: BM06Y81qowB8AUFkh5L2rzR58UofIqK7ZZV99hcPagIw-bj2lA9K1KVgJ2Q7UAjxhb6bhFE_noJdWKUUXUu7wvA
+    availability: [BUILD, RUNTIME]
+
   # Secrets (Cloud Secret Manager) — none are needed by the browser bundle today.
   # If server-side routes are added, reference them like this:
   # - variable: SUPABASE_SERVICE_ROLE_KEY

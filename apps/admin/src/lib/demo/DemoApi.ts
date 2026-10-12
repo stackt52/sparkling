@@ -452,6 +452,9 @@ export class DemoApi implements AdminApi {
       .map((i) => ({ label: i.label.trim(), description: i.description?.trim() || null, category: i.category || null, service_id: i.service_id || null, amount_cents: Math.max(0, Math.round(i.amount_cents)), quantity: i.quantity ?? 1 }));
   }
 
+  async registerDevice(): Promise<void> {
+    await delay(40); // no push in demo mode
+  }
   async listQuotations(f: QuotationFilters): Promise<Quotation[]> {
     await delay();
     let rows = this.quotations.map((q) => this.staffQuotation(q)).filter((q) => !f.outlet_id || q.outlet.id === f.outlet_id);

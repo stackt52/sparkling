@@ -254,6 +254,18 @@ plus "Download PDF", photo lightbox, `tel:` link and "Save link".
   on phones) with **Download PDF** on its own row beneath. The grid's status cell adds "Awaiting check-in" / "Paid · cash" chips. Reports → Payments lists
   quotation payments under "Booking / quote" (`quotation_id` / `quotation_ref`, `booking_id: null`).
 
+## Browser push (quote decisions on the web)
+
+Staff pushes such as `quote_decided` (a customer accepted / declined a quote), `service_ready` and stage changes
+reach the dashboard as browser notifications once a user enables them: **Account menu → Enable browser
+notifications** asks for permission, registers `public/firebase-messaging-sw.js`, obtains this browser's FCM token
+with the VAPID key and stores it via `POST /devices { platform: 'web', app: 'admin' }` (`PushProvider`,
+`src/lib/push.ts`). Background pushes are shown by the service worker; clicking one opens the page the API put in
+`webpush.fcmOptions.link` (`/quotations?focus=…`, `/bookings?focus=…`, `/work-orders?focus=…`). In the foreground a
+snackbar with **Open** appears and the affected queries refresh. Requires `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (Firebase
+console → Cloud Messaging → Web push certificates) and a secure origin; without it the menu item is hidden. Demo
+mode never registers.
+
 ## Environment
 
 | Variable | Purpose |
@@ -262,6 +274,7 @@ plus "Download PDF", photo lightbox, `tel:` link and "Save link".
 | `NEXT_PUBLIC_API_BASE_URL` | Cloud Functions REST base without `/v1` (emulator: `http://127.0.0.1:5001/sparkling-4e89d/europe-west1/api`). Also used, without a token, by the public quote page |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (default `https://uicqczgpiqkczwyssdft.supabase.co`) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key — realtime subscriptions use the Firebase ID token via Third-Party Auth |
+| `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | FCM web push certificate (public key) — enables browser notifications; empty = off |
 
 Firebase web config for `sparkling-4e89d` is committed in `src/lib/firebaseConfig.ts` (public by design).
 
