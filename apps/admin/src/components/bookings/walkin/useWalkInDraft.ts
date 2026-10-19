@@ -6,7 +6,8 @@ import { useHydrated } from '@/lib/hooks';
 import { rands } from '@/lib/format';
 import { VAT_RATE, priceLabel, type Booking, type LoyaltyTier, type MembershipBenefit, type MembershipSummary, type OutletServiceOffer, type PosPayment, type VatMode, type VehicleSize, type WalkInCustomer, type WalkInPriority, type WalkInVehicle, type WorkOrderSummary } from '@/lib/types';
 
-export type WalkInPaymentChoice = 'cash' | 'card_terminal' | 'in_app';
+/** `on_collection` creates a counter booking (`payment_method: 'cash'`, `pay_at: 'collection'`) with nothing recorded now. */
+export type WalkInPaymentChoice = 'cash' | 'card_terminal' | 'in_app' | 'on_collection';
 export const WALK_IN_STEPS = ['Customer', 'Vehicle', 'Service & time', 'Payment & confirm'] as const;
 
 export interface WalkInResult {

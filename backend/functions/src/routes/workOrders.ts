@@ -24,7 +24,7 @@ workOrdersRouter.get(
     const wo = unwrap<(WorkOrder & Record<string, unknown>) | null>(
       await db
         .from('work_orders')
-        .select('*, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), outlet:outlets(id, name), customer:profiles!work_orders_customer_id_fkey(id, full_name, phone), assignee:profiles!work_orders_assignee_id_fkey(id, full_name), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method)')
+        .select('*, vehicle:vehicles(id, registration_no, make, model, colour), service:services(id, name, category, duration_minutes), outlet:outlets(id, name), customer:profiles!work_orders_customer_id_fkey(id, full_name, phone), assignee:profiles!work_orders_assignee_id_fkey(id, full_name), booking:bookings(id, ref, status, slot_start, slot_end, total_cents, payment_method, pay_at)')
         .eq('id', id)
         .maybeSingle(),
       'work order',

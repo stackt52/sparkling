@@ -146,7 +146,7 @@ class _PayNowSheetState extends State<PayNowSheet> {
                 tone: InfoTone.info,
                 icon: Symbols.payments_rounded,
                 text: b.isCashOnCollection
-                    ? '$moment You chose cash on collection — paying here '
+                    ? '$moment You chose to pay ${b.paysAtCheckIn ? 'at check-in' : 'on collection'} — paying here '
                           'means nothing is due at the counter.'
                     : moment,
               ),

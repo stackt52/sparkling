@@ -61,7 +61,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       final def =
           methods.where((m) => m.isDefault).firstOrNull ?? methods.first;
       _flow.setMethod(def.id, choice: _choiceFor(def));
-    } else if (mounted && _flow.paymentChoice == null && _flow.methodId != null) {
+    } else if (mounted &&
+        _flow.paymentChoice == null &&
+        _flow.methodId != null) {
       // Draft restored from disk: derive the choice from the saved method.
       final saved = methods.where((m) => m.id == _flow.methodId).firstOrNull;
       if (saved != null) _flow.setMethod(saved.id, choice: _choiceFor(saved));
@@ -258,35 +260,68 @@ class _PaymentScreenState extends State<PaymentScreen> {
                               else
                                 const SectionHeader(title: 'Payment method'),
                               if (!nothingToPay)
-                              for (final m in methods) ...[
+                                for (final m in methods) ...[
+                                  RadioCard(
+                                    selected: !payCash && m.id == flow.methodId,
+                                    onChanged: (_) {
+                                      AppHaptics.selection(context);
+                                      flow.setMethod(
+                                        m.id,
+                                        choice: _choiceFor(m),
+                                      );
+                                    },
+                                    radioPosition:
+                                        RadioCardRadioPosition.trailing,
+                                    leading: BrandPlate(brand: m.brand),
+                                    title: Text(
+                                      m.displayLabel,
+                                      style: SparklingTypography.titleLarge
+                                          .copyWith(fontSize: 17),
+                                    ),
+                                    subtitle: Text(
+                                      m.isCard
+                                          ? (m.isDefault
+                                                ? 'Default card · tokenised'
+                                                : 'Tokenised card')
+                                          : 'Pay from your bank app',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                ],
+                              if (cashOffered) ...[
+                                // Pay at the counter — before the wash …
                                 RadioCard(
-                                  selected: !payCash && m.id == flow.methodId,
+                                  key: const ValueKey('pay-checkin'),
+                                  selected: payCash && flow.payAtCheckIn,
                                   onChanged: (_) {
                                     AppHaptics.selection(context);
-                                    flow.setMethod(m.id, choice: _choiceFor(m));
+                                    flow.setPayCash(at: PaymentStage.checkin);
                                   },
                                   radioPosition:
                                       RadioCardRadioPosition.trailing,
-                                  leading: BrandPlate(brand: m.brand),
+                                  leading: TintedIconTile(
+                                    icon: Symbols.login_rounded,
+                                    size: 48,
+                                    radius: 14,
+                                    background:
+                                        context.sparkling.warningContainer,
+                                    foreground:
+                                        context.sparkling.onWarningContainer,
+                                  ),
                                   title: Text(
-                                    m.displayLabel,
+                                    'Pay at check-in',
                                     style: SparklingTypography.titleLarge
                                         .copyWith(fontSize: 17),
                                   ),
                                   subtitle: Text(
-                                    m.isCard
-                                        ? (m.isDefault
-                                              ? 'Default card · tokenised'
-                                              : 'Tokenised card')
-                                        : 'Pay from your bank app',
+                                    'Pay ${Money.formatZar(total)} at the counter when you drop your car off — cash, card or EFT',
                                   ),
                                 ),
                                 const SizedBox(height: 10),
-                              ],
-                              if (cashOffered) ...[
+                                // … or after it.
                                 RadioCard(
                                   key: const ValueKey('pay-cash'),
-                                  selected: payCash,
+                                  selected: payCash && !flow.payAtCheckIn,
                                   onChanged: (_) {
                                     AppHaptics.selection(context);
                                     flow.setPayCash();
@@ -387,6 +422,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                 PillButton(
                                   label: nothingToPay
                                       ? 'Confirm booking · included'
+                                      : flow.payAtCheckIn
+                                      ? 'Confirm booking · pay at check-in'
                                       : payCash
                                       ? 'Confirm booking · pay on collection'
                                       : 'Pay ${Money.formatZar(total)} securely',

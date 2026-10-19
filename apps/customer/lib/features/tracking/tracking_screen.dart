@@ -183,8 +183,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
                             key: const ValueKey('pay-now-banner'),
                             tone: InfoTone.warning,
                             icon: Symbols.payments_rounded,
-                            title: 'Payment due · ${Money.formatZar(b.totalCents)}',
-                            text: b.isCashOnCollection
+                            title:
+                                'Payment due · ${Money.formatZar(b.totalCents)}',
+                            text: b.paysAtCheckIn
+                                ? 'You chose to pay at check-in — settle it at the counter or now from the app.'
+                                : b.isCashOnCollection
                                 ? 'Pay at the counter when you collect, or settle it now from the app.'
                                 : 'Settle the booking now, or pay at the counter when you collect.',
                             actionLabel: 'Pay now',

@@ -84,7 +84,11 @@ class _AssignSheetState extends State<_AssignSheet> {
   void initState() {
     super.initState();
     _pickDefault();
+    // The customer chose to pay when dropping the car off: offer it first.
+    _takePayment = _paysAtCheckIn && _amountDue > 0;
   }
+
+  bool get _paysAtCheckIn => _task.workOrder?.booking?.paysAtCheckIn ?? false;
 
   void _pickDefault() {
     final candidates = widget.team.where(
@@ -251,6 +255,10 @@ class _AssignSheetState extends State<_AssignSheet> {
                         onMethodChanged: (m) =>
                             setState(() => _paymentMethod = m),
                         reference: _paymentReference,
+                        subtitle: _paysAtCheckIn
+                            ? 'The customer chose to pay at check-in '
+                                  '(cash, card or EFT).'
+                            : null,
                       ),
                     ],
                     if (_checkInError != null) ...[

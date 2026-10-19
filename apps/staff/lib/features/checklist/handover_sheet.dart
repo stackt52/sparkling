@@ -337,8 +337,7 @@ class CashDueStep extends StatelessWidget {
         const SizedBox(height: 8),
         const AuditNote(
           icon: Symbols.receipt_long_rounded,
-          text:
-              'A receipt is issued and the customer is notified; the payment is recorded against your ID.',
+          text: 'A receipt is issued and the customer is notified; the payment is recorded against your ID.',
         ),
       ],
     );
@@ -498,8 +497,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
           _cashDue = (
             bookingId: e.paymentDueBookingId ?? widget.booking?.id,
             quotationId: null,
-            amountCents:
-                e.paymentDueCents ?? widget.booking?.totalCents ?? 0,
+            amountCents: e.paymentDueCents ?? widget.booking?.totalCents ?? 0,
             blocking: true,
           );
           _paymentDueMessage = e.message;
@@ -565,7 +563,8 @@ class _HandoverSheetState extends State<HandoverSheet> {
       );
       if (!mounted) return;
       StaffHaptics.success(context);
-      final method = PaymentMethodKind.fromDb(payment.method).label.toLowerCase();
+      final method = PaymentMethodKind.fromDb(payment.method).label
+          .toLowerCase();
       setState(() {
         _cashDue = null;
         _paymentDueMessage = null;
@@ -693,7 +692,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
                         if (widget.booking?.isCashOnCollection ?? false) ...[
                           const SizedBox(height: 6),
                           StatusChip(
-                            label: 'Cash on collection',
+                            label: widget.booking!.counterPaymentLabel,
                             tone: _cashDue == null
                                 ? StatusChipTone.success
                                 : StatusChipTone.warning,

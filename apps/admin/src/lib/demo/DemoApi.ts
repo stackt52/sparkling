@@ -196,6 +196,7 @@ export class DemoApi implements AdminApi {
       work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason, checked_in_at: w.checked_in_at, collected_at: w.collected_at ?? null } : null,
       payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider, stage: pos?.stage ?? null } : null,
       payment_method: b.payment_method ?? null,
+      pay_at: b.pay_at ?? null,
       vehicle_size: b.vehicle_size, pricing_mode: b.pricing_mode, vat_mode: b.vat_mode, addon_service_ids: [...b.addon_service_ids], addons_cents: b.addons_cents, vat_cents: b.vat_cents, price_label: b.price_label,
       membership_id: b.membership_id ?? null, entitlement_id: b.entitlement_id ?? null, membership_benefit: b.membership_benefit ?? null, membership: this.bookingMembership(b),
       addons: b.addon_service_ids.map((id) => {
@@ -668,6 +669,7 @@ export class DemoApi implements AdminApi {
     const total = b?.total_cents ?? q?.amount_cents ?? 0;
     out.amount_due_cents = p || w.status === 'cancelled' ? 0 : total;
     out.payment_method = b?.payment_method ?? null;
+    out.pay_at = b?.pay_at ?? null;
     out.payment = p ? { id: p.id, status: p.status, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider, receipt_no: p.receipt_no, stage: pos?.stage ?? (p.provider === 'pos' ? null : 'booking'), verified_at: p.verified_at } : null;
     return out;
   }
@@ -1319,6 +1321,8 @@ export class DemoApi implements AdminApi {
       vehicle_size: size, pricing_mode: offer.pricing_mode, vat_mode: offer.vat_mode, addon_service_ids: addonIds, addons_cents, price_label: priceLabel(offer, base, this.fmtR.bind(this)),
       membership_id: mb?.membership.id ?? null, entitlement_id: mb?.entitlement?.id ?? null, membership_benefit: mb?.benefit ?? null,
       payment_method: input.payment_method ?? null,
+      // Counter bookings say when the customer pays (collection unless told otherwise); other walk-ins are paid as they are checked in.
+      pay_at: input.payment_method === 'cash' ? (input.pay_at ?? 'collection') : 'checkin',
     };
     this.bookings.push(b);
     this.ops.set(`booking:${input.client_op_id}`, b.id);

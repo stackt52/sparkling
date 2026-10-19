@@ -66,6 +66,8 @@ const payloadSchemas: Record<SyncKind, z.ZodTypeAny> = {
     notes: z.string().max(500).nullable().optional(),
     vehicle_size: vehicleSize.optional(),
     addon_service_ids: z.array(uuid).max(10).optional(),
+    payment_method: z.enum(['card', 'eft', 'cash']).optional(),
+    pay_at: z.enum(['checkin', 'collection']).optional(),
   }),
   'quotation.create': z.object({
     vehicle_id: uuid,
@@ -86,6 +88,9 @@ const payloadSchemas: Record<SyncKind, z.ZodTypeAny> = {
     checkin: z.object({ bay: z.string().trim().max(32).nullable().optional(), priority: z.number().int().min(1).max(3).optional() }).nullable().optional(),
     vehicle_size: vehicleSize.optional(),
     addon_service_ids: z.array(uuid).max(10).optional(),
+    /** `cash` + `pay_at: 'collection'` = the customer settles at the counter when collecting; omitted = paid at the counter now. */
+    payment_method: z.enum(['card', 'eft', 'cash']).optional(),
+    pay_at: z.enum(['checkin', 'collection']).optional(),
   }),
   // POS payment attestation queued offline. `booking_client_op_id` lets a payment reference a
   // booking created earlier in the same batch (its server id was unknown on the device).
@@ -161,7 +166,7 @@ export async function applyOperation(ctx: RequestContext, op: z.infer<typeof opS
         break;
       }
       case 'booking.create': {
-        const r = await createBooking(ctx, { vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start, notes: p.notes, clientOpId: op.client_op_id, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids });
+        const r = await createBooking(ctx, { vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start, notes: p.notes, clientOpId: op.client_op_id, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids, paymentMethod: p.payment_method, payAt: p.pay_at });
         result = r;
         break;
       }
@@ -176,7 +181,7 @@ export async function applyOperation(ctx: RequestContext, op: z.infer<typeof opS
         break;
       }
       case 'booking.create_walk_in': {
-        const r = await createBooking(ctx, { customerId: p.customer_id, vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start ?? null, notes: p.notes, clientOpId: op.client_op_id, walkIn: true, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids });
+        const r = await createBooking(ctx, { customerId: p.customer_id, vehicleId: p.vehicle_id, outletId: p.outlet_id, serviceId: p.service_id, slotStart: p.slot_start ?? null, notes: p.notes, clientOpId: op.client_op_id, walkIn: true, vehicleSize: p.vehicle_size, addonServiceIds: p.addon_service_ids, paymentMethod: p.payment_method, payAt: p.pay_at });
         let checked: unknown;
         if (p.checkin && !r.duplicate && ['pending', 'confirmed'].includes(r.booking.status)) {
           checked = await checkInBooking(ctx, r.booking.id, p.checkin);

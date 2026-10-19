@@ -22,8 +22,10 @@ void main() {
 
     expect(find.text('Thabo'), findsOneWidget);
     expect(find.text('Book a wash'), findsWidgets);
-    expect(find.text('Your vehicles'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
+    // "Your vehicles" sits below the time-of-day dependent hero/banners.
+    await scrollTo(tester, find.text('Your vehicles'));
+    expect(find.text('Your vehicles'), findsOneWidget);
   });
 
   testWidgets('home hero and tracking show the collection OTP', (
@@ -63,9 +65,7 @@ void main() {
     await pumpApp(tester, repos);
     await settle(tester);
 
-    await tester.tap(find.byType(QuickActionCard).first);
-    await settle(tester);
-    expect(find.text('Step 1 of 3 · Choose service'), findsOneWidget);
+    await openBookingFlow(tester);
 
     // Pick the first wash service (cheapest, sorted by price).
     final firstService = find.byType(RadioCard).first;

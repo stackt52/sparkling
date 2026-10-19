@@ -105,8 +105,7 @@ void main() {
     await settle(tester);
     expect(find.text('Gold · 3 washes left'), findsOneWidget);
 
-    await tester.tap(find.byType(QuickActionCard).first);
-    await settle(tester);
+    await openBookingFlow(tester);
     final offer = find.byKey(const ValueKey('offer-SPARKLING_WASH'));
     await tester.scrollUntilVisible(offer, 200, scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(offer);

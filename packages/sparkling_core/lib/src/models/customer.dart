@@ -203,9 +203,9 @@ class CustomerSummary extends Equatable {
     loyalty: json['loyalty'] is Map
         ? CustomerLoyaltySummary.fromJson(asJson(json['loyalty']))
         : null,
-    vehicles: asJsonList(
-      json['vehicles'],
-    ).map(CustomerVehicleSummary.fromJson).toList(),
+    vehicles: asJsonList(json['vehicles'])
+        .map(CustomerVehicleSummary.fromJson)
+        .toList(),
   );
 
   Json toJson() => compact({
@@ -322,6 +322,8 @@ class WalkInBookingInput {
     this.notes,
     this.vehicleSize,
     this.addonServiceIds = const [],
+    this.paymentMethod,
+    this.payAt,
   });
 
   final String customerId;
@@ -332,6 +334,16 @@ class WalkInBookingInput {
   final DateTime? slotStart;
   final WalkInCheckin? checkin;
   final String? notes;
+
+  /// Omitted = paid at the counter now (the staff record the payment right
+  /// after); `cash` + [payAt] `collection` = the customer settles when
+  /// collecting, nothing is recorded and the keys wait for the payment.
+  final PaymentChoice? paymentMethod;
+  final PaymentStage? payAt;
+
+  /// Nothing is taken now: the booking is settled on collection.
+  bool get paysOnCollection =>
+      paymentMethod == PaymentChoice.cash && payAt == PaymentStage.collection;
 
   /// Size to price for (defaults to the vehicle's `size_class` server-side).
   final VehicleSize? vehicleSize;
@@ -354,6 +366,8 @@ class WalkInBookingInput {
     'notes': notes,
     'vehicle_size': vehicleSize?.db,
     'addon_service_ids': addonServiceIds.isEmpty ? null : addonServiceIds,
+    'payment_method': paymentMethod?.db,
+    'pay_at': paymentMethod == PaymentChoice.cash ? payAt?.db : null,
   });
 
   factory WalkInBookingInput.fromJson(Json json) => WalkInBookingInput(
@@ -371,6 +385,8 @@ class WalkInBookingInput {
         ? null
         : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
     addonServiceIds: asStringList(json['addon_service_ids']),
+    paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
+    payAt: PaymentStage.fromDb(strOrNull(json['pay_at'])),
   );
 }
 

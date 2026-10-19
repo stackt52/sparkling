@@ -71,7 +71,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       outletId: context.session.outletId,
     );
     final today = DateTime.now();
-    return list.where((b) {
+    final matches = list.where((b) {
       final plate = b.vehicle?.registrationNo;
       if (plate == null) return false;
       if (Vehicle.normaliseRegistration(plate) != reg) return false;
@@ -82,6 +82,13 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
               d.day == today.day ||
           b.status == BookingStatus.inService;
     }).toList()..sort((a, b) => a.slotStart.compareTo(b.slotStart));
+    // The customer chose to pay when dropping the car off: pre-select
+    // "Take payment now" (the technician can still switch it off).
+    final first = matches.firstOrNull;
+    if (first != null && first.paysAtCheckIn && first.isPaymentDue) {
+      _takePayment = true;
+    }
+    return matches;
   }
 
   Future<void> _checkIn(Booking booking) async {
@@ -329,7 +336,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                           child: StatusChip(
                             key: const ValueKey('scan-payment-due-chip'),
                             label: booking.isCashOnCollection
-                                ? 'Cash on collection · ${Money.formatZar(booking.totalCents)} due'
+                                ? '${booking.counterPaymentLabel} · ${Money.formatZar(booking.totalCents)} due'
                                 : 'Unpaid · ${Money.formatZar(booking.totalCents)}',
                             tone: StatusChipTone.warning,
                             icon: Symbols.payments_rounded,
@@ -377,7 +384,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                             onMethodChanged: (m) =>
                                 setState(() => _paymentMethod = m),
                             reference: _paymentReference,
-                            subtitle: booking.isCashOnCollection
+                            subtitle: booking.paysAtCheckIn
+                                ? 'The customer chose to pay at check-in '
+                                      '(cash, card or EFT).'
+                                : booking.isCashOnCollection
                                 ? 'Cash on collection — the customer may also '
                                       'pay now, at check-in.'
                                 : null,

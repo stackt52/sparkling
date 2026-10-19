@@ -179,8 +179,9 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                                 icon: Symbols.payments_rounded,
                                 iconColor: context.sparkling.onWarningContainer,
                                 textColor: context.sparkling.onWarningContainer,
-                                text:
-                                    'Cash due on collection · ${Money.formatZar(b.totalCents)}',
+                                text: b.paysAtCheckIn
+                                    ? 'Pay at check-in · ${Money.formatZar(b.totalCents)} — cash, card or EFT at the counter'
+                                    : 'Cash due on collection · ${Money.formatZar(b.totalCents)}',
                               )
                             else if (b.isCashOnCollection && paid)
                               _DetailRow(
@@ -196,7 +197,8 @@ class _ConfirmationScreenState extends State<ConfirmationScreen> {
                                 text:
                                     '${b.membership!.planName} plan · ${b.membership!.remainingAfter ?? 0} wash${b.membership!.remainingAfter == 1 ? '' : 'es'} left this month',
                               )
-                            else if (b.discountCents > 0 && b.discountLabel != null)
+                            else if (b.discountCents > 0 &&
+                                b.discountLabel != null)
                               _DetailRow(
                                 icon: Symbols.sell_rounded,
                                 iconColor: context.sparkling.success,

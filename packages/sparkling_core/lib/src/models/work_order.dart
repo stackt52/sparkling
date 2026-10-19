@@ -412,6 +412,7 @@ class WorkOrderBooking extends Equatable {
     this.slotEnd,
     this.totalCents = 0,
     this.paymentMethod,
+    this.payAt,
     this.paid = false,
   });
 
@@ -422,13 +423,24 @@ class WorkOrderBooking extends Equatable {
   final DateTime? slotEnd;
   final int totalCents;
 
-  /// `card` / `eft` / `cash` (cash on collection) / null.
+  /// `card` / `eft` / `cash` (pay at the counter) / null.
   final PaymentChoice? paymentMethod;
+
+  /// When the customer chose to pay (`pay_at`): `booking`, `checkin` or
+  /// `collection`; null on older bookings.
+  final PaymentStage? payAt;
 
   /// A verified (`successful`) payment exists for the booking.
   final bool paid;
 
   bool get isCashOnCollection => paymentMethod == PaymentChoice.cash;
+
+  /// Counter booking the customer wants to settle at check-in.
+  bool get paysAtCheckIn => isCashOnCollection && payAt == PaymentStage.checkin;
+
+  /// "Pay at check-in" / "Cash on collection".
+  String get counterPaymentLabel =>
+      paysAtCheckIn ? 'Pay at check-in' : 'Cash on collection';
 
   /// Cash must be recorded at the counter before the keys are released.
   bool get isCashDue => isCashOnCollection && totalCents > 0 && !paid;
@@ -448,6 +460,7 @@ class WorkOrderBooking extends Equatable {
     slotEnd: dtOrNull(json['slot_end']),
     totalCents: intOf(json['total_cents']),
     paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
+    payAt: PaymentStage.fromDb(strOrNull(json['pay_at'])),
     paid: boolOf(json['paid']),
   );
 
@@ -459,6 +472,7 @@ class WorkOrderBooking extends Equatable {
     'slot_end': iso(slotEnd),
     'total_cents': totalCents,
     'payment_method': paymentMethod?.db,
+    'pay_at': payAt?.db,
     'paid': paid,
   });
 
@@ -470,11 +484,19 @@ class WorkOrderBooking extends Equatable {
     slotEnd: slotEnd,
     totalCents: totalCents,
     paymentMethod: paymentMethod,
+    payAt: payAt,
     paid: paid ?? this.paid,
   );
 
   @override
-  List<Object?> get props => [id, status, totalCents, paymentMethod, paid];
+  List<Object?> get props => [
+    id,
+    status,
+    totalCents,
+    paymentMethod,
+    payAt,
+    paid,
+  ];
 }
 
 /// `work_orders` row.

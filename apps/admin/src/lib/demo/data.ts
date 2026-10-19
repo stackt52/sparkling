@@ -10,6 +10,7 @@ import {
   type AuditEvent,
   type BookingPaymentMethod,
   type BookingStatus,
+  type PaymentStage,
   type ChecklistTemplate,
   type FeatureFlag,
   type InventoryItem,
@@ -350,8 +351,10 @@ export interface RawBooking {
   membership_id?: string | null;
   entitlement_id?: string | null;
   membership_benefit?: 'included' | 'discount' | null;
-  /** Cash on collection (feature flag `cash_on_collection`): confirmed without an online payment. */
+  /** Pay at the counter (feature flag `cash_on_collection`): confirmed without an online payment. */
   payment_method?: BookingPaymentMethod | null;
+  /** When the customer chose to pay: `booking` (online), `checkin` or `collection` (counter). */
+  pay_at?: PaymentStage | null;
 }
 
 /**
@@ -367,7 +370,7 @@ type SeedBenefit =
  * Builds a seed booking priced from the outlet's offer for the vehicle's size (+ add-ons, membership benefit,
  * VAT on `excl` prices). `fixedPrice` (quoted amounts, incl. VAT) bypasses the catalogue price.
  */
-const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, outlet_id: string, service_id: string, start: number, status: BookingStatus, benefit: SeedBenefit, created: string, opts: { addons?: string[]; fixedPrice?: number; payment_method?: BookingPaymentMethod } = {}): RawBooking => {
+const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, outlet_id: string, service_id: string, start: number, status: BookingStatus, benefit: SeedBenefit, created: string, opts: { addons?: string[]; fixedPrice?: number; payment_method?: BookingPaymentMethod; pay_at?: PaymentStage } = {}): RawBooking => {
   const s = serviceById(service_id);
   const size = vehicleSizeOf(vehicleById(vehicle_id));
   const base = opts.fixedPrice !== undefined ? { price: opts.fixedPrice, vat_mode: 'incl' as VatMode, pricing_mode: 'fixed' as PricingMode } : priceAt(outlet_id, service_id, size);
@@ -386,6 +389,7 @@ const bk = (n: number, ref: string, customer_id: string, vehicle_id: string, out
     price_label: base.pricing_mode === 'by_quote' ? 'By quote' : base.pricing_mode === 'from' ? `From R ${Math.round(base.price / 100)}` : `R ${Math.round(base.price / 100)}`,
     membership_id: benefit?.membership_id ?? null, entitlement_id: benefit?.kind === 'included' ? benefit.entitlement_id : null, membership_benefit: benefit?.kind ?? null,
     payment_method: opts.payment_method ?? null,
+    pay_at: opts.pay_at ?? (opts.payment_method === 'cash' ? 'collection' : opts.payment_method ? 'booking' : null),
   };
 };
 const MEM_THABO = 'c4000000-0000-4000-8000-000000000001';
@@ -411,6 +415,8 @@ export const SEED_BOOKINGS: RawBooking[] = [
   bk(13, 'SPK-2026-0086', 'seed_kabelo', 'd0000000-0000-4000-8000-000000000009', OUTLET_POT, SVC.EXT_WASH_TYRE, -120, 'completed', null, daysAgo(2)),
   // Cash on collection: confirmed with no online payment — staff record the cash at the counter before hand-over.
   bk(14, 'SPK-2026-0097', 'seed_ayanda', 'd0000000-0000-4000-8000-000000000007', OUTLET_MEN, SVC.SPARKLING_WASH, 240, 'confirmed', null, daysAgo(0, 6), { payment_method: 'cash' }),
+  // Pay at check-in: a counter booking the customer settles when dropping the car off — "Take payment now" is pre-selected at check-in.
+  bk(15, 'SPK-2026-0099', 'seed_daniel', 'd0000000-0000-4000-8000-000000000006', OUTLET_MEN, SVC.SPARKLING_WASH, 300, 'confirmed', null, daysAgo(0, 5), { payment_method: 'cash', pay_at: 'checkin' }),
 ];
 const totalOf = (ref: string) => SEED_BOOKINGS.find((b) => b.ref === ref)!.total_cents;
 

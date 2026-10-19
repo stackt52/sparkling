@@ -451,7 +451,9 @@ class _PriceCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Cash due on collection · ${Money.formatZar(b.totalCents)}',
+                      b.paysAtCheckIn
+                          ? 'Pay at check-in · ${Money.formatZar(b.totalCents)} due at the counter'
+                          : 'Cash due on collection · ${Money.formatZar(b.totalCents)}',
                       style: SparklingTypography.titleMedium.copyWith(
                         fontSize: 15,
                         color: x.onWarningContainer,

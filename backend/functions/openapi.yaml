@@ -8101,6 +8101,14 @@ components:
             - eft
             - cash
           nullable: true
+        pay_at:
+          type: string
+          enum:
+            - booking
+            - checkin
+            - collection
+          description: 'When the customer chose to pay: booking (online), checkin or collection (counter; payment_method cash)'
+          nullable: true
         id:
           type: string
           format: uuid
@@ -8376,6 +8384,19 @@ components:
           items:
             type: string
             format: uuid
+        payment_method:
+          type: string
+          enum:
+            - card
+            - eft
+            - cash
+          description: 'cash = pay at the counter (feature flag cash_on_collection): the booking is confirmed without an online payment'
+        pay_at:
+          type: string
+          enum:
+            - checkin
+            - collection
+          description: 'Counter bookings only: pay at check-in (before the wash) or on collection (after it, default)'
       required:
         - vehicle_id
         - outlet_id
@@ -10518,6 +10539,13 @@ components:
             - card
             - eft
             - cash
+          nullable: true
+        pay_at:
+          type: string
+          enum:
+            - booking
+            - checkin
+            - collection
           nullable: true
         payment:
           type: object

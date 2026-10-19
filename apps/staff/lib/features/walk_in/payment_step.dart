@@ -71,7 +71,9 @@ class _PaymentStepState extends State<PaymentStep> {
       Payment? payment;
       final payInput = flow.toPaymentInput(booking);
       if (payInput != null) {
-        setState(() => _stage = 'Recording ${flow.payment.label.toLowerCase()}…');
+        setState(
+          () => _stage = 'Recording ${flow.payment.label.toLowerCase()}…',
+        );
         try {
           payment = await staff.recordPayment(payInput);
         } on ApiException catch (e) {
@@ -107,7 +109,9 @@ class _PaymentStepState extends State<PaymentStep> {
         flow.rotateOpIds();
         context.push(Routes.quoteNew, extra: args);
       } else if (e.isConflict &&
-          (msg.contains('bay') || msg.contains('slot') || msg.contains('busy'))) {
+          (msg.contains('bay') ||
+              msg.contains('slot') ||
+              msg.contains('busy'))) {
         // No bay free / slot gone: keep the draft, suggest a slot.
         flow.rotateOpIds();
         flow.setSlot(null);
@@ -178,9 +182,7 @@ class _PaymentStepState extends State<PaymentStep> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                 children: [
-                  const LiveOfflineBanner(
-                    margin: EdgeInsets.only(bottom: 12),
-                  ),
+                  const LiveOfflineBanner(margin: EdgeInsets.only(bottom: 12)),
                   _SummaryCard(
                     flow: flow,
                     price: price,
@@ -201,62 +203,64 @@ class _PaymentStepState extends State<PaymentStep> {
                   else
                     const SectionHeader(title: 'Payment'),
                   if (!nothingToPay)
-                  for (final p in WalkInPayment.values) ...[
-                    RadioCard(
-                      selected: flow.payment == p,
-                      onChanged: (_) {
-                        StaffHaptics.tap(context);
-                        flow.setPayment(p);
-                      },
-                      radioPosition: RadioCardRadioPosition.trailing,
-                      leading: TintedIconTile(
-                        icon: switch (p) {
-                          WalkInPayment.cash => Symbols.payments_rounded,
-                          WalkInPayment.cardTerminal =>
-                            Symbols.contactless_rounded,
-                          WalkInPayment.inApp =>
-                            Symbols.phone_android_rounded,
+                    for (final p in WalkInPayment.values) ...[
+                      RadioCard(
+                        selected: flow.payment == p,
+                        onChanged: (_) {
+                          StaffHaptics.tap(context);
+                          flow.setPayment(p);
                         },
-                        size: 44,
-                        radius: SparklingShapes.iconTileSmall,
-                        background: flow.payment == p
-                            ? cs.primary.withValues(alpha: 0.18)
-                            : cs.surfaceContainerHigh,
-                        foreground: flow.payment == p
-                            ? cs.onPrimaryContainer
-                            : cs.onSurfaceVariant,
-                      ),
-                      title: Text(
-                        p.label,
-                        style: SparklingTypography.titleLarge.copyWith(
-                          fontSize: 17,
+                        radioPosition: RadioCardRadioPosition.trailing,
+                        leading: TintedIconTile(
+                          icon: switch (p) {
+                            WalkInPayment.cash => Symbols.payments_rounded,
+                            WalkInPayment.cardTerminal =>
+                              Symbols.contactless_rounded,
+                            WalkInPayment.inApp =>
+                              Symbols.phone_android_rounded,
+                            WalkInPayment.onCollection => Symbols.key_rounded,
+                          },
+                          size: 44,
+                          radius: SparklingShapes.iconTileSmall,
+                          background: flow.payment == p
+                              ? cs.primary.withValues(alpha: 0.18)
+                              : cs.surfaceContainerHigh,
+                          foreground: flow.payment == p
+                              ? cs.onPrimaryContainer
+                              : cs.onSurfaceVariant,
                         ),
+                        title: Text(
+                          p.label,
+                          style: SparklingTypography.titleLarge.copyWith(
+                            fontSize: 17,
+                          ),
+                        ),
+                        subtitle: Text(switch (p) {
+                          WalkInPayment.cash =>
+                            'Recorded now · receipt issued (staff-attested)',
+                          WalkInPayment.cardTerminal =>
+                            'Recorded now · add the slip reference',
+                          WalkInPayment.inApp =>
+                            'Booking stays pending payment in the customer app',
+                          WalkInPayment.onCollection => 'Nothing recorded now · settled at the counter before the keys are released',
+                        }),
+                        footer:
+                            p == WalkInPayment.cardTerminal && flow.payment == p
+                            ? TextField(
+                                controller: _reference,
+                                textCapitalization:
+                                    TextCapitalization.characters,
+                                onChanged: flow.setPaymentReference,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  labelText: 'Terminal reference (optional)',
+                                  hintText: 'e.g. slip 4471',
+                                ),
+                              )
+                            : null,
                       ),
-                      subtitle: Text(switch (p) {
-                        WalkInPayment.cash =>
-                          'Recorded now · receipt issued (staff-attested)',
-                        WalkInPayment.cardTerminal =>
-                          'Recorded now · add the slip reference',
-                        WalkInPayment.inApp =>
-                          'Booking stays pending payment in the customer app',
-                      }),
-                      footer: p == WalkInPayment.cardTerminal &&
-                              flow.payment == p
-                          ? TextField(
-                              controller: _reference,
-                              textCapitalization:
-                                  TextCapitalization.characters,
-                              onChanged: flow.setPaymentReference,
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                labelText: 'Terminal reference (optional)',
-                                hintText: 'e.g. slip 4471',
-                              ),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                      const SizedBox(height: 10),
+                    ],
                   const SizedBox(height: 12),
                   const SectionHeader(title: 'Check-in'),
                   ListTileCard(
@@ -387,9 +391,7 @@ class _SummaryCard extends StatelessWidget {
       fontSize: 16,
       color: cs.onSurfaceVariant,
     );
-    final when = flow.bookNow
-        ? 'now'
-        : SparklingDates.long(flow.slotStart!);
+    final when = flow.bookNow ? 'now' : SparklingDates.long(flow.slotStart!);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(

@@ -97,6 +97,7 @@ class DemoStore {
       slotEnd: b.slotEnd,
       totalCents: b.totalCents,
       paymentMethod: b.paymentMethod,
+      payAt: b.payAt,
       paid: isBookingPaid(b.id),
     );
   }
@@ -3239,6 +3240,11 @@ class DemoStore {
           ? BookingStatus.confirmed
           : BookingStatus.pending,
       paymentMethod: input.paymentMethod,
+      // Counter bookings say when the customer pays (collection unless they
+      // picked check-in); online bookings are paid when made.
+      payAt: input.paymentMethod == PaymentChoice.cash
+          ? (input.payAt ?? PaymentStage.collection)
+          : PaymentStage.booking,
       slotStart: input.slotStart,
       slotEnd: end,
       vehicleId: input.vehicleId,
@@ -3495,11 +3501,30 @@ class DemoStore {
     }
 
     final total = quote.total;
+    if (input.paymentMethod == PaymentChoice.cash &&
+        total > 0 &&
+        featureFlags['cash_on_collection'] != true) {
+      throw const ApiException(
+        code: 'validation_error',
+        message: 'Cash on collection is not available at the moment — please pay by card or instant EFT',
+        statusCode: 409,
+        data: {
+          'code': 'validation_error',
+          'details': {'reason': 'cash_disabled'},
+        },
+      );
+    }
     final b = Booking(
       id: _newId('1'),
       ref: 'SPK-$_yr-${(_bookingSeq++).toString().padLeft(4, '0')}',
       customerId: customer.id,
       status: BookingStatus.confirmed,
+      paymentMethod: input.paymentMethod,
+      // "Pay on collection" keeps the counter payment for the hand-over;
+      // otherwise the walk-in is paid as it is checked in.
+      payAt: input.paymentMethod == PaymentChoice.cash
+          ? (input.payAt ?? PaymentStage.collection)
+          : PaymentStage.checkin,
       slotStart: start,
       slotEnd: end,
       vehicleId: input.vehicleId,

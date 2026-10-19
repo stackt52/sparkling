@@ -81,3 +81,35 @@ Future<void> pumpScreen(
   );
   await settle(tester, total: const Duration(seconds: 1));
 }
+
+/// The outermost vertical scrollable on screen (home list, flow steps, …).
+Finder verticalScrollable() => find
+    .byWidgetPredicate(
+      (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+    )
+    .first;
+
+/// Scrolls [verticalScrollable] until [finder] is on screen. Use before
+/// asserting on or tapping anything that may sit below the fold — the home
+/// hero and banners are built from the time-relative demo seed, so their
+/// height (and everything beneath them) shifts with the clock.
+Future<void> scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    160,
+    scrollable: verticalScrollable(),
+  );
+  await tester.pump(const Duration(milliseconds: 200));
+}
+
+/// Taps the first home quick action ("Book a wash") and waits for step 1 of
+/// the booking flow. Brings the card into view first: depending on the time
+/// of day it lands behind the bottom overlay and a blind tap misses.
+Future<void> openBookingFlow(WidgetTester tester) async {
+  final quickAction = find.byType(QuickActionCard).first;
+  await tester.ensureVisible(quickAction);
+  await settle(tester);
+  await tester.tap(quickAction);
+  await settle(tester);
+  expect(find.text('Step 1 of 3 · Choose service'), findsOneWidget);
+}

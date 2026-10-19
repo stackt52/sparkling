@@ -99,12 +99,10 @@ class _ChecklistViewState extends State<ChecklistView> {
     staff.quotation(id).then((q) {
       if (mounted && q.id == _quoteId) setState(() => _quote = q);
     }, onError: (Object _) {});
-    _quoteSub = staff
-        .watchQuotations(outletId: wo.outletId)
-        .listen((list) {
-          final q = list.where((q) => q.id == id).firstOrNull;
-          if (q != null && mounted) setState(() => _quote = q);
-        }, onError: (Object _) {});
+    _quoteSub = staff.watchQuotations(outletId: wo.outletId).listen((list) {
+      final q = list.where((q) => q.id == id).firstOrNull;
+      if (q != null && mounted) setState(() => _quote = q);
+    }, onError: (Object _) {});
   }
 
   /// Counter payment for the quotation behind this work order (same cash
@@ -427,20 +425,22 @@ class _ChecklistViewState extends State<ChecklistView> {
                       dense: true,
                     ),
                   ],
-                  if (wo.isCashOnCollection || (card?.isCashOnCollection ?? false)) ...[
+                  if (wo.isCashOnCollection ||
+                      (card?.isCashOnCollection ?? false)) ...[
                     const SizedBox(height: 6),
                     StatusChip(
                       key: const ValueKey('cash-on-collection-chip'),
                       label: wo.isCashDue || (card?.isCashDue ?? false)
-                          ? 'Cash on collection · ${Money.formatZar((wo.booking ?? card!.booking!).totalCents)} due'
-                          : 'Cash on collection · paid',
+                          ? '${(wo.booking ?? card!.booking!).counterPaymentLabel} · ${Money.formatZar((wo.booking ?? card!.booking!).totalCents)} due'
+                          : '${(wo.booking ?? card!.booking!).counterPaymentLabel} · paid',
                       tone: wo.isCashDue || (card?.isCashDue ?? false)
                           ? StatusChipTone.warning
                           : StatusChipTone.success,
                       icon: Symbols.payments_rounded,
                       dense: true,
                     ),
-                  ] else if (wo.isPaymentDue || (card?.isPaymentDue ?? false)) ...[
+                  ] else if (wo.isPaymentDue ||
+                      (card?.isPaymentDue ?? false)) ...[
                     const SizedBox(height: 6),
                     StatusChip(
                       key: const ValueKey('payment-due-chip'),
@@ -703,7 +703,11 @@ class _QuotePaymentCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Symbols.payments_rounded, color: x.onWarningContainer, fill: 1),
+              Icon(
+                Symbols.payments_rounded,
+                color: x.onWarningContainer,
+                fill: 1,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(

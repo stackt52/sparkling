@@ -360,6 +360,11 @@ export interface Booking {
    * `validation_error` `{ reason: 'payment_due', amount_cents }`) until then.
    */
   payment_method?: BookingPaymentMethod | null;
+  /**
+   * When the customer chose to pay (migration 0023): `booking` = online, `checkin` = at the counter when the car is
+   * dropped off, `collection` = at the counter when it is collected. Counter bookings carry `payment_method: 'cash'`.
+   */
+  pay_at?: PaymentStage | null;
   quotation_id: string | null;
   /** Staff-created walk-in (STF-010/012). */
   walk_in?: boolean;
@@ -609,6 +614,8 @@ export interface WorkOrder {
   amount_due_cents: number;
   /** How the customer chose to pay at booking time (`null` for quotation-backed orders). */
   payment_method: BookingPaymentMethod | null;
+  /** When the customer chose to pay (`bookings.pay_at`): a `checkin` booking pre-selects "Take payment now" at check-in. */
+  pay_at?: PaymentStage | null;
   /** The successful payment (online or counter), `null` while unpaid. */
   payment: WorkOrderPayment | null;
 }
@@ -745,6 +752,8 @@ export interface WalkInBookingInput {
   checkin?: { bay?: string | null; priority?: WalkInPriority };
   /** `cash` needs the `cash_on_collection` flag (409 `validation_error` `{ reason: 'cash_disabled' }` otherwise). */
   payment_method?: BookingPaymentMethod | null;
+  /** Counter bookings only: `collection` = the customer settles at the hand-over (nothing recorded now); `checkin` = paid as checked in. */
+  pay_at?: 'checkin' | 'collection';
 }
 
 export interface WalkInBookingResult {

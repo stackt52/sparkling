@@ -539,6 +539,7 @@ class Booking extends Equatable {
     this.membershipBenefit,
     this.membership,
     this.paymentMethod,
+    this.payAt,
   });
 
   final String id;
@@ -607,7 +608,23 @@ class Booking extends Equatable {
   /// the counter before the keys are released.
   final PaymentChoice? paymentMethod;
 
+  /// When the customer chose to pay (`bookings.pay_at`, migration 0023):
+  /// `booking` = online when booking, `checkin` = at the counter when the car
+  /// is dropped off (before the wash), `collection` = at the counter when it
+  /// is collected (after the wash). Counter bookings carry [paymentMethod]
+  /// `cash`; `null` on bookings older than the migration.
+  final PaymentStage? payAt;
+
+  /// Settled at the counter (`payment_method: cash`) — at check-in or on
+  /// collection ([payAt]); the keys are only released once it is paid.
   bool get isCashOnCollection => paymentMethod == PaymentChoice.cash;
+
+  /// Counter booking the customer wants to pay when dropping the car off.
+  bool get paysAtCheckIn => isCashOnCollection && payAt == PaymentStage.checkin;
+
+  /// "Pay at check-in" / "Cash on collection" — how the counter choice reads.
+  String get counterPaymentLabel =>
+      paysAtCheckIn ? 'Pay at check-in' : 'Cash on collection';
 
   /// Cash still to be collected at the counter (no verified payment yet).
   bool get isCashDue => isCashOnCollection && totalCents > 0 && !isPaid;
@@ -742,6 +759,7 @@ class Booking extends Equatable {
         ? BookingMembership.fromJson(asJson(json['membership']))
         : null,
     paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
+    payAt: PaymentStage.fromDb(strOrNull(json['pay_at'])),
   );
 
   Json toJson() => compact({
@@ -788,6 +806,7 @@ class Booking extends Equatable {
     'membership_benefit': membershipBenefit?.db,
     'membership': membership?.toJson(),
     'payment_method': paymentMethod?.db,
+    'pay_at': payAt?.db,
   });
 
   Booking copyWith({
@@ -849,6 +868,7 @@ class Booking extends Equatable {
     membershipBenefit: membershipBenefit,
     membership: membership,
     paymentMethod: paymentMethod,
+    payAt: payAt,
   );
 
   @override
@@ -869,6 +889,7 @@ class Booking extends Equatable {
     pendingSync,
     membershipBenefit,
     paymentMethod,
+    payAt,
   ];
 }
 
@@ -884,6 +905,7 @@ class BookingInput {
     this.vehicleSize,
     this.addonServiceIds = const [],
     this.paymentMethod,
+    this.payAt,
   });
 
   final String vehicleId;
@@ -904,6 +926,11 @@ class BookingInput {
   /// `cash_on_collection` flag is off); `card` / `eft` are informational.
   final PaymentChoice? paymentMethod;
 
+  /// `pay_at` for counter bookings: [PaymentStage.checkin] (pay when the car
+  /// is dropped off) or [PaymentStage.collection] (when it is collected, the
+  /// default). Sent only with [paymentMethod] `cash`.
+  final PaymentStage? payAt;
+
   Json toJson() => compact({
     'vehicle_id': vehicleId,
     'outlet_id': outletId,
@@ -914,6 +941,7 @@ class BookingInput {
     'vehicle_size': vehicleSize?.db,
     'addon_service_ids': addonServiceIds.isEmpty ? null : addonServiceIds,
     'payment_method': paymentMethod?.db,
+    'pay_at': paymentMethod == PaymentChoice.cash ? payAt?.db : null,
   });
 
   factory BookingInput.fromJson(Json json) => BookingInput(
@@ -928,5 +956,6 @@ class BookingInput {
         : VehicleSize.fromDb(strOrNull(json['vehicle_size'])),
     addonServiceIds: asStringList(json['addon_service_ids']),
     paymentMethod: PaymentChoice.fromDb(strOrNull(json['payment_method'])),
+    payAt: PaymentStage.fromDb(strOrNull(json['pay_at'])),
   );
 }

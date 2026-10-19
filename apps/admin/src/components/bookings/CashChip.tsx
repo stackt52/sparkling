@@ -10,14 +10,16 @@ export function cashDue(b: Pick<Booking, 'payment_method' | 'payment' | 'total_c
 }
 
 /**
- * "Cash due R x" (warning) while a cash-on-collection booking is unpaid, "Paid · cash" (or "Paid · card" / "Paid · EFT"
- * when the counter took the card terminal or an EFT) once the payment is recorded. Renders nothing for other payment methods.
+ * "Cash due R x" (warning) while a counter booking is unpaid — "Due at check-in R x" when the customer chose to pay
+ * when dropping the car off (`pay_at: 'checkin'`) — and "Paid · cash" (or "Paid · card" / "Paid · EFT" when the counter
+ * took the card terminal or an EFT) once the payment is recorded. Renders nothing for other payment methods.
  */
-export default function CashChip({ booking, size = 'small' }: { booking: Pick<Booking, 'payment_method' | 'payment' | 'total_cents' | 'status'>; size?: 'small' | 'medium' }) {
+export default function CashChip({ booking, size = 'small' }: { booking: Pick<Booking, 'payment_method' | 'payment' | 'total_cents' | 'status' | 'pay_at'>; size?: 'small' | 'medium' }) {
   if (booking.payment_method !== 'cash') return null;
   const due = cashDue(booking);
   const paid = booking.payment?.status === 'successful';
-  const label = paid ? `Paid · ${booking.payment?.method === 'card_terminal' ? 'card' : booking.payment?.method === 'eft' ? 'EFT' : 'cash'}` : due ? `Cash due ${rands(booking.total_cents)}` : 'Cash';
+  const atCheckin = booking.pay_at === 'checkin';
+  const label = paid ? `Paid · ${booking.payment?.method === 'card_terminal' ? 'card' : booking.payment?.method === 'eft' ? 'EFT' : 'cash'}` : due ? `${atCheckin ? 'Due at check-in' : 'Cash due'} ${rands(booking.total_cents)}` : atCheckin ? 'Pay at check-in' : 'Cash';
   const dims = size === 'small' ? { height: 20, fontSize: 11 } : { height: 24, fontSize: 12 };
   return (
     <StatusChip

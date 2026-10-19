@@ -148,8 +148,8 @@ class TaskCard extends StatelessWidget {
               child: StatusChip(
                 key: const ValueKey('cash-on-collection-chip'),
                 label: wo!.isCashDue
-                    ? 'Cash on collection · ${Money.formatZar(wo.booking!.totalCents)} due'
-                    : 'Cash on collection · paid',
+                    ? '${wo.booking!.counterPaymentLabel} · ${Money.formatZar(wo.booking!.totalCents)} due'
+                    : '${wo.booking!.counterPaymentLabel} · paid',
                 tone: wo.isCashDue
                     ? StatusChipTone.warning
                     : StatusChipTone.success,

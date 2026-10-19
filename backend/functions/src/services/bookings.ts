@@ -6,7 +6,7 @@ import { canTransitionBooking } from '../domain/stateMachines.js';
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { assertOutlet, assertOwner, assertOwnerOrOutletStaff, isStaff } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
-import type { Booking, Payment, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
+import type { Booking, Payment, PaymentStage, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
 import { flagEnabled } from './flags.js';
 import { assertSlotAvailable, findWalkInSlot } from './availability.js';
@@ -30,8 +30,13 @@ export interface CreateBookingInput {
   walkIn?: boolean;
   /** Pricing size; defaults to the vehicle's size_class (null → small). */
   vehicleSize?: VehicleSize | null;
-  /** `cash` = pay at the counter on collection (requires feature flag `cash_on_collection`). */
+  /** `cash` = pay at the counter (requires feature flag `cash_on_collection`); see `payAt` for when. */
   paymentMethod?: 'card' | 'eft' | 'cash' | null;
+  /**
+   * Counter bookings only: `checkin` = the customer pays when the car is dropped off (before the wash),
+   * `collection` = when it is collected (after the wash, the default). Online bookings store `booking`.
+   */
+  payAt?: 'checkin' | 'collection' | null;
   /** Add-on services (`is_addon`, same `addon_group_name` as the service's group) priced into the booking. */
   addonServiceIds?: string[] | null;
 }
@@ -63,6 +68,12 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
   if (cash && !(await flagEnabled('cash_on_collection'))) {
     throw ApiError.validationConflict('Cash on collection is not available at the moment — please pay by card or instant EFT', { reason: 'cash_disabled' });
   }
+  if (input.payAt && input.paymentMethod !== 'cash') {
+    throw ApiError.validation('pay_at applies to counter bookings only (payment_method: cash)', [{ path: 'pay_at', message: 'Requires payment_method cash' }]);
+  }
+  // When the customer settles the booking: online bookings at booking time; counter bookings at
+  // check-in or on collection (default); staff walk-ins are paid at the counter as they are checked in.
+  const payAt: PaymentStage = input.paymentMethod === 'cash' ? (input.payAt ?? 'collection') : walkIn ? 'checkin' : 'booking';
 
   const res = await db
     .from('bookings')
@@ -77,6 +88,7 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
       // Walk-ins, fully covered bookings and cash-on-collection bookings need no online payment → confirmed at once.
       status: walkIn || quote.total_cents === 0 || cash ? 'confirmed' : 'pending',
       payment_method: input.paymentMethod ?? null,
+      pay_at: payAt,
       price_cents: quote.price_cents,
       discount_cents: quote.discount_cents,
       total_cents: quote.total_cents,
@@ -118,7 +130,7 @@ export async function createBooking(ctx: RequestContext, input: CreateBookingInp
     entity_type: 'booking',
     entity_id: booking.id,
     outlet_id: booking.outlet_id,
-    after: { ref: booking.ref, total_cents: booking.total_cents, customer_id: booking.customer_id, slot_start: booking.slot_start, status: booking.status, walk_in: walkIn, on_behalf: booking.customer_id !== ctx.auth.uid, vehicle_size: quote.vehicle_size, addons_cents: quote.addons_cents, addon_service_ids: quote.addons.map((a) => a.service_id), membership_benefit: booking.membership_benefit ?? null, entitlement_id: booking.entitlement_id ?? null },
+    after: { ref: booking.ref, total_cents: booking.total_cents, customer_id: booking.customer_id, slot_start: booking.slot_start, status: booking.status, payment_method: booking.payment_method ?? null, pay_at: payAt, walk_in: walkIn, on_behalf: booking.customer_id !== ctx.auth.uid, vehicle_size: quote.vehicle_size, addons_cents: quote.addons_cents, addon_service_ids: quote.addons.map((a) => a.service_id), membership_benefit: booking.membership_benefit ?? null, entitlement_id: booking.entitlement_id ?? null },
   });
   return { booking, duplicate: false };
 }

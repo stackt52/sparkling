@@ -257,8 +257,14 @@ export interface Booking {
   created_by: string | null;
   /** Staff-created counter booking (migration 0005); starts `confirmed`. */
   walk_in: boolean;
-  /** Customer's chosen payment method at booking time; `cash` = pay at the counter on collection. */
+  /** Customer's chosen payment method at booking time; `cash` = pay at the counter (see `pay_at`). */
   payment_method: 'card' | 'eft' | 'cash' | null;
+  /**
+   * When the customer chose to pay (migration 0023): `booking` = online when booking, `checkin` = at the
+   * counter when the car is dropped off, `collection` = at the counter when it is collected. Counter
+   * bookings carry `payment_method: 'cash'`; `null` on bookings older than the migration.
+   */
+  pay_at: PaymentStage | null;
   /** Pricing basis at booking time (migration 0008). */
   vehicle_size: VehicleSize | null;
   pricing_mode: PricingMode | null;

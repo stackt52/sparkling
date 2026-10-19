@@ -17,23 +17,10 @@ void main() {
     repos = await bootstrapDemo();
   });
 
-  Finder vertical() => find
-      .byWidgetPredicate(
-        (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
-      )
-      .first;
-
-  Future<void> scrollTo(WidgetTester tester, Finder finder) async {
-    await tester.scrollUntilVisible(finder, 160, scrollable: vertical());
-    await tester.pump(const Duration(milliseconds: 200));
-  }
-
   Future<void> openBooking(WidgetTester tester) async {
     await pumpApp(tester, repos);
     await settle(tester);
-    await tester.tap(find.byType(QuickActionCard).first);
-    await settle(tester);
-    expect(find.text('Step 1 of 3 · Choose service'), findsOneWidget);
+    await openBookingFlow(tester);
   }
 
   testWidgets(

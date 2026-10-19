@@ -149,6 +149,8 @@ const createSchema = z.object({
   addon_service_ids: z.array(uuid).max(10).optional(),
   /** How the customer intends to pay; `cash` (feature flag `cash_on_collection`) confirms the booking without an online payment. */
   payment_method: z.enum(['card', 'eft', 'cash']).optional(),
+  /** Counter bookings (`payment_method: 'cash'`) only: pay at check-in (before the wash) or on collection (after it, the default). */
+  pay_at: z.enum(['checkin', 'collection']).optional(),
 });
 
 bookingsRouter.post(
@@ -170,6 +172,7 @@ bookingsRouter.post(
       vehicleSize: body.vehicle_size,
       addonServiceIds: body.addon_service_ids,
       paymentMethod: body.payment_method,
+      payAt: body.pay_at,
     });
     let booking: Booking = created.booking;
     let work_order: WorkOrder | null = null;

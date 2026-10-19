@@ -54,6 +54,8 @@ export interface AdminWorkOrder {
    */
   amount_due_cents: number;
   payment_method: string | null;
+  /** When the customer chose to pay (`bookings.pay_at`): booking / checkin / collection; null for quotation work. */
+  pay_at: string | null;
   payment: { id: string; status: string; amount_cents: number; method: string | null; provider: string; receipt_no: string | null; stage: string | null; verified_at: string | null } | null;
   eta_at: string | null;
   due_at: string | null;
@@ -92,7 +94,7 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
   const ids = rows.map((r) => r.id);
   const [outlets, bookings, quotations, vehicles, services, tasks, events, results, templates] = await Promise.all([
     lookup<Row>('outlets', 'id, name', 'id', uniq(rows.map((r) => r.outlet_id))),
-    lookup<Row>('bookings', 'id, ref, total_cents, payment_method', 'id', uniq(rows.map((r) => r.booking_id))),
+    lookup<Row>('bookings', 'id, ref, total_cents, payment_method, pay_at', 'id', uniq(rows.map((r) => r.booking_id))),
     lookup<Row>('quotations', 'id, ref, amount_cents', 'id', uniq(rows.map((r) => r.quotation_id))),
     lookup<Row>('vehicles', 'id, registration_no, make, model', 'id', uniq(rows.map((r) => r.vehicle_id))),
     lookup<Row>('services', 'id, name, category', 'id', uniq(rows.map((r) => r.service_id))),
@@ -177,6 +179,7 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
       pickup_otp_verified_at: w.pickup_otp_verified_at ?? null,
       amount_due_cents: paymentRow || w.status === 'cancelled' ? 0 : total,
       payment_method: (booking?.payment_method as string | null | undefined) ?? null,
+      pay_at: (booking?.pay_at as string | null | undefined) ?? null,
       payment: paymentRow
         ? { id: paymentRow.id as string, status: paymentRow.status as string, amount_cents: Number(paymentRow.amount_cents) || 0, method: (paymentRow.method as string | null) ?? null, provider: paymentRow.provider as string, receipt_no: (paymentRow.receipt_no as string | null) ?? null, stage: (paymentRow.stage as string | null) ?? null, verified_at: (paymentRow.verified_at as string | null) ?? null }
         : null,

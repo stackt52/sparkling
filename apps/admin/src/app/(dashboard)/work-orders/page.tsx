@@ -160,7 +160,8 @@ function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void
   const [bay, setBay] = React.useState(w.bay ?? '');
   // Counter payment with the check-in: offered while the booking / quotation is unpaid; the key is minted once per open dialog.
   const canPay = can(role, 'payment:record') && w.amount_due_cents > 0 && (Boolean(w.booking_id) || Boolean(w.quotation_id));
-  const pay = useCounterPayment(w.amount_due_cents);
+  // A "pay at check-in" booking pre-selects "Take payment now".
+  const pay = useCounterPayment(w.amount_due_cents, canPay && w.pay_at === 'checkin');
   const m = useMutation({
     mutationFn: () => api.checkinWorkOrder(w.id, { bay: bay.trim() || null, ...(canPay && pay.body ? { payment: pay.body } : {}) }),
     onSuccess: (res) => {
@@ -191,7 +192,7 @@ function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void
           Confirms that <b>{w.vehicle.registration_no}</b> is on site. The work order can then be assigned — automatically when auto-assignment is on, otherwise by a supervisor.
         </Typography>
         <TextField label="Bay (optional)" placeholder="e.g. Body 1" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} />
-        {canPay && <CounterPaymentFields state={pay} amountCents={w.amount_due_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={m.isPending} hint={`${w.booking_ref ?? w.quotation_ref ?? w.ref} is unpaid — record the counter payment with the check-in, or later from the drawer.`} />}
+        {canPay && <CounterPaymentFields state={pay} amountCents={w.amount_due_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={m.isPending} hint={w.pay_at === 'checkin' ? `${w.booking_ref ?? w.ref}: the customer chose to pay at check-in — cash, card terminal or EFT.` : `${w.booking_ref ?? w.quotation_ref ?? w.ref} is unpaid — record the counter payment with the check-in, or later from the drawer.`} />}
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
@@ -362,7 +363,7 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
             {w.payment?.status === 'successful' ? (
               <StatusChip tone="success" label={`Paid · ${w.payment.method ? posMethodShort(w.payment.method) : w.payment_method === 'eft' ? 'EFT' : 'card'} · ${w.payment.receipt_no ?? '—'}`} icon={<MSymbol name="payments" filled size={16} />} sx={{ alignSelf: 'flex-start', mt: 0.5, '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="wo-payment-state" />
             ) : w.amount_due_cents > 0 && w.status !== 'cancelled' ? (
-              <StatusChip tone="warning" label={`${rands(w.amount_due_cents, { decimals: true })} due${w.payment_method === 'cash' ? ' · cash on collection' : ''}`} icon={<MSymbol name="payments" filled size={16} />} sx={{ alignSelf: 'flex-start', mt: 0.5, '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="wo-payment-state" />
+              <StatusChip tone="warning" label={`${rands(w.amount_due_cents, { decimals: true })} due${w.payment_method === 'cash' ? (w.pay_at === 'checkin' ? ' · pay at check-in' : ' · cash on collection') : ''}`} icon={<MSymbol name="payments" filled size={16} />} sx={{ alignSelf: 'flex-start', mt: 0.5, '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="wo-payment-state" />
             ) : null}
             <Typography variant="body2">Assignee: <b>{w.assignee_name ?? 'unassigned'}</b>{w.eta_at ? ` · ETA ${fmtTime(w.eta_at)}` : ''}{w.due_at ? ` · due ${fmtTime(w.due_at)}` : ''}</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>

@@ -30,10 +30,15 @@ class BookingFlowController extends ChangeNotifier {
   String? methodId;
 
   /// How the customer chose to pay at "Review & pay": a saved card / instant
-  /// EFT ([methodId]) or **cash on collection** (`payment_method: cash`, only
+  /// EFT ([methodId]) or **at the counter** (`payment_method: cash`, only
   /// when the `cash_on_collection` flag is on). Kept in memory for the flow
   /// only — not part of the persisted draft.
   PaymentChoice? paymentChoice;
+
+  /// For a counter booking: pay when the car is dropped off
+  /// ([PaymentStage.checkin]) or when it is collected
+  /// ([PaymentStage.collection], the default) — `pay_at`.
+  PaymentStage payAt = PaymentStage.collection;
   String clientOpId = SparklingApi.newOpId();
   DateTime? restoredAt;
 
@@ -245,13 +250,18 @@ class BookingFlowController extends ChangeNotifier {
     _persist();
   }
 
-  /// Selects **cash on collection** (the saved method stays remembered).
-  void setPayCash() {
+  /// Selects paying **at the counter** — on collection by default, or at
+  /// check-in with [at] — (the saved method stays remembered).
+  void setPayCash({PaymentStage at = PaymentStage.collection}) {
     paymentChoice = PaymentChoice.cash;
+    payAt = at;
     notifyListeners();
   }
 
   bool get payCash => paymentChoice == PaymentChoice.cash;
+
+  /// Counter booking settled when the car is dropped off.
+  bool get payAtCheckIn => payCash && payAt == PaymentStage.checkin;
 
   BookingInput toInput() => BookingInput(
     vehicleId: vehicle!.id,
@@ -262,6 +272,7 @@ class BookingFlowController extends ChangeNotifier {
     vehicleSize: vehicleSize,
     addonServiceIds: addons.map((a) => a.serviceId).toList(),
     paymentMethod: nothingToPay ? null : paymentChoice,
+    payAt: nothingToPay || !payCash ? null : payAt,
   );
 
   /// Clears the draft after a successful booking (or on explicit discard).
@@ -273,6 +284,7 @@ class BookingFlowController extends ChangeNotifier {
     slotStart = null;
     methodId = null;
     paymentChoice = null;
+    payAt = PaymentStage.collection;
     restoredAt = null;
     clientOpId = SparklingApi.newOpId();
     repositories.drafts.delete(draftKey);

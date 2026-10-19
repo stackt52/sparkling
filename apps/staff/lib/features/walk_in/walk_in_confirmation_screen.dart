@@ -251,6 +251,8 @@ class _WalkInConfirmationScreenState extends State<WalkInConfirmationScreen> {
                                     ? 'Payment ${Money.formatZar(amount)} queued'
                                     : b.totalCents == 0 && b.isIncluded
                                     ? 'Nothing to pay · included in plan'
+                                    : b.isCashOnCollection
+                                    ? 'Due ${Money.formatZar(amount)} · pay on collection at the counter'
                                     : 'Due ${Money.formatZar(amount)} · customer pays in app',
                                 iconColor: paid
                                     ? context.sparkling.success

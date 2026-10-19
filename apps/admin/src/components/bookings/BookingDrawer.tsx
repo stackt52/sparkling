@@ -123,7 +123,8 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
   const unpaid = Boolean(b) && b!.payment?.status !== 'successful' && b!.total_cents > 0;
   const canTakePayment = can(role, 'payment:record') && unpaid;
   const pay = useCounterPayment(b?.total_cents ?? 0);
-  const openCheckin = () => { pay.reset(); setCheckinOpen(true); };
+  // A "pay at check-in" booking pre-selects "Take payment now" (the admin can still switch it off).
+  const openCheckin = () => { pay.reset(canTakePayment && b?.pay_at === 'checkin'); setCheckinOpen(true); };
   // Explicit "car checked in" (`POST /bookings/:id/checkin`): stamps the booking's existing work order (created when it was confirmed) and auto-assigns it when the flag is on; an optional counter payment (stage `checkin`) is recorded first.
   const checkin = useMutation({
     mutationFn: () => api.checkinBooking(bookingId!, { bay: bay.trim() || null, priority, ...(canTakePayment && pay.body ? { payment: pay.body } : {}) }),
@@ -242,7 +243,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               {b.payment?.method ? (
                 <Row label="Method" value={`${b.payment.method === 'cash' ? (b.payment_method === 'cash' ? 'Cash on collection (counter)' : 'Cash (counter)') : b.payment.method === 'eft' ? 'EFT (counter)' : 'Card terminal'}${b.payment.stage && b.payment.stage !== 'booking' ? ` · at ${b.payment.stage === 'checkin' ? 'check-in' : 'collection'}` : ''}`} />
               ) : b.payment_method ? (
-                <Row label="Method" value={{ cash: 'Cash on collection', card: 'Card (online)', eft: 'Instant EFT' }[b.payment_method]} />
+                <Row label="Method" value={{ cash: b.pay_at === 'checkin' ? 'Pay at check-in (counter)' : 'Cash on collection', card: 'Card (online)', eft: 'Instant EFT' }[b.payment_method]} />
               ) : null}
               {b.payment?.receipt_no && <Row label="Receipt" value={b.payment.receipt_no} mono />}
               <Row label="Points pending" value={`+${b.points_pending} pts on completion`} />
@@ -292,7 +293,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               <ToggleButton value={3}>P3</ToggleButton>
             </ToggleButtonGroup>
           </Box>
-          {canTakePayment && b && <CounterPaymentFields state={pay} amountCents={b.total_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={checkin.isPending} hint={b.payment_method === 'cash' ? 'Cash on collection — the customer can also pay at hand-over.' : `${b.ref} is unpaid — record the counter payment with the check-in, or later with Record payment.`} />}
+          {canTakePayment && b && <CounterPaymentFields state={pay} amountCents={b.total_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={checkin.isPending} hint={b.payment_method === 'cash' ? (b.pay_at === 'checkin' ? 'The customer chose to pay at check-in — cash, card terminal or EFT.' : 'Cash on collection — the customer can also pay at hand-over.') : `${b.ref} is unpaid — record the counter payment with the check-in, or later with Record payment.`} />}
         </DialogContent>
         <DialogActions sx={{ p: 2.5, pt: 0 }}>
           <Button onClick={() => setCheckinOpen(false)}>Not yet</Button>

@@ -8,18 +8,24 @@ enum WalkInPayment {
 
   /// Nothing is recorded — the booking stays pending payment and the
   /// customer pays from the app.
-  inApp;
+  inApp,
+
+  /// Nothing is recorded — the booking is created as a counter booking
+  /// (`payment_method: cash`, `pay_at: collection`) and settled at the
+  /// hand-over; the keys wait for the payment.
+  onCollection;
 
   PaymentMethodKind? get kind => switch (this) {
     cash => PaymentMethodKind.cash,
     cardTerminal => PaymentMethodKind.cardTerminal,
-    inApp => null,
+    inApp || onCollection => null,
   };
 
   String get label => switch (this) {
     cash => 'Cash',
     cardTerminal => 'Card terminal',
     inApp => 'Customer pays in app',
+    onCollection => 'Pay on collection',
   };
 }
 
@@ -49,7 +55,10 @@ abstract class CustomerVehicleFlow extends ChangeNotifier {
   MembershipSummary? get membership => null;
 
   /// Loads [membership] for the current customer (no-op by default).
-  Future<void> loadMembership(Repositories repositories, {bool force = false}) async {}
+  Future<void> loadMembership(
+    Repositories repositories, {
+    bool force = false,
+  }) async {}
 
   /// Replaces the cached membership (after a counter enrolment / payment).
   void setMembership(MembershipSummary? m) {}
@@ -468,6 +477,12 @@ class WalkInFlowController extends CustomerVehicleFlow {
     checkin: checkInNow ? WalkInCheckin(bay: bay, priority: priority) : null,
     vehicleSize: vehicleSize,
     addonServiceIds: addons.map((a) => a.serviceId).toList(),
+    paymentMethod: payment == WalkInPayment.onCollection
+        ? PaymentChoice.cash
+        : null,
+    payAt: payment == WalkInPayment.onCollection
+        ? PaymentStage.collection
+        : null,
   );
 
   RecordPaymentInput? toPaymentInput(Booking booking) {

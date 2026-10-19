@@ -29,7 +29,7 @@ export default function SuccessPanel({ result, onOpenBooking, onNew, onDone }: {
     document.getElementById('main')?.scrollTo({ top: 0 });
     headingRef.current?.focus({ preventScroll: true });
   }, []);
-  const methodLabel = payment ? (payment.method === 'cash' ? 'Cash' : 'Card terminal') : b.total_cents === 0 && b.membership_benefit === 'included' ? `included in ${b.membership?.plan_name ?? 'the plan'}` : 'Customer pays in app';
+  const methodLabel = payment ? (payment.method === 'cash' ? 'Cash' : 'Card terminal') : b.total_cents === 0 && b.membership_benefit === 'included' ? `included in ${b.membership?.plan_name ?? 'the plan'}` : b.payment_method === 'cash' ? 'Pay on collection (counter)' : 'Customer pays in app';
   return (
     <SectionCard component="section" sx={{ maxWidth: 720, mx: 'auto', width: '100%', alignItems: 'center', textAlign: 'center', gap: 2, py: 5 }}>
       <Box sx={{ position: 'relative', width: 128, height: 128, borderRadius: '50%', bgcolor: tk.primaryContainer, display: 'grid', placeItems: 'center' }} aria-hidden>

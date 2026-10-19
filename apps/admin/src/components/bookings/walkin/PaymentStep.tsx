@@ -30,6 +30,7 @@ const METHODS: { key: WalkInPaymentChoice; label: string; hint: string; icon: st
   { key: 'cash', label: 'Cash', hint: 'Recorded under your name · receipt sent by WhatsApp / push', icon: 'payments' },
   { key: 'card_terminal', label: 'Card terminal', hint: 'Tap / chip on the counter terminal · add the slip reference', icon: 'credit_card' },
   { key: 'in_app', label: 'Customer pays in app', hint: 'Nothing recorded now · booking stays pending payment', icon: 'phone_iphone' },
+  { key: 'on_collection', label: 'Pay on collection', hint: 'Nothing recorded now · settled at the counter before the keys are released', icon: 'key' },
 ];
 
 function SummaryRow({ label, value, tone }: { label: React.ReactNode; value: React.ReactNode; tone?: 'success' | 'primary' }) {
@@ -76,14 +77,17 @@ export default function PaymentStep({ draft, patch, onSuccess, onConflict, onErr
           notes: draft.notes.trim() || null,
           client_op_id: draft.client_op_id,
           ...(draft.check_in ? { checkin: { bay: draft.bay.trim() || null, priority: draft.priority } } : {}),
+          // "Pay on collection": a counter booking settled at the hand-over (confirmed, nothing recorded now).
+          ...(draft.payment === 'on_collection' ? { payment_method: 'cash' as const, pay_at: 'collection' as const } : {}),
         });
         created = { booking: res.booking, work_order: res.work_order ?? res.booking.work_order ?? null };
         patch({ created });
       }
       // 2) in-person payment attestation (amount must equal the server-side total); skipped when the plan covers everything
       let payment = null;
-      if (draft.payment !== 'in_app' && created.booking.total_cents > 0) {
-        payment = await api.recordPayment({ booking_id: created.booking.id, method: draft.payment, reference: draft.reference.trim() || null, amount_cents: created.booking.total_cents, idempotency_key: draft.payment_key });
+      const counter = draft.payment === 'cash' || draft.payment === 'card_terminal' ? draft.payment : null;
+      if (counter && created.booking.total_cents > 0) {
+        payment = await api.recordPayment({ booking_id: created.booking.id, method: counter, reference: draft.reference.trim() || null, amount_cents: created.booking.total_cents, idempotency_key: draft.payment_key });
       }
       return { booking: created.booking, payment, work_order: created.work_order };
     },
@@ -226,7 +230,7 @@ export default function PaymentStep({ draft, patch, onSuccess, onConflict, onErr
 
         <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
           <MSymbol name="shield" size={18} />
-          <span>{nothingToPay ? 'The wash is included in the membership; the booking is confirmed as paid by the plan and the customer gets the confirmation by WhatsApp / push.' : draft.payment === 'in_app' ? 'The customer pays from the Sparkling app; the booking shows “pending payment” until then.' : `Cash and terminal payments are attested by ${profile?.full_name ?? 'you'} and audited. The customer gets the receipt by WhatsApp / push.`}</span>
+          <span>{nothingToPay ? 'The wash is included in the membership; the booking is confirmed as paid by the plan and the customer gets the confirmation by WhatsApp / push.' : draft.payment === 'in_app' ? 'The customer pays from the Sparkling app; the booking shows “pending payment” until then.' : draft.payment === 'on_collection' ? 'Nothing is recorded now: the customer settles at the counter when collecting (cash, card terminal or EFT) and the keys are released once it is paid.' : `Cash and terminal payments are attested by ${profile?.full_name ?? 'you'} and audited. The customer gets the receipt by WhatsApp / push.`}</span>
         </Typography>
 
         <Button
