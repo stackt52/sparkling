@@ -8,12 +8,12 @@ import { isAdminRole } from '../types';
 import { ApiRequestError, uuid, type AdminApi, type AuditFilters, type BookingFilters, type LiveEvent, type MembershipFilters, type NotificationFilters, type OutletOfferFilters, type OutletScoped, type QuotationFilters, type ReportFilters, type TeamMember, type WorkOrderFilters } from '../api';
 import {
   SERVICE_GROUPS, VAT_RATE, priceLabel, vehicleSizeOf,
-  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingCheckinResult, type BookingDetail, type ChecklistTemplate, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
+  type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingCheckinResult, type BookingDetail, type ChecklistTemplate, type CounterPaymentInput, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
   type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type NotifyChannel, type Outlet, type OutletServiceInput,
-  type OutletServiceOffer, type Page, type Payment, type Period, type PickupNotification, type PickupResendResult, type PickupVerifyResult, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
+  type OutletServiceOffer, type Page, type Payment, type PaymentStage, type Period, type PickupNotification, type PickupResendResult, type PickupVerifyResult, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
   type Profile, type ReportSummary, type ResetPasswordResult, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
-  type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WalkInPriority, type WorkOrder, type WorkStatus,
+  type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WalkInPriority, type WorkOrder, type WorkOrderCheckinResult, type WorkStatus,
 } from '../types';
 import { applyDemoDecision, demoPhotoUrl, demoSeedToken, pdfInputFromQuotation, registerDemoPhoto, registerDemoPublicQuote, syncDemoPublicQuote, withOutletLegal } from './publicQuotes';
 import { QUOTE_TERMS } from '../quoteTerms';
@@ -194,7 +194,7 @@ export class DemoApi implements AdminApi {
       vehicle: { id: v.id, registration_no: v.registration_no, make: v.make, model: v.model },
       customer: { id: b.customer_id, full_name: c?.full_name ?? 'Customer', email: c?.email ?? null, phone: c?.phone ?? null },
       work_order: w ? { id: w.id, ref: w.ref, status: w.status, stage: w.steps_done, stage_count: w.step_count, progress_pct: Math.round((w.steps_done / Math.max(1, w.step_count)) * 100), assignee_id: w.assignee_id, assignee_name: w.assignee_name, bay: w.bay, eta_at: w.eta_at, blocked_reason: w.blocked_reason, checked_in_at: w.checked_in_at, collected_at: w.collected_at ?? null } : null,
-      payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider } : null,
+      payment: p ? { id: p.id, status: p.status, receipt_no: p.receipt_no, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider, stage: pos?.stage ?? null } : null,
       payment_method: b.payment_method ?? null,
       vehicle_size: b.vehicle_size, pricing_mode: b.pricing_mode, vat_mode: b.vat_mode, addon_service_ids: [...b.addon_service_ids], addons_cents: b.addons_cents, vat_cents: b.vat_cents, price_label: b.price_label,
       membership_id: b.membership_id ?? null, entitlement_id: b.entitlement_id ?? null, membership_benefit: b.membership_benefit ?? null, membership: this.bookingMembership(b),
@@ -403,7 +403,7 @@ export class DemoApi implements AdminApi {
     const cat = q.category.toLowerCase();
     const svc = this.services.find((s) => s.category === 'auto_body' && s.name.toLowerCase().includes(cat)) ?? this.services.find((s) => s.category === 'auto_body')!;
     const tpl = this.templates.find((t) => t.id === svc.checklist_template_id)!;
-    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso(), checked_in_at: null, checked_in_by_name: null };
+    const w: WorkOrder = { id: nextId('wo'), ref, outlet: q.outlet, booking_ref: null, quotation_ref: q.ref, customer_name: q.customer_name, vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: svc.name, category: 'auto_body' }, status: 'queued', priority: 2, bay: null, assignee_id: null, assignee_name: null, eta_at: null, due_at: daysAgo(-3), started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl.steps.length, task_id: nextId('task'), events: [], updated_at: nowIso(), checked_in_at: null, checked_in_by_name: null, amount_due_cents: 0, payment_method: null, payment: null };
     this.workOrders.push(w);
     q.work_order_ref = ref;
     this.log('quotation.accept', 'quotation', q.id, { status: 'quoted' }, { status: 'accepted', work_order: ref }, q.outlet.id);
@@ -644,13 +644,47 @@ export class DemoApi implements AdminApi {
     for (const q of this.quotations) this.syncPublicDecision(q);
     let rows = this.workOrders.filter((w) => !f.outlet_id || w.outlet.id === f.outlet_id);
     if (f.status && f.status !== 'all') rows = rows.filter((w) => w.status === f.status);
-    return clone(rows);
+    return rows.map((w) => this.woRow(w));
   }
   async getWorkOrder(id: string): Promise<WorkOrder> {
     await delay();
     const w = this.workOrders.find((x) => x.id === id || x.ref === id);
     if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found' });
-    return clone(w);
+    return this.woRow(w);
+  }
+  /**
+   * `GET /admin/work-orders` row: the stored card plus the payment state of the booking / quotation behind it (migration
+   * 0022) — `amount_due_cents` (0 once a successful payment exists, nothing is due or the order is cancelled),
+   * `payment_method` (the booking's choice) and the successful `payment` with its `stage`.
+   */
+  private woRow(w: WorkOrder): WorkOrder {
+    const out = clone(w);
+    const b = w.booking_ref ? this.bookings.find((x) => x.ref === w.booking_ref) : undefined;
+    const q = !b && w.quotation_ref ? this.quotations.find((x) => x.ref === w.quotation_ref) : undefined;
+    out.booking_id = b?.id ?? w.booking_id ?? null;
+    out.quotation_id = q?.id ?? null;
+    const p = b ? this.payments.find((x) => x.booking_ref === b.ref && x.status === 'successful') : q ? this.payments.find((x) => x.quotation_id === q.id && x.status === 'successful') : undefined;
+    const pos = p ? this.posPayments.find((x) => x.id === p.id) : undefined;
+    const total = b?.total_cents ?? q?.amount_cents ?? 0;
+    out.amount_due_cents = p || w.status === 'cancelled' ? 0 : total;
+    out.payment_method = b?.payment_method ?? null;
+    out.payment = p ? { id: p.id, status: p.status, amount_cents: p.amount_cents, method: pos?.method ?? null, provider: p.provider, receipt_no: p.receipt_no, stage: pos?.stage ?? (p.provider === 'pos' ? null : 'booking'), verified_at: p.verified_at } : null;
+    return out;
+  }
+  /** Stage of a counter payment when the caller gives none — mirrors the API's `stageForBooking` / `stageForQuotation`. */
+  private inferStage(target: { kind: 'booking' | 'quotation'; ref: string; status?: string }): PaymentStage {
+    if (target.kind === 'booking') return target.status === 'completed' ? 'collection' : target.status === 'in_service' ? 'checkin' : 'booking';
+    const w = this.workOrders.find((x) => x.quotation_ref === target.ref);
+    if (!w || !w.checked_in_at) return 'booking';
+    return ['completed', 'verified'].includes(w.status) ? 'collection' : 'checkin';
+  }
+  /** A counter payment sent with a check-in / hand-over: recorded first with the given stage (same rules as `recordPayment`), so a refused one fails the whole call. */
+  private async recordCounterPayment(w: WorkOrder, payment: CounterPaymentInput | null | undefined, stage: PaymentStage): Promise<PosPayment | null> {
+    if (!payment) return null;
+    const b = w.booking_ref ? this.bookings.find((x) => x.ref === w.booking_ref) : undefined;
+    const q = !b && w.quotation_ref ? this.quotations.find((x) => x.ref === w.quotation_ref) : undefined;
+    if (!b && !q) throw new ApiRequestError(409, { code: 'conflict', message: 'This work order has nothing to pay for' });
+    return this.recordPayment({ ...(b ? { booking_id: b.id } : { quotation_id: q!.id }), method: payment.method, reference: payment.reference ?? null, amount_cents: payment.amount_cents, idempotency_key: payment.idempotency_key, stage }, true);
   }
   async assignTask(taskId: string, body: { assignee_id: string; reason?: string }): Promise<WorkOrder> {
     await delay();
@@ -667,16 +701,17 @@ export class DemoApi implements AdminApi {
     this.log('task.assign', 'task', taskId, { assignee: from }, { assignee: body.assignee_id, reason: body.reason }, w.outlet.id);
     this.pushActivity({ kind: 'assigned', title: `${w.ref} ${from ? 'reassigned' : 'assigned'} to ${w.assignee_name}`, subtitle: body.reason ?? `By ${this.actor().full_name}`, icon: 'assignment_ind', tone: 'neutral' });
     this.emit('work_orders');
-    return clone(w);
+    return this.woRow(w);
   }
-  /** `POST /work-orders/:id/checkin` — idempotent; records the check-in, then auto-assigns when the flag is on and nobody holds the task. */
-  async checkinWorkOrder(id: string, body: { bay?: string | null }): Promise<WorkOrder> {
+  /** `POST /work-orders/:id/checkin` — idempotent; records the optional counter payment (stage `checkin`) first, then the check-in, then auto-assigns when the flag is on and nobody holds the task. */
+  async checkinWorkOrder(id: string, body: { bay?: string | null; payment?: CounterPaymentInput | null }): Promise<WorkOrderCheckinResult> {
     await delay();
     this.requireRole('supervisor', 'manager', 'admin');
     const w = this.workOrders.find((x) => x.id === id || x.ref === id);
     if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found' });
     if (['verified', 'cancelled'].includes(w.status)) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Cannot check in a ${w.status} work order` });
-    if (w.checked_in_at) return clone(w); // already: true
+    const payment = await this.recordCounterPayment(w, body.payment, 'checkin');
+    if (w.checked_in_at) return { work_order: this.woRow(w), payment, already: true };
     const bay = body.bay?.trim() || w.bay;
     this.markCheckedIn(w, bay);
     this.log('work_order.check_in', 'work_order', w.id, { checked_in_at: null }, { checked_in_at: w.checked_in_at, bay }, w.outlet.id);
@@ -684,7 +719,7 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: 'assigned', title: `${w.ref} checked in${assignee ? ` · auto-assigned to ${assignee}` : ''}`, subtitle: `${w.vehicle.registration_no}${bay ? ` · ${bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
     this.afterCheckIn(w);
     this.emit('work_orders');
-    return clone(w);
+    return { work_order: this.woRow(w), payment, already: false };
   }
   /** Side effects of a check-in: a quote-based order marks its quotation `converted`; a booking-based one moves the booking to `in_service`. */
   private afterCheckIn(w: WorkOrder) {
@@ -752,7 +787,7 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: body.to === 'blocked' ? 'blocked' : body.to === 'verified' ? 'completed' : 'assigned', title: `${w.ref} → ${body.to.replace('_', ' ')}`, subtitle: body.reason ?? `${w.service.name} · ${w.vehicle.registration_no}`, icon: body.to === 'blocked' ? 'block' : body.to === 'verified' ? 'check_circle' : 'sync', tone: body.to === 'blocked' ? 'error' : body.to === 'verified' ? 'success' : 'neutral' });
     this.recomputeAlerts();
     this.emit('work_orders');
-    return clone(w);
+    return this.woRow(w);
   }
   /** Seed templates end with the supervisor step, so the technician steps are `step_count - 1`. */
   async verifyWorkOrder(id: string, body: { note?: string | null; override_reason?: string | null } = {}): Promise<WorkOrder> {
@@ -820,13 +855,14 @@ export class DemoApi implements AdminApi {
     if (this.payments.some((p) => p.booking_ref === b.ref && p.status === 'successful')) return;
     throw new ApiRequestError(409, { code: 'validation_error', message: `Cash payment of R ${(b.total_cents / 100).toFixed(2)} is due before the keys are released — record it under Payments first`, details: { reason: 'payment_due', booking_id: b.id, amount_cents: b.total_cents, method: 'cash' } });
   }
-  /** `POST /work-orders/:id/pickup/verify { otp }` — wrong code → 409 `invalid_otp` (5 attempts, then locked); success stamps `collected_at`. */
-  async verifyPickup(id: string, otp: string): Promise<PickupVerifyResult> {
+  /** `POST /work-orders/:id/pickup/verify { otp, payment? }` — the optional counter payment (stage `collection`) is recorded before the OTP is checked; wrong code → 409 `invalid_otp` (5 attempts, then locked); success stamps `collected_at`. */
+  async verifyPickup(id: string, otp: string, payment?: CounterPaymentInput | null): Promise<PickupVerifyResult> {
     await delay(260);
     this.requireStaff();
     const w = this.pickupTarget(id);
     const code = String(otp ?? '').trim();
     if (!/^\d{5}$/.test(code)) throw new ApiRequestError(400, { code: 'validation_error', message: 'OTP is 5 digits', details: [{ path: 'otp', message: 'OTP is 5 digits' }] });
+    const recorded = await this.recordCounterPayment(w, payment, 'collection');
     this.assertCashSettled(w);
     const state = this.pickup.get(w.id)!;
     if (state.failures >= PICKUP_OTP_MAX_ATTEMPTS) throw new ApiRequestError(409, { code: 'conflict', message: 'OTP attempts exhausted for this work order', details: { locked: true, attempts: state.failures, max_attempts: PICKUP_OTP_MAX_ATTEMPTS } });
@@ -848,7 +884,7 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: 'completed', title: `${w.ref} collected · keys released`, subtitle: `${w.vehicle.registration_no} · OTP verified by ${this.actor().full_name}`, icon: 'key', tone: 'success' });
     this.emit('work_orders');
     this.emit('bookings');
-    return { work_order: clone(w), collected_at: now, collected: true };
+    return { work_order: this.woRow(w), collected_at: now, collected: true, payment: recorded };
   }
   /** `POST /work-orders/:id/pickup/resend` — the *same* code again (push + WhatsApp), at most once a minute (429 otherwise). */
   async resendPickupOtp(id: string): Promise<PickupResendResult> {
@@ -865,7 +901,7 @@ export class DemoApi implements AdminApi {
     this.log('work_order.pickup_otp_resend', 'work_order', w.id, null, { channels: notification.map((n) => `${n.channel}:${n.status}`) }, w.outlet.id);
     this.emit('work_orders');
     this.emit('notifications');
-    return { work_order: clone(w), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
+    return { work_order: this.woRow(w), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
   }
   async team(p: OutletScoped): Promise<TeamMember[]> {
     await delay(60);
@@ -1301,13 +1337,16 @@ export class DemoApi implements AdminApi {
    * `POST /bookings/:id/checkin` — explicit "car checked in" for a pending / confirmed booking: stamps the work order
    * the booking already has (`created: false`); legacy bookings without one get it created and checked in.
    */
-  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult> {
+  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority; payment?: CounterPaymentInput | null }): Promise<BookingCheckinResult> {
     await delay(260);
     this.requireStaff();
     const b = this.bookings.find((x) => x.id === id);
     if (!b) throw new ApiRequestError(404, { code: 'not_found', message: 'Booking not found' });
     this.requireOutletAccess(b.outlet_id);
     if (!['pending', 'confirmed', 'in_service'].includes(b.status)) throw new ApiRequestError(409, { code: 'invalid_transition', message: `Cannot check in a ${b.status} booking` });
+    // The counter payment (stage `checkin`) is recorded first — a refused one fails the whole call; it also confirms a `pending` booking.
+    const payment = body.payment ? await this.recordPayment({ booking_id: b.id, method: body.payment.method, reference: body.payment.reference ?? null, amount_cents: body.payment.amount_cents, idempotency_key: body.payment.idempotency_key, stage: 'checkin' }, true) : null;
+    if (payment && b.status === 'pending') b.status = 'confirmed';
     const existing = this.workOrders.find((x) => x.booking_ref === b.ref);
     const work_order = existing ?? this.openWorkOrder(b, body);
     if (existing && !existing.checked_in_at) {
@@ -1321,7 +1360,7 @@ export class DemoApi implements AdminApi {
     this.pushActivity({ kind: 'assigned', title: `${b.ref} checked in${work_order.assignee_name ? ` · auto-assigned to ${work_order.assignee_name}` : ''}`, subtitle: `${outletShort(b.outlet_id)} · ${work_order.vehicle.registration_no}${work_order.bay ? ` · ${work_order.bay}` : ''} · by ${this.actor().full_name}`, icon: 'garage', tone: 'primary' });
     this.emit('bookings');
     const booking = this.expandBooking(b);
-    return { booking, work_order: booking.work_order, created: !existing };
+    return { booking, work_order: booking.work_order, created: !existing, payment };
   }
   /**
    * Opens the confirmed booking's work order (what confirming a booking does server-side). With `checkin` it is
@@ -1340,7 +1379,7 @@ export class DemoApi implements AdminApi {
       vehicle: { registration_no: v.registration_no, make: v.make, model: v.model }, service: { name: s.name, category: s.category }, status: 'queued',
       priority: checkin?.priority ?? 2, bay, assignee_id: null, assignee_name: null, eta_at: end.toISOString(), due_at: new Date(end.getTime() + 15 * 60000).toISOString(),
       started_at: null, blocked_reason: null, steps_done: 0, step_count: tpl?.steps.length ?? 0, task_id: nextId('task'), events: [], updated_at: nowIso(),
-      checked_in_at: null, checked_in_by_name: null,
+      checked_in_at: null, checked_in_by_name: null, amount_due_cents: 0, payment_method: null, payment: null,
     };
     this.workOrders.push(w);
     this.log('work_order.create', 'work_order', w.id, null, { ref: w.ref, booking: b.ref, checked_in: Boolean(checkin) }, b.outlet_id);
@@ -1355,9 +1394,13 @@ export class DemoApi implements AdminApi {
     return w;
   }
 
-  /** `POST /payments/record` — counter payment for a booking (`booking_id`) or an accepted quotation (`quotation_id`); same validations as the API. */
-  async recordPayment(input: RecordPaymentInput): Promise<PosPayment> {
-    await delay(260);
+  /**
+   * `POST /payments/record` — counter payment for a booking (`booking_id`) or an accepted quotation (`quotation_id`); same
+   * validations as the API: `eft` needs a transfer `reference`, `stage` is inferred from the booking status (or the
+   * quotation's work order) when not given. `nested` skips the delay when called from a check-in / hand-over.
+   */
+  async recordPayment(input: RecordPaymentInput, nested = false): Promise<PosPayment> {
+    if (!nested) await delay(260);
     this.requireStaff();
     const key = input.idempotency_key ?? `pos-${uuid()}`;
     const prior = this.ops.get(`payment:${key}`);
@@ -1365,14 +1408,16 @@ export class DemoApi implements AdminApi {
     if (Boolean(input.booking_id) === Boolean(input.quotation_id)) {
       throw new ApiRequestError(400, { code: 'validation_error', message: 'Exactly one of booking_id or quotation_id is required', details: [{ path: 'booking_id', message: 'booking_id or quotation_id' }] });
     }
-    if (!['cash', 'card_terminal'].includes(input.method)) throw new ApiRequestError(400, { code: 'validation_error', message: 'method must be cash or card_terminal', details: [{ path: 'method', message: 'Invalid' }] });
-    let target: { kind: 'booking' | 'quotation'; id: string; ref: string; outlet_id: string; customer_id: string; total: number };
+    if (!['cash', 'card_terminal', 'eft'].includes(input.method)) throw new ApiRequestError(400, { code: 'validation_error', message: 'method must be cash, card_terminal or eft', details: [{ path: 'method', message: 'Invalid' }] });
+    if (input.method === 'eft' && !input.reference?.trim()) throw new ApiRequestError(400, { code: 'validation_error', message: 'An EFT payment needs the transfer reference', details: [{ path: 'reference', message: 'Required for eft' }] });
+    if (input.stage && !['booking', 'checkin', 'collection'].includes(input.stage)) throw new ApiRequestError(400, { code: 'validation_error', message: 'stage must be booking, checkin or collection', details: [{ path: 'stage', message: 'Invalid' }] });
+    let target: { kind: 'booking' | 'quotation'; id: string; ref: string; outlet_id: string; customer_id: string; total: number; status?: string };
     if (input.booking_id) {
       const b = this.bookings.find((x) => x.id === input.booking_id);
       if (!b) throw new ApiRequestError(404, { code: 'not_found', message: 'Booking not found' });
       if (b.status === 'cancelled') throw new ApiRequestError(409, { code: 'invalid_transition', message: 'Cannot record a payment for a cancelled booking' });
       if (this.payments.some((p) => p.booking_ref === b.ref && p.status === 'successful')) throw new ApiRequestError(409, { code: 'conflict', message: 'This booking is already paid' });
-      target = { kind: 'booking', id: b.id, ref: b.ref, outlet_id: b.outlet_id, customer_id: b.customer_id, total: b.total_cents };
+      target = { kind: 'booking', id: b.id, ref: b.ref, outlet_id: b.outlet_id, customer_id: b.customer_id, total: b.total_cents, status: b.status };
     } else {
       const q = this.quotations.find((x) => x.id === input.quotation_id);
       if (!q) throw new ApiRequestError(404, { code: 'not_found', message: 'Quotation not found' });
@@ -1383,16 +1428,17 @@ export class DemoApi implements AdminApi {
     }
     this.requireOutletAccess(target.outlet_id);
     if (input.amount_cents !== target.total) throw new ApiRequestError(400, { code: 'validation_error', message: `Amount must equal the ${target.kind} total (${this.fmtR(target.total)})`, details: [{ path: 'amount_cents', message: `Must equal ${target.kind} total` }] });
+    const stage: PaymentStage = input.stage ?? this.inferStage(target);
     const receipt = `RCP-${70010 + this.payments.length}`;
     const id = uuid();
     const now = nowIso();
     const customer_name = this.profile(target.customer_id)?.full_name ?? 'Customer';
     this.payments.unshift({ id, booking_id: target.kind === 'booking' ? target.id : null, booking_ref: target.kind === 'booking' ? target.ref : null, quotation_id: target.kind === 'quotation' ? target.id : null, quotation_ref: target.kind === 'quotation' ? target.ref : null, customer_name, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, verified_at: now, created_at: now });
-    const pos: PosPayment = { id, booking_id: target.kind === 'booking' ? target.id : null, quotation_id: target.kind === 'quotation' ? target.id : null, method: input.method, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, provider_ref: input.reference?.trim() || null, verified_at: now, created_at: now };
+    const pos: PosPayment = { id, booking_id: target.kind === 'booking' ? target.id : null, quotation_id: target.kind === 'quotation' ? target.id : null, method: input.method, provider: 'pos', amount_cents: input.amount_cents, status: 'successful', receipt_no: receipt, provider_ref: input.reference?.trim() || null, verified_at: now, created_at: now, stage, recorded_by: this.actor().id };
     this.posPayments.push(pos);
     this.ops.set(`payment:${key}`, id);
-    this.log('payment.record', 'payment', id, null, { [target.kind === 'booking' ? 'booking_ref' : 'quotation_ref']: target.ref, amount_cents: input.amount_cents, method: input.method, reference: pos.provider_ref, receipt_no: receipt }, target.outlet_id);
-    this.pushActivity({ kind: 'payment', title: `${this.fmtR(input.amount_cents)} ${input.method === 'cash' ? 'cash' : 'card'} payment recorded · ${target.ref}`, subtitle: `${receipt} · attested by ${this.actor().full_name}`, icon: 'point_of_sale', tone: 'primary' });
+    this.log('payment.record', 'payment', id, null, { [target.kind === 'booking' ? 'booking_ref' : 'quotation_ref']: target.ref, amount_cents: input.amount_cents, method: input.method, reference: pos.provider_ref, receipt_no: receipt, stage, captured_by: this.actor().id }, target.outlet_id);
+    this.pushActivity({ kind: 'payment', title: `${this.fmtR(input.amount_cents)} ${input.method === 'cash' ? 'cash' : input.method === 'eft' ? 'EFT' : 'card'} payment recorded${stage === 'checkin' ? ' at check-in' : stage === 'collection' ? ' at collection' : ''} · ${target.ref}`, subtitle: `${receipt} · attested by ${this.actor().full_name}`, icon: 'point_of_sale', tone: 'primary' });
     this.emit('payments');
     if (target.kind === 'quotation') this.emit('quotations');
     else this.emit('bookings');

@@ -162,6 +162,7 @@ insert into public.notification_templates (key, channel, title, body, is_promoti
  ('points_posted','push','Points posted','+{{points}} pts added. Balance {{balance}}.',false,null,null,'{}'),
  ('low_stock','push','Low stock alert','{{item}} at {{outlet}} is below threshold ({{on_hand}}/{{threshold}}).',false,null,null,'{}'),
  ('task_assigned','push','New task','{{ref}} assigned to you · {{service}} · bay {{bay}}.',false,null,null,'{}'),
+ ('task_verify_requested','push','Verification needed','{{ref}} · {{service}} · bay {{bay}} is ready for your sign-off.',false,null,null,'{}'),
  ('promo_weekend','whatsapp',null,'Weekend special: 15% off Premium Detail. Book in the Sparkling app.',true,null,null,'{}');
 
 insert into public.feature_flags (key, enabled, description) values
@@ -267,13 +268,14 @@ insert into public.payment_methods (id, customer_id, provider, token, brand, las
  ('50000000-0000-4000-8000-000000000001','seed_thabo','sandbox','tok_sandbox_visa_4242','visa','4242','Visa •••• 4242',true),
  ('50000000-0000-4000-8000-000000000002','seed_thabo','sandbox','tok_sandbox_eft','eft',null,'Instant EFT',false);
 
-insert into public.payments (id, booking_id, customer_id, provider, provider_ref, method_id, amount_cents, status, receipt_no, idempotency_key, verified_at, created_at) values
- ('60000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','seed_thabo','sandbox','pi_sbx_0091','50000000-0000-4000-8000-000000000001',19800,'successful','RCP-70001','pay-seed-0091', now() - interval '2 days', now() - interval '2 days'),
- ('60000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000003','seed_thabo','sandbox','pi_sbx_0067','50000000-0000-4000-8000-000000000001',40500,'successful','RCP-70002','pay-seed-0067', now() - interval '24 days', now() - interval '24 days'),
- ('60000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000004','seed_thabo','sandbox','pi_sbx_0052','50000000-0000-4000-8000-000000000001',12000,'successful','RCP-70003','pay-seed-0052', now() - interval '40 days', now() - interval '40 days'),
- ('60000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000005','seed_naledi','sandbox','pi_sbx_0092',null,12000,'successful','RCP-70004','pay-seed-0092', now() - interval '80 min', now() - interval '85 min'),
- ('60000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000007','seed_zanele','sandbox','pi_sbx_0095',null,38250,'pending',null,'pay-seed-0095', null, now() - interval '30 min'),
- ('60000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000002','seed_thabo','sandbox','pi_sbx_0094','50000000-0000-4000-8000-000000000001',10800,'successful','RCP-70005','pay-seed-0094', now() - interval '3 hours', now() - interval '3 hours');
+-- `stage` (migration 0022): online sandbox payments were taken at booking time.
+insert into public.payments (id, booking_id, customer_id, provider, provider_ref, method_id, amount_cents, status, receipt_no, idempotency_key, verified_at, created_at, stage) values
+ ('60000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','seed_thabo','sandbox','pi_sbx_0091','50000000-0000-4000-8000-000000000001',19800,'successful','RCP-70001','pay-seed-0091', now() - interval '2 days', now() - interval '2 days','booking'),
+ ('60000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000003','seed_thabo','sandbox','pi_sbx_0067','50000000-0000-4000-8000-000000000001',40500,'successful','RCP-70002','pay-seed-0067', now() - interval '24 days', now() - interval '24 days','booking'),
+ ('60000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000004','seed_thabo','sandbox','pi_sbx_0052','50000000-0000-4000-8000-000000000001',12000,'successful','RCP-70003','pay-seed-0052', now() - interval '40 days', now() - interval '40 days','booking'),
+ ('60000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000005','seed_naledi','sandbox','pi_sbx_0092',null,12000,'successful','RCP-70004','pay-seed-0092', now() - interval '80 min', now() - interval '85 min','booking'),
+ ('60000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000007','seed_zanele','sandbox','pi_sbx_0095',null,38250,'pending',null,'pay-seed-0095', null, now() - interval '30 min','booking'),
+ ('60000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000002','seed_thabo','sandbox','pi_sbx_0094','50000000-0000-4000-8000-000000000001',10800,'successful','RCP-70005','pay-seed-0094', now() - interval '3 hours', now() - interval '3 hours','booking');
 
 insert into public.payment_events (payment_id, provider, provider_event_id, event_type, signature_ok, payload) values
  ('60000000-0000-4000-8000-000000000001','sandbox','evt_sbx_0091_1','payment.succeeded',true,'{"amount":19800}'),

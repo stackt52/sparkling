@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 import '../../app/router.dart';
 import '../../app/scope.dart';
 import '../../widgets/async_view.dart';
+import '../../widgets/counter_payment_fields.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/segmented_pills.dart';
 import '../quote/raise_quote_controller.dart';
@@ -34,8 +35,16 @@ class ScanReviewScreen extends StatefulWidget {
 class _ScanReviewScreenState extends State<ScanReviewScreen> {
   Future<List<Booking>>? _matches;
   final _bay = TextEditingController();
+  final _paymentReference = TextEditingController();
   int _priority = 2;
   bool _busy = false;
+
+  /// "Take payment now" for an unpaid booking (`payment` on the check-in).
+  bool _takePayment = false;
+  PaymentMethodKind _paymentMethod = PaymentMethodKind.cardTerminal;
+
+  /// One idempotency key per screen so a retried check-in never double-records.
+  String? _paymentOpId;
 
   ScanReviewArgs? get _args =>
       widget.args ??
@@ -50,6 +59,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   @override
   void dispose() {
     _bay.dispose();
+    _paymentReference.dispose();
     super.dispose();
   }
 
@@ -67,12 +77,27 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       if (Vehicle.normaliseRegistration(plate) != reg) return false;
       if (!b.status.isActive) return false;
       final d = b.slotStart.toLocal();
-      return d.year == today.year && d.month == today.month && d.day == today.day ||
+      return d.year == today.year &&
+              d.month == today.month &&
+              d.day == today.day ||
           b.status == BookingStatus.inService;
     }).toList()..sort((a, b) => a.slotStart.compareTo(b.slotStart));
   }
 
   Future<void> _checkIn(Booking booking) async {
+    CounterPaymentInput? payment;
+    if (_takePayment && booking.isPaymentDue) {
+      payment = CounterPaymentFields.inputFor(
+        method: _paymentMethod,
+        reference: _paymentReference,
+        amountCents: booking.totalCents,
+        idempotencyKey: _paymentOpId ??= SparklingApi.newOpId(),
+      );
+      if (payment == null) {
+        StaffSnack.show(context, 'Enter the EFT reference first.');
+        return;
+      }
+    }
     setState(() => _busy = true);
     try {
       final result = await runMutation(
@@ -81,14 +106,18 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           booking.id,
           bay: _bay.text.trim().isEmpty ? null : _bay.text.trim(),
           priority: _priority,
+          payment: payment,
         ),
         onConflict: () => setState(() => _matches = _findBookings()),
       );
       if (result != null && mounted) {
         StaffHaptics.success(context);
+        final receipt = payment == null || result.payment == null
+            ? ''
+            : ' · paid${result.payment!.receiptNo == null ? '' : ' ${result.payment!.receiptNo}'}';
         StaffSnack.show(
           context,
-          '${booking.ref} checked in${result.workOrder == null ? '' : ' · ${result.workOrder!.ref}'}',
+          '${booking.ref} checked in${result.workOrder == null ? '' : ' · ${result.workOrder!.ref}'}$receipt',
         );
         context.go(Routes.tasks);
       }
@@ -293,6 +322,21 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                           dot: true,
                         ),
                       ),
+                      if (booking.isPaymentDue) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: StatusChip(
+                            key: const ValueKey('scan-payment-due-chip'),
+                            label: booking.isCashOnCollection
+                                ? 'Cash on collection · ${Money.formatZar(booking.totalCents)} due'
+                                : 'Unpaid · ${Money.formatZar(booking.totalCents)}',
+                            tone: StatusChipTone.warning,
+                            icon: Symbols.payments_rounded,
+                            dense: true,
+                          ),
+                        ),
+                      ],
                       if (inService)
                         Padding(
                           padding: const EdgeInsets.only(top: 12),
@@ -322,10 +366,29 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                             PillSegment(value: 3, label: 'P3'),
                           ],
                         ),
+                        if (booking.isPaymentDue) ...[
+                          const SizedBox(height: 12),
+                          TakePaymentToggle(
+                            amountCents: booking.totalCents,
+                            value: _takePayment,
+                            enabled: !_busy,
+                            onChanged: (v) => setState(() => _takePayment = v),
+                            method: _paymentMethod,
+                            onMethodChanged: (m) =>
+                                setState(() => _paymentMethod = m),
+                            reference: _paymentReference,
+                            subtitle: booking.isCashOnCollection
+                                ? 'Cash on collection — the customer may also '
+                                      'pay now, at check-in.'
+                                : null,
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         PillButton(
-                          label: 'Check in ${booking.vehicle?.shortName ?? ''}'
-                              .trim(),
+                          label: _takePayment && booking.isPaymentDue
+                              ? 'Check in & record ${Money.formatZar(booking.totalCents)}'
+                              : 'Check in ${booking.vehicle?.shortName ?? ''}'
+                                    .trim(),
                           icon: Symbols.check_rounded,
                           expand: true,
                           minHeight: 56,

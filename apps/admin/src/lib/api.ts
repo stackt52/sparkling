@@ -15,6 +15,7 @@ import type {
   BookingDetail,
   BookingStatus,
   ChecklistTemplate,
+  CounterPaymentInput,
   CreateStaffInput,
   CreateStaffResult,
   CustomerDetail,
@@ -76,6 +77,7 @@ import type {
   WalkInCustomerInput,
   WalkInPriority,
   WorkOrder,
+  WorkOrderCheckinResult,
   WorkOrderSummary,
   WorkStatus,
 } from './types';
@@ -178,11 +180,12 @@ export interface AdminApi {
   getBooking(id: string): Promise<BookingDetail>;
   cancelBooking(id: string, reason: string): Promise<Booking>;
   /**
-   * Explicit "car checked in" for a `pending` / `confirmed` booking (`POST /bookings/:id/checkin { bay?, priority? }`):
+   * Explicit "car checked in" for a `pending` / `confirmed` booking (`POST /bookings/:id/checkin { bay?, priority?, payment? }`):
    * stamps `checked_in_at` on the work order the booking already has (created when it was confirmed; `created:false`),
-   * moves the booking to `in_service` and auto-assigns it when the `auto_assignment` flag is on.
+   * moves the booking to `in_service` and auto-assigns it when the `auto_assignment` flag is on. An optional `payment`
+   * (counter payment of the booking total, stage `checkin`) is recorded first — a refused payment fails the whole call.
    */
-  checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }): Promise<BookingCheckinResult>;
+  checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority; payment?: CounterPaymentInput | null }): Promise<BookingCheckinResult>;
   /** `POST /devices` — registers this browser's FCM token so staff pushes (quote_decided …) reach the dashboard. */
   registerDevice(input: { token: string; platform: 'web'; app: 'admin' }): Promise<void>;
 
@@ -220,18 +223,20 @@ export interface AdminApi {
    */
   verifyWorkOrder(id: string, body?: { note?: string | null; override_reason?: string | null }): Promise<WorkOrder>;
   /**
-   * Confirms the car is on site (`POST /work-orders/:id/checkin { bay? }`): records `checked_in_at` / `checked_in_by`
-   * and runs auto-assignment when the flag is on and the work order is unassigned. Idempotent (200 `already: true`).
+   * Confirms the car is on site (`POST /work-orders/:id/checkin { bay?, payment? }`): records `checked_in_at` / `checked_in_by`
+   * and runs auto-assignment when the flag is on and the work order is unassigned. Idempotent (200 `already: true`). An
+   * optional `payment` (stage `checkin`) is recorded first and answered in `payment`; a refused payment fails the whole call.
    */
-  checkinWorkOrder(id: string, body: { bay?: string | null }): Promise<WorkOrder>;
+  checkinWorkOrder(id: string, body: { bay?: string | null; payment?: CounterPaymentInput | null }): Promise<WorkOrderCheckinResult>;
   /**
-   * Vehicle hand-over (`POST /work-orders/:id/pickup/verify { otp }`): the customer presents the 5-digit collection OTP
+   * Vehicle hand-over (`POST /work-orders/:id/pickup/verify { otp, payment? }`): the customer presents the 5-digit collection OTP
    * issued when the work order was verified. 409 `invalid_otp` `{ attempts_remaining, locked }` on a wrong code (5
    * attempts, then locked), 409 `conflict` once collected (`details.collected_at`) or before an OTP was issued, and 409
    * `validation_error` `{ reason: 'payment_due', amount_cents, booking_id, method: 'cash' }` while a cash-on-collection
-   * booking is unpaid (record the payment first).
+   * booking is unpaid (record the payment first — or send it as `payment`, stage `collection`, which is recorded before
+   * the OTP is checked and answered in `payment`).
    */
-  verifyPickup(id: string, otp: string): Promise<PickupVerifyResult>;
+  verifyPickup(id: string, otp: string, payment?: CounterPaymentInput | null): Promise<PickupVerifyResult>;
   /** Re-sends the same collection OTP (push + WhatsApp); 429 `rate_limited` within a minute of the last send, 409 once collected. */
   resendPickupOtp(id: string): Promise<PickupResendResult>;
   team(params: OutletScoped): Promise<TeamMember[]>;
@@ -520,14 +525,15 @@ export class HttpApi implements AdminApi {
   async cancelBooking(id: string, reason: string) {
     return (await this.request<{ booking: Booking }>('POST', `/bookings/${id}/cancel`, { reason })).booking;
   }
-  /** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }`; the bare `work_orders` row is mapped onto the summary shape. */
-  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority }) {
-    const res = await this.request<{ booking: Booking; work_order: (Partial<WorkOrderSummary> & { id: string; ref: string; status: WorkStatus }) | null; created?: boolean }>('POST', `/bookings/${id}/checkin`, body);
+  /** `POST /bookings/:id/checkin` → `{ booking, work_order, task, created, payment }`; the bare `work_orders` row is mapped onto the summary shape. */
+  async checkinBooking(id: string, body: { bay?: string | null; priority?: WalkInPriority; payment?: CounterPaymentInput | null }) {
+    const { payment, ...rest } = body;
+    const res = await this.request<{ booking: Booking; work_order: (Partial<WorkOrderSummary> & { id: string; ref: string; status: WorkStatus }) | null; created?: boolean; payment?: PosPayment | null }>('POST', `/bookings/${id}/checkin`, payment ? { ...rest, payment } : rest);
     const w = res.work_order;
     const work_order: WorkOrderSummary | null = w
       ? { id: w.id, ref: w.ref, status: w.status, stage: w.stage ?? 0, stage_count: w.stage_count ?? 0, progress_pct: w.progress_pct ?? 0, assignee_id: w.assignee_id ?? null, assignee_name: w.assignee_name ?? null, bay: w.bay ?? body.bay ?? null, eta_at: w.eta_at ?? null, blocked_reason: w.blocked_reason ?? null, checked_in_at: w.checked_in_at ?? new Date().toISOString() }
       : null;
-    return { booking: res.booking, work_order, created: res.created ?? false };
+    return { booking: res.booking, work_order, created: res.created ?? false, payment: res.payment ?? null };
   }
   async registerDevice(input: { token: string; platform: 'web'; app: 'admin' }) {
     await this.request('POST', '/devices', input);
@@ -581,17 +587,18 @@ export class HttpApi implements AdminApi {
     const { task } = await this.request<{ task: Task }>('POST', `/tasks/${taskId}/assign`, body);
     return this.getWorkOrder(task.work_order_id);
   }
-  /** `POST /work-orders/:id/checkin` answers `{ work_order, task, already }`; the board card is re-read from `/admin/work-orders/:id`. */
-  async checkinWorkOrder(id: string, body: { bay?: string | null }) {
-    await this.request<{ work_order: { id: string }; task: Task | null; already: boolean }>('POST', `/work-orders/${id}/checkin`, body);
-    return this.getWorkOrder(id);
+  /** `POST /work-orders/:id/checkin` answers `{ work_order, task, already, payment }`; the board card is re-read from `/admin/work-orders/:id`. */
+  async checkinWorkOrder(id: string, body: { bay?: string | null; payment?: CounterPaymentInput | null }) {
+    const { payment, ...rest } = body;
+    const res = await this.request<{ work_order: { id: string }; task: Task | null; already: boolean; payment?: PosPayment | null }>('POST', `/work-orders/${id}/checkin`, payment ? { ...rest, payment } : rest);
+    return { work_order: await this.getWorkOrder(id), payment: res.payment ?? null, already: Boolean(res.already) };
   }
   /** `POST /work-orders/:id/pickup/verify` answers with the bare row; the board card is re-read and `collected_at` overlaid (the admin shape may not carry it). */
-  async verifyPickup(id: string, otp: string) {
-    const res = await this.request<{ work_order: { id: string; collected_at?: string | null; pickup_otp_verified_at?: string | null }; collected_at: string; collected: boolean }>('POST', `/work-orders/${id}/pickup/verify`, { otp });
+  async verifyPickup(id: string, otp: string, payment?: CounterPaymentInput | null) {
+    const res = await this.request<{ work_order: { id: string; collected_at?: string | null; pickup_otp_verified_at?: string | null }; collected_at: string; collected: boolean; payment?: PosPayment | null }>('POST', `/work-orders/${id}/pickup/verify`, payment ? { otp, payment } : { otp });
     const row = await this.getWorkOrder(id);
     const collected_at = row.collected_at ?? res.collected_at ?? res.work_order.collected_at ?? new Date().toISOString();
-    return { work_order: { ...row, collected_at, pickup_otp_verified_at: row.pickup_otp_verified_at ?? res.work_order.pickup_otp_verified_at ?? collected_at }, collected_at, collected: true as const };
+    return { work_order: { ...row, collected_at, pickup_otp_verified_at: row.pickup_otp_verified_at ?? res.work_order.pickup_otp_verified_at ?? collected_at }, collected_at, collected: true as const, payment: res.payment ?? null };
   }
   async resendPickupOtp(id: string) {
     const res = await this.request<{ work_order: { id: string }; notification?: PickupResendResult['notification']; retry_after_seconds?: number }>('POST', `/work-orders/${id}/pickup/resend`, {});

@@ -2,10 +2,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { clientOpId, parseBody, parseQuery, uuid } from '../lib/validate.js';
-import { canSeeOutlet, requireProfile, requireStaff, requireSupervisor, seesAllOutlets } from '../middleware/auth.js';
+import { clientOpId, isoDateTime, parseBody, parseQuery, uuid } from '../lib/validate.js';
+import { canSeeOutlet, isSupervisor, requireProfile, requireStaff, requireSupervisor, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
-import { assignTask, transitionTask } from '../services/workflow.js';
+import { assignTask, AWAITING_VERIFICATION_STATUSES, transitionTask } from '../services/workflow.js';
 import type { Task, WorkOrder } from '../types.js';
 
 export const tasksRouter = Router();
@@ -17,14 +17,15 @@ export async function expandTasks(rows: Array<Task & { work_order: (Partial<Work
   if (!rows.length) return rows;
   const db = getSupabase();
   const woIds = rows.map((r) => r.work_order_id);
-  // Cash-on-collection bookings: tell staff whether the counter payment is recorded yet.
-  const cashBookingIds = rows.map((r) => (r.work_order?.booking as { id?: string; payment_method?: string | null } | null | undefined)).filter((b) => b?.id && b.payment_method === 'cash').map((b) => b!.id as string);
-  const [results, templates, cashPaid] = await Promise.all([
+  // Every booking: tell staff whether a successful payment is on file (cash on collection, or a card
+  // booking that is still unpaid and can be settled at check-in / hand-over).
+  const bookingIds = [...new Set(rows.map((r) => (r.work_order?.booking as { id?: string } | null | undefined)?.id).filter(Boolean))] as string[];
+  const [results, templates, paidRows] = await Promise.all([
     db.from('checklist_step_results').select('work_order_id, status').in('work_order_id', woIds),
     db.from('checklist_templates').select('id, steps').in('id', [...new Set(rows.map((r) => r.work_order?.checklist_template_id).filter(Boolean))] as string[]),
-    cashBookingIds.length ? db.from('payments').select('booking_id').in('booking_id', cashBookingIds).eq('status', 'successful') : Promise.resolve({ data: [] as Array<{ booking_id: string }> }),
+    bookingIds.length ? db.from('payments').select('booking_id').in('booking_id', bookingIds).eq('status', 'successful') : Promise.resolve({ data: [] as Array<{ booking_id: string }> }),
   ]);
-  const paidBookings = new Set(((cashPaid.data ?? []) as Array<{ booking_id: string }>).map((p) => p.booking_id));
+  const paidBookings = new Set(((paidRows.data ?? []) as Array<{ booking_id: string }>).map((p) => p.booking_id));
   const doneCount = new Map<string, number>();
   for (const r of (results.data ?? []) as Array<{ work_order_id: string; status: string }>) {
     if (r.status === 'done') doneCount.set(r.work_order_id, (doneCount.get(r.work_order_id) ?? 0) + 1);
@@ -36,7 +37,7 @@ export async function expandTasks(rows: Array<Task & { work_order: (Partial<Work
       ? {
           ...t.work_order,
           booking: t.work_order.booking
-            ? { ...(t.work_order.booking as Record<string, unknown>), paid: (t.work_order.booking as { payment_method?: string | null }).payment_method === 'cash' ? paidBookings.has((t.work_order.booking as { id: string }).id) : null }
+            ? { ...(t.work_order.booking as Record<string, unknown>), paid: paidBookings.has((t.work_order.booking as { id: string }).id) }
             : null,
           progress: {
             steps_done: doneCount.get(t.work_order_id) ?? 0,
@@ -50,22 +51,54 @@ export async function expandTasks(rows: Array<Task & { work_order: (Partial<Work
 tasksRouter.get(
   '/tasks',
   asyncHandler(async (req, res) => {
-    const q = parseQuery(z.object({ scope: z.enum(['mine', 'queue', 'done']).default('mine'), outlet_id: uuid.optional(), limit: z.coerce.number().int().min(1).max(200).default(100) }), req.query);
+    const q = parseQuery(
+      z.object({
+        scope: z.enum(['mine', 'queue', 'done']).default('mine'),
+        outlet_id: uuid.optional(),
+        limit: z.coerce.number().int().min(1).max(200).default(100),
+        /** Period filter (`queue`/`done` only): half-open `[from, to)` — `done` by `completed_at`, `queue` by `due_at` or `created_at`. */
+        from: isoDateTime.optional(),
+        to: isoDateTime.optional(),
+      }),
+      req.query,
+    );
+    if ((q.from && !q.to) || (!q.from && q.to)) throw ApiError.validation('from and to must be given together', [{ path: q.from ? 'to' : 'from', message: 'required' }]);
+    if (q.from && q.to && new Date(q.from) >= new Date(q.to)) throw ApiError.validation('from must be before to', [{ path: 'to', message: 'must be after from' }]);
+    const range = q.from && q.to ? { from: new Date(q.from).toISOString(), to: new Date(q.to).toISOString() } : null;
     const auth = req.auth!;
     const db = getSupabase();
-    let query = db.from('tasks').select(TASK_EXPAND).limit(q.limit);
-    if (q.outlet_id) {
-      if (!canSeeOutlet(auth, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
-      query = query.eq('outlet_id', q.outlet_id);
-    } else if (!seesAllOutlets(auth.role)) {
-      if (!auth.outletIds.length) return res.json({ data: [] });
-      query = query.in('outlet_id', auth.outletIds);
-    }
+    if (q.outlet_id && !canSeeOutlet(auth, q.outlet_id)) throw ApiError.forbidden('Outlet is outside your scope');
+    if (!q.outlet_id && !seesAllOutlets(auth.role) && !auth.outletIds.length) return res.json({ data: [] });
+    const scoped = () => {
+      const base = db.from('tasks').select(TASK_EXPAND).limit(q.limit);
+      if (q.outlet_id) return base.eq('outlet_id', q.outlet_id);
+      if (!seesAllOutlets(auth.role)) return base.in('outlet_id', auth.outletIds);
+      return base;
+    };
+    let query = scoped();
     if (q.scope === 'mine') query = query.eq('assignee_id', auth.uid).in('status', ['assigned', 'in_progress', 'blocked', 'completed']).order('priority').order('due_at', { ascending: true, nullsFirst: false });
-    else if (q.scope === 'queue') query = query.in('status', ['queued', 'assigned', 'in_progress', 'blocked']).order('priority').order('due_at', { ascending: true, nullsFirst: false });
-    else query = query.in('status', ['completed', 'verified']).order('completed_at', { ascending: false });
-    const rows = unwrap<Array<Task & { work_order: Record<string, unknown> | null }>>(await query, 'tasks');
-    res.json({ data: await expandTasks(rows as any), scope: q.scope });
+    else if (q.scope === 'queue') {
+      query = query.in('status', ['queued', 'assigned', 'in_progress', 'blocked']).order('priority').order('due_at', { ascending: true, nullsFirst: false });
+      // Work scheduled in the period, or raised during it (walk-ins / quotation conversions without a slot).
+      if (range) query = query.or(`and(due_at.gte.${range.from},due_at.lt.${range.to}),and(created_at.gte.${range.from},created_at.lt.${range.to})`);
+    } else {
+      query = query.in('status', ['completed', 'verified']).order('completed_at', { ascending: false });
+      if (range) query = query.gte('completed_at', range.from).lt('completed_at', range.to);
+    }
+    type Row = Task & { work_order: Record<string, unknown> | null };
+    const rows = unwrap<Row[]>(await query, 'tasks');
+    if (q.scope === 'mine' && isSupervisor(auth.role)) {
+      // Supervisors also own the sign-offs: tasks in their outlets whose checklist reached the
+      // supervisor step (STF-033) join their list even though they are assigned to the technician.
+      const awaiting = unwrap<Row[]>(
+        await scoped().not('verification_requested_at', 'is', null).in('status', AWAITING_VERIFICATION_STATUSES).order('verification_requested_at', { ascending: true }),
+        'tasks awaiting verification',
+      );
+      const seen = new Set(rows.map((r) => r.id));
+      for (const t of awaiting) if (!seen.has(t.id)) rows.push(t);
+      rows.sort((a, b) => a.priority - b.priority || (a.due_at ?? '\uffff').localeCompare(b.due_at ?? '\uffff'));
+    }
+    res.json({ data: await expandTasks(rows as any), scope: q.scope, ...(range ? { from: range.from, to: range.to } : {}) });
   }),
 );
 

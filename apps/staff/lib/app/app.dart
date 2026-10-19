@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
 import 'app_settings.dart';
+import 'push_messages.dart';
 import 'router.dart';
 import 'scope.dart';
 import 'session.dart';
@@ -33,11 +36,19 @@ class _StaffAppState extends State<StaffApp> with WidgetsBindingObserver {
     widget.repositories,
   );
   late final GoRouter _router = buildRouter(_session);
+  final GlobalKey<ScaffoldMessengerState> _messenger =
+      GlobalKey<ScaffoldMessengerState>();
+  StaffPushMessages? _push;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Live mode only: demo runs without Firebase.
+    if (!widget.repositories.demo) {
+      _push = StaffPushMessages(router: _router, messenger: _messenger);
+      unawaited(_push!.start());
+    }
   }
 
   @override
@@ -48,6 +59,7 @@ class _StaffAppState extends State<StaffApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _push?.dispose();
     _router.dispose();
     _sync.dispose();
     _session.dispose();
@@ -73,6 +85,7 @@ class _StaffAppState extends State<StaffApp> with WidgetsBindingObserver {
               child: MaterialApp.router(
                 title: Env.appName,
                 debugShowCheckedModeBanner: false,
+                scaffoldMessengerKey: _messenger,
                 theme: SparklingTheme.light(),
                 darkTheme: SparklingTheme.dark(),
                 themeMode: _settings.themeMode,

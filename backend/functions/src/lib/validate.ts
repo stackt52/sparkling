@@ -31,3 +31,19 @@ export const nonEmpty = z.string().trim().min(1);
 export const vehicleSize = z.enum(['small', 'large', 'bike']);
 export const pricingMode = z.enum(['from', 'fixed', 'by_quote']);
 export const vatMode = z.enum(['incl', 'excl']);
+
+/**
+ * Counter payment carried by a check-in or hand-over call (`POST /work-orders/:id/checkin`,
+ * `POST /bookings/:id/checkin`, `POST /work-orders/:id/pickup/verify`): same fields as
+ * `POST /payments/record` minus the target, which is the call's booking / quotation.
+ */
+export const counterPayment = z
+  .object({
+    method: z.enum(['cash', 'card_terminal', 'eft']),
+    /** Till / terminal slip / EFT reference (required for EFT). */
+    reference: z.string().trim().max(64).nullable().optional(),
+    amount_cents: z.number().int().min(0),
+    idempotency_key: z.string().min(6).max(128),
+  })
+  .refine((p) => p.method !== 'eft' || !!p.reference?.trim(), { message: 'An EFT payment needs the transfer reference', path: ['reference'] });
+export type CounterPaymentBody = z.infer<typeof counterPayment>;

@@ -618,6 +618,22 @@ class Booking extends Equatable {
       (membership?.isIncluded ?? false);
 
   bool get isPaid => payment?.status.isVerified ?? false;
+
+  /// Something is still owed on this booking (no successful payment, total
+  /// > 0, not cancelled). Staff may take it at check-in or at collection.
+  bool get isPaymentDue =>
+      totalCents > 0 && !isPaid && status != BookingStatus.cancelled;
+
+  /// The customer can pay in-app now: unpaid, and the booking is live —
+  /// awaiting payment, confirmed, checked in or ready for collection (keys
+  /// not yet released).
+  bool get canPayNow =>
+      isPaymentDue &&
+      !(workOrder?.isCollected ?? false) &&
+      (status == BookingStatus.pending ||
+          status == BookingStatus.confirmed ||
+          status == BookingStatus.inService ||
+          status == BookingStatus.completed);
   bool get canCancel => status.canCancel;
   bool get isUpcoming =>
       status == BookingStatus.confirmed || status == BookingStatus.pending;

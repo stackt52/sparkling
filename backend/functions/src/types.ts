@@ -14,6 +14,12 @@ export type StepStatus = 'pending' | 'done' | 'blocked' | 'skipped';
 export type StepType = 'confirm' | 'text' | 'numeric' | 'select' | 'photo' | 'ack' | 'supervisor_verify';
 export type PaymentStatus = 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded';
 export type PosPaymentMethod = 'cash' | 'card_terminal' | 'card' | 'eft';
+/** Counter methods staff / admins may attest (`POST /payments/record`). */
+export const POS_PAYMENT_METHODS = ['cash', 'card_terminal', 'eft'] as const;
+export type CounterPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
+/** When a payment was captured (migration 0022): online at booking time, or at the counter on check-in / collection. */
+export type PaymentStage = 'booking' | 'checkin' | 'collection';
+export const PAYMENT_STAGES: PaymentStage[] = ['booking', 'checkin', 'collection'];
 export type LoyaltyTier = 'silver' | 'gold' | 'platinum' | 'black';
 export type LedgerType = 'earn' | 'redeem' | 'adjust' | 'expire' | 'bonus';
 export type InventoryReason = 'usage' | 'receive' | 'adjust' | 'reorder_request' | 'count';
@@ -340,6 +346,8 @@ export interface Task {
   completed_at: string | null;
   elapsed_seconds: number;
   client_op_id: string | null;
+  /** Set when the checklist reached its `supervisor_verify` step (or the task was completed) and the outlet supervisors were asked to sign off; null again on rework. */
+  verification_requested_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -376,6 +384,8 @@ export interface Payment {
   /** POS attestation (migration 0005): how it was paid and which staff member recorded it. */
   method: PosPaymentMethod | null;
   recorded_by: string | null;
+  /** When it was captured (migration 0022): `booking` online, `checkin` / `collection` at the counter. */
+  stage?: PaymentStage | null;
   /** Membership invoice this payment settles (migration 0010); `booking_id` stays null. */
   membership_invoice_id?: string | null;
   created_at: string;

@@ -8,10 +8,10 @@ import { canSeePickupOtp, otpMatches, redactPickupOtp } from '../lib/otp.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { assertOutlet } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
-import type { RequestContext, WorkOrder } from '../types.js';
+import type { Payment, RequestContext, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
 import { notify } from './notifications.js';
-import { vehicleLabel } from './workflow.js';
+import { recordWorkOrderPayment, vehicleLabel, type CheckInPayment } from './workflow.js';
 
 export const PICKUP_OTP_MAX_ATTEMPTS = 5;
 export const PICKUP_RESEND_INTERVAL_MS = 60_000;
@@ -33,18 +33,25 @@ async function failedAttempts(workOrderId: string): Promise<number> {
 export interface VerifyPickupResult {
   work_order: WorkOrder;
   collected_at: string;
+  /** Counter payment recorded as part of this hand-over (null when none was sent). */
+  payment: Payment | null;
 }
 
 /**
  * Staff verify the OTP the customer presents. Wrong OTP → 409 `invalid_otp`
  * with `attempts_remaining`; after PICKUP_OTP_MAX_ATTEMPTS failures the work
  * order is locked (409 `conflict`, `locked:true`) until a manager intervenes.
+ * An optional `payment` (cash / card terminal / EFT) is recorded against the
+ * booking / quotation at stage `collection` before the OTP is checked, so a
+ * cash-on-collection balance can be settled and the keys released in one call;
+ * the keys are still never released while that balance is due.
  */
-export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp: string): Promise<VerifyPickupResult> {
+export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp: string, opts: { payment?: CheckInPayment | null } = {}): Promise<VerifyPickupResult> {
   const db = getSupabase();
   const wo = await loadForStaff(ctx, workOrderId);
   if (wo.collected_at) throw ApiError.conflict('Vehicle has already been collected', { collected_at: wo.collected_at });
   if (!wo.pickup_otp) throw ApiError.conflict('No collection OTP has been issued for this work order (it must be verified first)', { status: wo.status });
+  const payment = opts.payment ? await recordWorkOrderPayment(ctx, wo, opts.payment, 'collection') : null;
   await assertCashSettled(wo.booking_id);
 
   const task = await db.from('tasks').select('id').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle();
@@ -80,9 +87,9 @@ export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp
     event: 'collected',
     from_status: wo.status,
     to_status: wo.status,
-    metadata: { otp_attempts: attempts + 1 },
+    metadata: { otp_attempts: attempts + 1, payment_id: payment?.id ?? null },
   });
-  await audit(ctx, { action: 'work_order.collected', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { collected_at: now, verified_by: ctx.auth.uid } });
+  await audit(ctx, { action: 'work_order.collected', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { collected_at: now, verified_by: ctx.auth.uid, payment_id: payment?.id ?? null, receipt_no: payment?.receipt_no ?? null } });
   // Tell the customer their keys were handed over (push; never blocks the release).
   try {
     const outlet = await db.from('outlets').select('name, timezone').eq('id', wo.outlet_id).maybeSingle();
@@ -99,7 +106,7 @@ export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp
   } catch (err) {
     ctx.log.warn({ err, work_order_id: wo.id }, 'vehicle_collected notification failed');
   }
-  return { work_order: redactPickupOtp(ctx.auth, updated), collected_at: now };
+  return { work_order: redactPickupOtp(ctx.auth, updated), collected_at: now, payment };
 }
 
 export interface ResendPickupResult {

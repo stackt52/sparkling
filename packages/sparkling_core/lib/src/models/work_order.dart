@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../api/api_exception.dart';
 import 'enums.dart';
 import 'json.dart';
+import 'payment.dart';
 
 /// One step of a `checklist_templates.steps` array.
 class ChecklistStep extends Equatable {
@@ -432,6 +433,11 @@ class WorkOrderBooking extends Equatable {
   /// Cash must be recorded at the counter before the keys are released.
   bool get isCashDue => isCashOnCollection && totalCents > 0 && !paid;
 
+  /// Something is still owed (no successful payment yet) — staff may take
+  /// it at check-in or at collection, the customer may pay in-app.
+  bool get isUnpaid =>
+      totalCents > 0 && !paid && status != BookingStatus.cancelled;
+
   factory WorkOrderBooking.fromJson(Json json) => WorkOrderBooking(
     id: str(json['id']),
     ref: strOrNull(json['ref']),
@@ -562,6 +568,13 @@ class WorkOrder extends Equatable {
 
   /// Cash on collection still to be recorded before the keys are released.
   bool get isCashDue => booking?.isCashDue ?? false;
+
+  /// The booking behind this work order is still unpaid (any method).
+  bool get isPaymentDue => booking?.isUnpaid ?? false;
+
+  /// What a counter payment for the booking must amount to (0 when paid or
+  /// not booking-backed).
+  int get amountDueCents => isPaymentDue ? booking!.totalCents : 0;
 
   bool get isOverdue =>
       dueAt != null && status.isOpen && dueAt!.isBefore(DateTime.now());
@@ -742,21 +755,35 @@ class WorkOrder extends Equatable {
 
 /// `POST /work-orders/:id/pickup/verify` → `{ verified, collected_at }`.
 class PickupVerifyResult extends Equatable {
-  const PickupVerifyResult({required this.verified, this.collectedAt});
+  const PickupVerifyResult({
+    required this.verified,
+    this.collectedAt,
+    this.payment,
+  });
 
   final bool verified;
   final DateTime? collectedAt;
 
+  /// Counter payment recorded with this hand-over (stage `collection`), when
+  /// the call carried one.
+  final Payment? payment;
+
   factory PickupVerifyResult.fromJson(Json json) => PickupVerifyResult(
-    verified: boolOf(json['verified']),
+    verified: boolOf(json['verified']) || boolOf(json['collected']),
     collectedAt: dtOrNull(json['collected_at']),
+    payment: json['payment'] is Map
+        ? Payment.fromJson(asJson(json['payment']))
+        : null,
   );
 
-  Json toJson() =>
-      compact({'verified': verified, 'collected_at': iso(collectedAt)});
+  Json toJson() => compact({
+    'verified': verified,
+    'collected_at': iso(collectedAt),
+    'payment': payment?.toJson(),
+  });
 
   @override
-  List<Object?> get props => [verified, collectedAt];
+  List<Object?> get props => [verified, collectedAt, payment];
 }
 
 /// Pickup-OTP error helpers: `409 invalid_otp { details: { attempts_left } }`

@@ -45,9 +45,50 @@ void main() {
     await tester.tap(find.textContaining('Queue ·'));
     await settle(tester);
     expect(find.textContaining('WO-'), findsWidgets);
+    // The unassigned card sits below the fold once the cards above it carry
+    // their payment chips; the list builds lazily.
+    await scrollTo(tester, find.text('Claim & start'));
     expect(find.text('Claim & start'), findsWidgets);
 
     await tester.tap(find.textContaining('Done ·'));
+    await settle(tester);
+    expect(find.text('Verified'), findsWidgets);
+    await flushIo(tester);
+  });
+
+  testWidgets('Queue and Done default to today with a period picker', (
+    tester,
+  ) async {
+    final repos = h.repos;
+    await pumpStaffApp(tester, repos);
+    final pills = find.byKey(const ValueKey('task-period-pills'));
+    // Mine has no period filter.
+    expect(pills, findsNothing);
+
+    int queueCount() {
+      final label = tester
+          .widgetList<Text>(find.textContaining('Queue ·'))
+          .first
+          .data!;
+      return int.parse(label.split('· ').last);
+    }
+
+    await tester.tap(find.textContaining('Queue ·'));
+    await settle(tester);
+    expect(pills, findsOneWidget);
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.textContaining('WO-'), findsWidgets);
+    final today = queueCount();
+
+    // Wider periods never show less than today.
+    await tester.tap(find.text('All'));
+    await settle(tester);
+    expect(queueCount(), greaterThanOrEqualTo(today));
+
+    await tester.tap(find.textContaining('Done ·'));
+    await settle(tester);
+    expect(pills, findsOneWidget);
+    await tester.tap(find.text('Today'));
     await settle(tester);
     expect(find.text('Verified'), findsWidgets);
     await flushIo(tester);
@@ -71,6 +112,46 @@ void main() {
     await tester.tap(find.text('Pieter van der Merwe'));
     await settle(tester);
     expect(find.text('My tasks'), findsOneWidget);
+    await flushIo(tester);
+  });
+
+  testWidgets('supervisor Mine tab lists work awaiting sign-off', (
+    tester,
+  ) async {
+    final repos = h.repos;
+    await pumpStaffApp(tester, repos, persona: DemoPersonas.supervisor);
+    final ref = 'WO-${DateTime.now().year}-4821';
+    // Pieter's in-progress task is not Johan's until the timeline reaches
+    // the supervisor step.
+    expect(find.text(ref), findsNothing);
+    expect(find.textContaining('Nothing needs you'), findsOneWidget);
+
+    const wo = '30000000-0000-4000-8000-000000000001';
+    for (final (key, value) in [('windows', true), ('tyre_pressure', 2.1)]) {
+      await pumpUntil(
+        tester,
+        repos.staff.submitStep(
+          wo,
+          key,
+          StepResultInput(
+            status: StepStatus.done,
+            clientOpId: SparklingApi.newOpId(),
+            value: value,
+          ),
+        ),
+      );
+    }
+    await settle(tester);
+
+    expect(find.text(ref), findsOneWidget);
+    expect(find.textContaining('Awaiting sign-off'), findsOneWidget);
+    expect(find.text('Review & sign off'), findsOneWidget);
+    expect(find.text('Continue checklist'), findsNothing);
+
+    await tester.tap(find.text('Review & sign off'));
+    await settle(tester);
+    await scrollTo(tester, find.text('Verify & sign off'));
+    expect(find.text('Verify & sign off'), findsOneWidget);
     await flushIo(tester);
   });
 

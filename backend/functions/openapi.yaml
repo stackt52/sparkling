@@ -1108,6 +1108,11 @@ paths:
                     $ref: '#/components/schemas/Task'
                   created:
                     type: boolean
+                  payment:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Payment'
+                    nullable: true
         '201':
           description: Work order created
           content:
@@ -1123,6 +1128,11 @@ paths:
                     $ref: '#/components/schemas/Task'
                   created:
                     type: boolean
+                  payment:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Payment'
+                    nullable: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -1142,7 +1152,7 @@ paths:
       tags:
         - Bookings
       operationId: checkInBooking
-      summary: 'Staff check-in: creates work order + task, status in_service'
+      summary: 'Staff / admin check-in: confirms the car on the booking work order, status in_service; an optional payment (cash / card terminal / EFT) is recorded first at stage checkin'
       parameters:
         - name: id
           in: path
@@ -1164,6 +1174,11 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 3
+                payment:
+                  type: object
+                  allOf:
+                    - $ref: '#/components/schemas/CounterPayment'
+                  nullable: true
   /quotations:
     get:
       responses:
@@ -2124,7 +2139,9 @@ paths:
       tags:
         - Payments
       operationId: createPaymentIntent
-      summary: Create a payment intent for a booking
+      summary: >-
+        Create a payment intent for an unpaid booking (pending, confirmed, in_service or completed — the customer can pay once the car is checked in or ready for collection; stage follows the booking
+        status)
       requestBody:
         required: true
         content:
@@ -2241,7 +2258,9 @@ paths:
       tags:
         - Payments
       operationId: recordPosPayment
-      summary: 'Staff: attest an in-person (cash / card terminal) payment for a booking at their outlet — provider pos, successful, receipt from next_receipt_no(), payment_events pos.recorded, audited'
+      summary: >-
+        Staff / admin: attest an in-person (cash / card terminal / EFT) payment for a booking or accepted quotation at check-in or collection — provider pos, successful, receipt from
+        next_receipt_no(), stage inferred from the booking when omitted, payment_events pos.recorded, audited with the actor
       requestBody:
         required: true
         content:
@@ -3051,6 +3070,12 @@ paths:
                       $ref: '#/components/schemas/TaskExpanded'
                   scope:
                     type: string
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3071,6 +3096,7 @@ paths:
         - Staff
       operationId: listTasks
       summary: Tasks by scope
+      description: '`mine` lists the caller''s assigned tasks; for supervisors and managers it also includes tasks in their outlets awaiting supervisor sign-off (`verification_requested_at` set).'
       parameters:
         - name: scope
           in: query
@@ -3092,6 +3118,20 @@ paths:
           required: false
           schema:
             type: integer
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Period start (inclusive). `queue`/`done` only; give with `to`. `done` filters by completed_at, `queue` by due_at or created_at.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Period end (exclusive).
   /tasks/{id}/transition:
     post:
       responses:
@@ -3409,6 +3449,11 @@ paths:
                     nullable: true
                   already:
                     type: boolean
+                  payment:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Payment'
+                    nullable: true
         '201':
           description: OK
           content:
@@ -3425,6 +3470,11 @@ paths:
                     nullable: true
                   already:
                     type: boolean
+                  payment:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Payment'
+                    nullable: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3448,7 +3498,7 @@ paths:
       tags:
         - Staff
       operationId: checkInWorkOrder
-      summary: Confirm the vehicle is on site (required before assignment; runs auto-assignment when enabled)
+      summary: Confirm the vehicle is on site (required before assignment; runs auto-assignment when enabled); an optional payment is recorded against the booking / quotation first (stage checkin)
       parameters:
         - name: id
           in: path
@@ -3465,6 +3515,11 @@ paths:
               properties:
                 bay:
                   type: string
+                  nullable: true
+                payment:
+                  type: object
+                  allOf:
+                    - $ref: '#/components/schemas/CounterPayment'
                   nullable: true
   /work-orders/{id}/pickup/verify:
     post:
@@ -3483,6 +3538,11 @@ paths:
                     format: date-time
                   collected:
                     type: boolean
+                  payment:
+                    type: object
+                    allOf:
+                      - $ref: '#/components/schemas/Payment'
+                    nullable: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -3502,7 +3562,9 @@ paths:
       tags:
         - Staff
       operationId: verifyPickupOtp
-      summary: Staff confirm the collection OTP the customer presents → vehicle collected (409 invalid_otp with attempts_remaining; locked after 5 failures)
+      summary: >-
+        Staff confirm the collection OTP the customer presents → vehicle collected (409 invalid_otp with attempts_remaining; locked after 5 failures). An optional payment settles the booking /
+        quotation first (stage collection); a cash-on-collection balance still blocks the release until paid
       parameters:
         - name: id
           in: path
@@ -3521,6 +3583,11 @@ paths:
                   type: string
                   pattern: ^\d{5}$
                   example: '48213'
+                payment:
+                  type: object
+                  allOf:
+                    - $ref: '#/components/schemas/CounterPayment'
+                  nullable: true
               required:
                 - otp
   /work-orders/{id}/pickup/resend:
@@ -7813,13 +7880,44 @@ components:
           enum:
             - cash
             - card_terminal
+            - eft
         reference:
           type: string
           maxLength: 64
+          description: Till / terminal slip / EFT reference — required for eft
           nullable: true
         amount_cents:
           type: integer
           description: Must equal bookings.total_cents / quotations.amount_cents
+        idempotency_key:
+          type: string
+        stage:
+          type: string
+          enum:
+            - booking
+            - checkin
+            - collection
+      required:
+        - method
+        - amount_cents
+        - idempotency_key
+    CounterPayment:
+      type: object
+      properties:
+        method:
+          type: string
+          enum:
+            - cash
+            - card_terminal
+            - eft
+        reference:
+          type: string
+          maxLength: 64
+          description: Required for eft
+          nullable: true
+        amount_cents:
+          type: integer
+          description: Must equal the booking / quotation total
         idempotency_key:
           type: string
       required:
@@ -8460,6 +8558,10 @@ components:
           type: integer
         client_op_id:
           type: string
+          nullable: true
+        verification_requested_at:
+          type: string
+          format: date-time
           nullable: true
         created_at:
           type: string
@@ -9319,7 +9421,14 @@ components:
           nullable: true
         recorded_by:
           type: string
-          description: Staff uid for POS attestations
+          description: Staff / admin uid for POS attestations
+          nullable: true
+        stage:
+          type: string
+          enum:
+            - booking
+            - checkin
+            - collection
           nullable: true
         membership_invoice_id:
           type: string
@@ -10384,6 +10493,68 @@ components:
           nullable: true
         assignee_name:
           type: string
+          nullable: true
+        checked_in_at:
+          type: string
+          format: date-time
+          nullable: true
+        checked_in_by_name:
+          type: string
+          nullable: true
+        collected_at:
+          type: string
+          format: date-time
+          nullable: true
+        pickup_otp_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        amount_due_cents:
+          type: integer
+          description: Booking / quotation total still owed; 0 once a successful payment is on file
+        payment_method:
+          type: string
+          enum:
+            - card
+            - eft
+            - cash
+          nullable: true
+        payment:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum:
+                - initiated
+                - pending
+                - successful
+                - failed
+                - cancelled
+                - refunded
+            amount_cents:
+              type: integer
+            method:
+              type: string
+              nullable: true
+            provider:
+              type: string
+            receipt_no:
+              type: string
+              nullable: true
+            stage:
+              type: string
+              enum:
+                - booking
+                - checkin
+                - collection
+              nullable: true
+            verified_at:
+              type: string
+              format: date-time
+              nullable: true
           nullable: true
         eta_at:
           type: string

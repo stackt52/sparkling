@@ -39,6 +39,39 @@ const DEFAULT_UNIQUE: Record<string, string[][]> = {
   membership_entitlement_services: [['entitlement_id', 'service_id']],
 };
 
+/** Splits on commas outside parentheses. */
+function splitTopLevel(expr: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of expr) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** One `col.op.value` condition of a PostgREST `or=` expression. */
+function conditionFn(p: string): (r: Row) => boolean {
+  const [col, op, ...rest] = p.split('.');
+  const val = rest.join('.');
+  switch (op) {
+    case 'ilike': { const re = new RegExp('^' + val.replace(/%/g, '.*') + '$', 'i'); return (r) => typeof r[col] === 'string' && re.test(r[col]); }
+    case 'eq': return (r) => String(r[col]) === val;
+    case 'neq': return (r) => String(r[col]) !== val;
+    case 'gt': return (r) => r[col] != null && r[col] > val;
+    case 'gte': return (r) => r[col] != null && r[col] >= val;
+    case 'lt': return (r) => r[col] != null && r[col] < val;
+    case 'lte': return (r) => r[col] != null && r[col] <= val;
+    case 'is': return (r) => (val === 'null' ? r[col] === null || r[col] === undefined : String(r[col]) === val);
+    case 'in': { const vals = val.replace(/^\(|\)$/g, '').split(','); return (r) => vals.includes(String(r[col])); }
+    default: return () => true;
+  }
+}
+
 function uniqueError(cols: string[]) {
   return { code: '23505', message: `duplicate key value violates unique constraint (${cols.join(',')})`, details: `Key (${cols.join(', ')}) already exists.` };
 }
@@ -103,18 +136,14 @@ class QueryBuilder implements PromiseLike<{ data: any; error: any; count?: numbe
     return this;
   }
   like(col: string, pattern: string) { return this.ilike(col, pattern); }
+  /** PostgREST `or=` expression: comma-separated conditions, `and(...)` groups allowed one level deep. */
   or(expr: string) {
-    const parts = expr.split(',').map((p) => p.trim()).filter((p) => !p.startsWith('and('));
-    const fns = parts.map((p) => {
-      const [col, op, ...rest] = p.split('.');
-      const val = rest.join('.');
-      if (op === 'ilike') {
-        const re = new RegExp('^' + val.replace(/%/g, '.*') + '$', 'i');
-        return (r: Row) => typeof r[col] === 'string' && re.test(r[col]);
+    const fns = splitTopLevel(expr).map((p) => {
+      if (p.startsWith('and(') && p.endsWith(')')) {
+        const inner = splitTopLevel(p.slice(4, -1)).map(conditionFn);
+        return (r: Row) => inner.every((f) => f(r));
       }
-      if (op === 'eq') return (r: Row) => String(r[col]) === val;
-      if (op === 'in') { const vals = val.replace(/^\(|\)$/g, '').split(','); return (r: Row) => vals.includes(String(r[col])); }
-      return () => true;
+      return conditionFn(p);
     });
     this.filters.push((r) => fns.some((f) => f(r)));
     return this;

@@ -11,7 +11,7 @@ import { ApiError } from '../middleware/errors.js';
 import { logger } from '../middleware/correlation.js';
 import { canTransitionBooking, canTransitionPayment } from '../domain/stateMachines.js';
 import { assertOutlet } from '../middleware/auth.js';
-import type { Booking, Payment, PaymentStatus, PosPaymentMethod, RequestContext } from '../types.js';
+import type { Booking, Payment, PaymentStage, PaymentStatus, PosPaymentMethod, RequestContext, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
 import { ensureWorkOrderForBooking, getBookingOrThrow } from './bookings.js';
 import { systemContext } from '../lib/systemContext.js';
@@ -265,7 +265,35 @@ export interface RecordPosPaymentInput {
   reference?: string | null;
   amountCents: number;
   idempotencyKey: string;
+  /**
+   * When the payment is captured (migration 0022). The check-in and hand-over calls set it
+   * explicitly; `POST /payments/record` leaves it null and the stage is inferred from the
+   * booking status / work order (`booking` before check-in, `checkin` while in service,
+   * `collection` once the job is complete).
+   */
+  stage?: PaymentStage | null;
 }
+
+/** Stage of a counter payment for a booking, from where the job is in its life cycle. */
+export function stageForBooking(booking: Pick<Booking, 'status'>): PaymentStage {
+  if (booking.status === 'completed') return 'collection';
+  if (booking.status === 'in_service') return 'checkin';
+  return 'booking';
+}
+
+/** Stage of a counter payment for a quotation (auto-body job), from its work order. */
+async function stageForQuotation(quotationId: string): Promise<PaymentStage> {
+  const wo = unwrap<Pick<WorkOrder, 'status' | 'checked_in_at'> | null>(
+    await getSupabase().from('work_orders').select('status, checked_in_at').eq('quotation_id', quotationId).maybeSingle(),
+    'work order',
+  );
+  if (!wo || !wo.checked_in_at) return 'booking';
+  if (['completed', 'verified'].includes(wo.status)) return 'collection';
+  return 'checkin';
+}
+
+/** `/payments/intents`: the online stage mirrors the counter one (a customer may pay an unpaid booking once the car is in). */
+export const stageForIntent = stageForBooking;
 
 /** Payment idempotency keys are scoped per actor, like `/payments/intents`. */
 export function posIdempotencyKey(uid: string, key: string): string {
@@ -273,9 +301,12 @@ export function posIdempotencyKey(uid: string, key: string): string {
 }
 
 /**
- * Records a cash / card-terminal payment for a booking at the staff member's
- * outlet. Amount must equal the booking total; a booking that already has a
- * successful payment is refused (409) unless the same idempotency key replays.
+ * Records a cash / card-terminal / EFT payment for a booking at the actor's
+ * outlet (outlet staff, or a manager / admin / director / finance user from the
+ * dashboard — `assertOutlet` lets those see every outlet). Amount must equal the
+ * booking total; a booking that already has a successful payment is refused (409)
+ * unless the same idempotency key replays. `stage` records whether it was taken
+ * at check-in or on collection (inferred from the booking when not given).
  * Writes `payments` (provider `pos`, `successful`, receipt from
  * `next_receipt_no()`), a `payment_events` row `pos.recorded`, confirms a
  * pending booking, sends `payment_successful` and audits `payment.record`.
@@ -286,6 +317,9 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
   const replay = unwrap<Payment | null>(await db.from('payments').select('*').eq('idempotency_key', key).maybeSingle(), 'payment');
   if (replay) return { payment: replay, duplicate: true };
 
+  if (input.method === 'eft' && !input.reference?.trim()) {
+    throw ApiError.validation('An EFT payment needs the transfer reference', [{ path: 'reference', message: 'Required for eft' }]);
+  }
   if (input.quotationId) return recordQuotationPayment(ctx, input, key);
   if (!input.bookingId) throw ApiError.validation('booking_id or quotation_id is required');
   const booking = await getBookingOrThrow(input.bookingId);
@@ -297,6 +331,7 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
   const paid = unwrap<Payment[]>(await db.from('payments').select('*').eq('booking_id', booking.id).eq('status', 'successful'), 'payments');
   if (paid.length) throw ApiError.conflict('Booking is already paid', { payment: paid[0], payment_id: paid[0].id });
 
+  const stage: PaymentStage = input.stage ?? stageForBooking(booking);
   const now = new Date().toISOString();
   let payment: Payment | null = null;
   for (let attempt = 0; attempt < 3 && !payment; attempt++) {
@@ -316,6 +351,7 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
         idempotency_key: key,
         verified_at: now,
         recorded_by: ctx.auth.uid,
+        stage,
       })
       .select('*')
       .single();
@@ -338,7 +374,7 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
     provider_event_id: key,
     event_type: POS_EVENT_TYPE,
     signature_ok: true,
-    payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, booking_id: booking.id },
+    payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, booking_id: booking.id, stage },
   });
   if (event.error && event.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(event.error, 'pos payment event');
 
@@ -357,7 +393,7 @@ export async function recordPosPayment(ctx: RequestContext, input: RecordPosPaym
     entity_type: 'payment',
     entity_id: payment.id,
     outlet_id: booking.outlet_id,
-    after: { booking_id: booking.id, booking_ref: booking.ref, amount_cents: payment.amount_cents, method: input.method, reference: payment.provider_ref, receipt_no: payment.receipt_no },
+    after: { booking_id: booking.id, booking_ref: booking.ref, amount_cents: payment.amount_cents, method: input.method, reference: payment.provider_ref, receipt_no: payment.receipt_no, stage, captured_by: ctx.auth.uid, captured_by_role: ctx.auth.role },
   });
   return { payment, duplicate: false };
 }
@@ -378,13 +414,14 @@ async function recordQuotationPayment(ctx: RequestContext, input: RecordPosPayme
   const paid = unwrap<Payment[]>(await db.from('payments').select('*').eq('quotation_id', q.id).eq('status', 'successful'), 'payments');
   if (paid.length) throw ApiError.conflict('Quotation is already paid', { payment: paid[0], payment_id: paid[0].id });
 
+  const stage: PaymentStage = input.stage ?? (await stageForQuotation(q.id));
   const now = new Date().toISOString();
   let payment: Payment | null = null;
   for (let attempt = 0; attempt < 3 && !payment; attempt++) {
     const receipt = await nextReceiptNo(db);
     const res = await db
       .from('payments')
-      .insert({ booking_id: null, quotation_id: q.id, customer_id: q.customer_id, provider: POS_PROVIDER, method: input.method, provider_ref: input.reference?.trim() || null, amount_cents: input.amountCents, currency: 'ZAR', status: 'successful', receipt_no: receipt, idempotency_key: key, verified_at: now, recorded_by: ctx.auth.uid })
+      .insert({ booking_id: null, quotation_id: q.id, customer_id: q.customer_id, provider: POS_PROVIDER, method: input.method, provider_ref: input.reference?.trim() || null, amount_cents: input.amountCents, currency: 'ZAR', status: 'successful', receipt_no: receipt, idempotency_key: key, verified_at: now, recorded_by: ctx.auth.uid, stage })
       .select('*')
       .single();
     if (!res.error) {
@@ -398,9 +435,9 @@ async function recordQuotationPayment(ctx: RequestContext, input: RecordPosPayme
     }
   }
   if (!payment) throw ApiError.internal('Could not allocate a receipt number');
-  const event = await db.from('payment_events').insert({ payment_id: payment.id, provider: POS_PROVIDER, provider_event_id: key, event_type: POS_EVENT_TYPE, signature_ok: true, payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, quotation_id: q.id } });
+  const event = await db.from('payment_events').insert({ payment_id: payment.id, provider: POS_PROVIDER, provider_event_id: key, event_type: POS_EVENT_TYPE, signature_ok: true, payload: { actor: ctx.auth.uid, actor_role: ctx.auth.role, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, quotation_id: q.id, stage } });
   if (event.error && event.error.code !== PG_UNIQUE_VIOLATION) throw new DatabaseError(event.error, 'pos payment event');
-  await audit(ctx, { action: 'payment.record', entity_type: 'payment', entity_id: payment.id, outlet_id: q.outlet_id, after: { quotation_id: q.id, ref: q.ref, method: input.method, amount_cents: payment.amount_cents, receipt_no: payment.receipt_no } });
+  await audit(ctx, { action: 'payment.record', entity_type: 'payment', entity_id: payment.id, outlet_id: q.outlet_id, after: { quotation_id: q.id, ref: q.ref, method: input.method, reference: payment.provider_ref, amount_cents: payment.amount_cents, receipt_no: payment.receipt_no, stage, captured_by: ctx.auth.uid, captured_by_role: ctx.auth.role } });
   await runSideEffects(payment, 'successful');
   return { payment, duplicate: false };
 }

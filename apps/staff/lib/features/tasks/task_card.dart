@@ -15,6 +15,7 @@ class TaskCard extends StatelessWidget {
     required this.onOpen,
     this.onStart,
     this.onHandover,
+    this.onVerify,
     this.selected = false,
   });
 
@@ -28,6 +29,10 @@ class TaskCard extends StatelessWidget {
 
   /// Verified & awaiting collection: open the OTP hand-over sheet.
   final VoidCallback? onHandover;
+
+  /// Supervisor view of a task awaiting sign-off (STF-033): open the
+  /// checklist at the supervisor step.
+  final VoidCallback? onVerify;
   final bool selected;
 
   @override
@@ -52,6 +57,8 @@ class TaskCard extends StatelessWidget {
         progress != null &&
         progress.stepCount > 0 &&
         (status == WorkStatus.inProgress || status == WorkStatus.assigned);
+    final awaitingSignOff = task.awaitingVerification;
+    final showVerify = awaitingSignOff && onVerify != null;
 
     return ListTileCard(
       onTap: onOpen,
@@ -119,6 +126,21 @@ class TaskCard extends StatelessWidget {
               ),
             ),
           ],
+          if (awaitingSignOff) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                key: ValueKey('awaiting-signoff-${task.id}'),
+                label: task.assigneeName == null
+                    ? 'Awaiting sign-off'
+                    : 'Awaiting sign-off · ${task.assigneeName}',
+                tone: StatusChipTone.warning,
+                icon: Symbols.verified_rounded,
+                dense: true,
+              ),
+            ),
+          ],
           if (wo?.isCashOnCollection ?? false) ...[
             const SizedBox(height: 8),
             Align(
@@ -131,6 +153,20 @@ class TaskCard extends StatelessWidget {
                 tone: wo.isCashDue
                     ? StatusChipTone.warning
                     : StatusChipTone.success,
+                icon: Symbols.payments_rounded,
+                dense: true,
+              ),
+            ),
+          ] else if (wo?.isPaymentDue ?? false) ...[
+            // Card booking never paid online: settle it at check-in or at
+            // collection (staff), or the customer pays in the app.
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                key: ValueKey('payment-due-${task.id}'),
+                label: 'Unpaid · ${Money.formatZar(wo!.amountDueCents)}',
+                tone: StatusChipTone.warning,
                 icon: Symbols.payments_rounded,
                 dense: true,
               ),
@@ -165,7 +201,17 @@ class TaskCard extends StatelessWidget {
               ],
             ),
           ],
-          if (status == WorkStatus.inProgress) ...[
+          if (showVerify) ...[
+            const SizedBox(height: 16),
+            PillButton(
+              key: ValueKey('verify-${task.id}'),
+              label: 'Review & sign off',
+              icon: Symbols.verified_rounded,
+              expand: true,
+              minHeight: 56,
+              onPressed: onVerify,
+            ),
+          ] else if (status == WorkStatus.inProgress) ...[
             const SizedBox(height: 16),
             Row(
               children: [

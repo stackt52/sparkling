@@ -12,6 +12,7 @@ import type {
   Booking,
   ChecklistStep,
   ChecklistTemplate,
+  Payment,
   Quotation,
   RequestContext,
   Service,
@@ -27,6 +28,7 @@ import { flagEnabled } from './flags.js';
 import { awardForVerifiedTask } from './gamification.js';
 import { earnForBooking } from './loyalty.js';
 import { notify } from './notifications.js';
+import { recordPosPayment, type RecordPosPaymentInput } from './payments.js';
 
 // ---------------------------------------------------------------------------
 // Creation
@@ -278,6 +280,99 @@ export function buildTimeline(wo: WorkOrder, steps: ChecklistStep[], results: St
   return timeline;
 }
 
+/** The timeline's current step: the first one without a `done` result (what the staff checklist expands). */
+export function currentStep(steps: ChecklistStep[], results: StepResult[]): ChecklistStep | null {
+  const done = new Set(results.filter((r) => r.status === 'done').map((r) => r.step_key));
+  return steps.find((s) => !done.has(s.key)) ?? null;
+}
+
+/** Task statuses in which a verification request is still live (shown on supervisors' "Mine" tab). */
+export const AWAITING_VERIFICATION_STATUSES: WorkStatus[] = ['in_progress', 'blocked', 'completed'];
+
+/**
+ * Supervisors who sign off work at `outletId`: active `supervisor` profiles linked through
+ * `staff_outlets`, falling back to the outlet's managers when it has no supervisor.
+ */
+export async function outletSupervisors(outletId: string): Promise<string[]> {
+  const db = getSupabase();
+  const links = unwrap<Array<{ profile_id: string }>>(await db.from('staff_outlets').select('profile_id').eq('outlet_id', outletId), 'outlet staff');
+  const ids = links.map((l) => l.profile_id);
+  if (ids.length === 0) return [];
+  const profiles = unwrap<Array<{ id: string; role: string; is_active: boolean }>>(await db.from('profiles').select('id, role, is_active').in('id', ids), 'outlet staff profiles');
+  const active = profiles.filter((p) => p.is_active);
+  const supervisors = active.filter((p) => p.role === 'supervisor').map((p) => p.id);
+  if (supervisors.length) return supervisors;
+  return active.filter((p) => p.role === 'manager').map((p) => p.id);
+}
+
+export interface VerificationRequestOutcome {
+  requested: boolean;
+  task: Task;
+  notified: string[];
+}
+
+/**
+ * STF-033: the booking timeline reached the `supervisor_verify` step (or the technician completed the
+ * task) — flag the task so it shows under every outlet supervisor's "Mine" tab and push them a
+ * `task_verify_requested` at once. Idempotent: a task already flagged is left alone (rework clears the
+ * flag, so a second completion requests again). The actor is never notified about their own step.
+ */
+export async function requestSupervisorVerification(ctx: RequestContext, wo: WorkOrder, task: Task, opts: { stepKey?: string | null } = {}): Promise<VerificationRequestOutcome> {
+  const db = getSupabase();
+  if (task.verification_requested_at || !AWAITING_VERIFICATION_STATUSES.includes(task.status)) return { requested: false, task, notified: [] };
+  const now = new Date().toISOString();
+  const updated = unwrap<Task | null>(
+    await db.from('tasks').update({ verification_requested_at: now }).eq('id', task.id).is('verification_requested_at', null).select('*').maybeSingle(),
+    'task verification request',
+  );
+  if (!updated) return { requested: false, task, notified: [] }; // flagged concurrently
+  const ev = await db.from('task_events').insert({
+    task_id: task.id,
+    work_order_id: wo.id,
+    actor_id: ctx.auth.uid,
+    event: 'verification_requested',
+    from_status: task.status,
+    to_status: task.status,
+    metadata: { step_key: opts.stepKey ?? null },
+  });
+  if (ev.error) ctx.log.warn({ err: ev.error }, 'task_event insert failed');
+
+  const recipients = (await outletSupervisors(wo.outlet_id)).filter((id) => id !== ctx.auth.uid);
+  const notified: string[] = [];
+  if (recipients.length) {
+    const [service, vehicle, technician] = await Promise.all([
+      db.from('services').select('name').eq('id', wo.service_id).maybeSingle(),
+      vehicleLabel(wo.vehicle_id),
+      task.assignee_id ? db.from('profiles').select('full_name').eq('id', task.assignee_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    const vars = {
+      ref: wo.ref,
+      service: (service.data as { name?: string } | null)?.name ?? '',
+      bay: wo.bay ?? '—',
+      vehicle,
+      technician: (technician.data as { full_name?: string } | null)?.full_name ?? '',
+    };
+    for (const recipientId of recipients) {
+      const outcomes = await notify({
+        recipientId,
+        templateKey: 'task_verify_requested',
+        vars,
+        dedupeKey: `task_verify_requested:${task.id}:${recipientId}:${now}`,
+        payload: { type: 'task', task_id: task.id, work_order_id: wo.id, booking_id: wo.booking_id, outlet_id: wo.outlet_id },
+      });
+      if (outcomes.some((o) => o.status !== 'no_template' && o.status !== 'failed')) notified.push(recipientId);
+    }
+  }
+  await audit(ctx, {
+    action: 'task.verification_requested',
+    entity_type: 'task',
+    entity_id: task.id,
+    outlet_id: task.outlet_id,
+    after: { step_key: opts.stepKey ?? null, supervisors: recipients, notified },
+  });
+  return { requested: true, task: updated, notified };
+}
+
 export function progress(steps: ChecklistStep[], results: StepResult[]) {
   const done = results.filter((r) => r.status === 'done' && steps.some((s) => s.key === r.step_key)).length;
   const count = steps.length;
@@ -402,6 +497,11 @@ export async function recordStep(ctx: RequestContext, workOrderId: string, stepK
       dedupeKey: `stage_changed:${wo.id}:${stepKey}`,
       payload: { type: 'work_order', work_order_id: wo.id, booking_id: wo.booking_id },
     });
+    // The timeline moved on to the supervisor step: ask the outlet supervisors to sign off.
+    const next = currentStep(steps, fresh);
+    if (task && next?.type === 'supervisor_verify' && step.type !== 'supervisor_verify') {
+      await requestSupervisorVerification(ctx, wo, task, { stepKey: next.key });
+    }
   }
   return { result, duplicate: false, progress: prog };
 }
@@ -509,8 +609,10 @@ export async function transitionTask(ctx: RequestContext, taskId: string, input:
     }
   }
   if (to === 'cancelled') taskPatch.blocked_reason = input.reason ?? task.blocked_reason;
+  // Rework after completion: the supervisor's sign-off request lapses until the task is completed again.
+  if (to === 'in_progress' && from === 'completed') taskPatch.verification_requested_at = null;
 
-  const updatedTask = unwrap<Task>(await db.from('tasks').update(taskPatch).eq('id', task.id).eq('status', from).select('*').maybeSingle(), 'task update');
+  let updatedTask = unwrap<Task>(await db.from('tasks').update(taskPatch).eq('id', task.id).eq('status', from).select('*').maybeSingle(), 'task update');
   if (!updatedTask) {
     const current = unwrap<Task>(await db.from('tasks').select('*').eq('id', task.id).single(), 'task');
     throw ApiError.conflict('Task was modified concurrently', { status: current.status });
@@ -553,6 +655,12 @@ export async function transitionTask(ctx: RequestContext, taskId: string, input:
         sourceId: task.id,
       });
     }
+  }
+  if (to === 'completed') {
+    // Completed work always needs a supervisor: flag it for their "Mine" tab and push them.
+    const req = await requestSupervisorVerification(ctx, updatedWo, updatedTask, { stepKey: currentStep(steps, results)?.key ?? null });
+    updatedTask = req.task;
+    if (req.requested) sideEffects.verification_requested = { supervisors_notified: req.notified };
   }
   if (to === 'verified') {
     Object.assign(sideEffects, await onVerified(ctx, updatedWo, updatedTask, steps, results, overrideRecorded));
@@ -679,25 +787,56 @@ export async function convertQuotation(ctx: RequestContext, quotation: Quotation
   return { quotation: updated, work_order: workOrder, task };
 }
 
+/** Counter payment taken together with a check-in / hand-over (`stage` is set by the caller). */
+export type CheckInPayment = Omit<RecordPosPaymentInput, 'bookingId' | 'quotationId' | 'stage'>;
+
+/**
+ * Records a counter payment against the work order's booking (or, for an auto-body job, its
+ * quotation) at the given stage. Validation (amount, already paid, EFT reference) happens before
+ * anything else changes, so a refused payment leaves the check-in / hand-over untouched.
+ */
+export async function recordWorkOrderPayment(ctx: RequestContext, wo: Pick<WorkOrder, 'id' | 'booking_id' | 'quotation_id'>, payment: CheckInPayment, stage: 'checkin' | 'collection'): Promise<Payment> {
+  if (!wo.booking_id && !wo.quotation_id) throw ApiError.conflict('This work order has no booking or quotation to pay', { work_order_id: wo.id });
+  const { payment: recorded } = await recordPosPayment(ctx, {
+    ...payment,
+    bookingId: wo.booking_id ?? null,
+    quotationId: wo.booking_id ? null : wo.quotation_id,
+    stage,
+  });
+  return recorded;
+}
+
+export interface CheckInWorkOrderResult {
+  work_order: WorkOrder;
+  task: Task | null;
+  already: boolean;
+  /** Counter payment recorded as part of this check-in (null when none was sent). */
+  payment: Payment | null;
+}
+
 /**
  * Confirms the vehicle is on site for a work order that was created without a booking check-in
  * (e.g. converted from a quotation). Idempotent; runs auto-assignment when the switch is on.
+ * An optional `payment` (cash / card terminal / EFT) is recorded against the booking or quotation
+ * first — stage `checkin` — so the car can be checked in and paid for in one step; a repeated
+ * check-in (`already`) still records the payment when one is sent.
  */
-export async function checkInWorkOrder(ctx: RequestContext, workOrderId: string, opts: { bay?: string | null } = {}): Promise<{ work_order: WorkOrder; task: Task | null; already: boolean }> {
+export async function checkInWorkOrder(ctx: RequestContext, workOrderId: string, opts: { bay?: string | null; payment?: CheckInPayment | null } = {}): Promise<CheckInWorkOrderResult> {
   const db = getSupabase();
   const wo = unwrap<WorkOrder | null>(await db.from('work_orders').select('*').eq('id', workOrderId).maybeSingle(), 'work order');
   if (!wo) throw ApiError.notFound('Work order');
   assertOutlet(ctx.auth, wo.outlet_id);
   if (['verified', 'cancelled'].includes(wo.status)) throw ApiError.invalidTransition(wo.status, 'checked_in', 'work order');
+  const payment = opts.payment ? await recordWorkOrderPayment(ctx, wo, opts.payment, 'checkin') : null;
   const task = unwrap<Task | null>(await db.from('tasks').select('*').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle(), 'task');
-  if (wo.checked_in_at) return { work_order: wo, task, already: true };
+  if (wo.checked_in_at) return { work_order: wo, task, already: true, payment };
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { checked_in_at: now, checked_in_by: ctx.auth.uid };
   if (opts.bay !== undefined) patch.bay = opts.bay;
   let updated = unwrap<WorkOrder>(await db.from('work_orders').update(patch).eq('id', wo.id).select('*').single(), 'check in');
   if (wo.quotation_id) await db.from('quotations').update({ status: 'converted' }).eq('id', wo.quotation_id).eq('status', 'accepted');
-  await db.from('task_events').insert({ task_id: task?.id ?? null, work_order_id: wo.id, actor_id: ctx.auth.uid, event: 'checked_in', from_status: wo.status, to_status: wo.status, metadata: { bay: opts.bay ?? wo.bay ?? null } });
-  await audit(ctx, { action: 'work_order.check_in', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { checked_in_at: now, bay: opts.bay ?? wo.bay ?? null } });
+  await db.from('task_events').insert({ task_id: task?.id ?? null, work_order_id: wo.id, actor_id: ctx.auth.uid, event: 'checked_in', from_status: wo.status, to_status: wo.status, metadata: { bay: opts.bay ?? wo.bay ?? null, payment_id: payment?.id ?? null } });
+  await audit(ctx, { action: 'work_order.check_in', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { checked_in_at: now, bay: opts.bay ?? wo.bay ?? null, payment_id: payment?.id ?? null, receipt_no: payment?.receipt_no ?? null } });
   let outTask = task;
   if (task && !task.assignee_id && (await flagEnabled('auto_assignment'))) {
     const service = unwrap<Service | null>(await db.from('services').select('*').eq('id', wo.service_id).maybeSingle(), 'service');
@@ -709,5 +848,5 @@ export async function checkInWorkOrder(ctx: RequestContext, workOrderId: string,
       }
     }
   }
-  return { work_order: updated, task: outTask, already: false };
+  return { work_order: updated, task: outTask, already: false, payment };
 }

@@ -19,6 +19,7 @@ import StatusChip from '@/components/ui/StatusChip';
 import Tile from '@/components/ui/Tile';
 import CashChip, { cashDue } from '@/components/bookings/CashChip';
 import RecordPaymentDialog, { type RecordPaymentTarget } from '@/components/payments/RecordPaymentDialog';
+import CounterPaymentFields, { posMethodShort, useCounterPayment } from '@/components/payments/CounterPaymentFields';
 import { ErrorState, LoadingRows } from '@/components/ui/States';
 import Toast from '@/components/ui/Toast';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
@@ -117,26 +118,36 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
     },
     onError: (e) => toast.error(e),
   });
-  // Explicit "car checked in" (`POST /bookings/:id/checkin`): stamps the booking's existing work order (created when it was confirmed) and auto-assigns it when the flag is on.
+  const b = q.data;
+  // Unpaid booking (cash on collection, a walk-in, or a card booking whose online payment never completed): the check-in dialog can take the counter payment in the same call.
+  const unpaid = Boolean(b) && b!.payment?.status !== 'successful' && b!.total_cents > 0;
+  const canTakePayment = can(role, 'payment:record') && unpaid;
+  const pay = useCounterPayment(b?.total_cents ?? 0);
+  const openCheckin = () => { pay.reset(); setCheckinOpen(true); };
+  // Explicit "car checked in" (`POST /bookings/:id/checkin`): stamps the booking's existing work order (created when it was confirmed) and auto-assigns it when the flag is on; an optional counter payment (stage `checkin`) is recorded first.
   const checkin = useMutation({
-    mutationFn: () => api.checkinBooking(bookingId!, { bay: bay.trim() || null, priority }),
+    mutationFn: () => api.checkinBooking(bookingId!, { bay: bay.trim() || null, priority, ...(canTakePayment && pay.body ? { payment: pay.body } : {}) }),
     onSuccess: (res) => {
       const auto = res.work_order?.assignee_name ? ` · auto-assigned to ${res.work_order.assignee_name}` : '';
-      toast.success(`Checked in · ${res.work_order?.ref ?? 'work order'}${res.created ? ' created' : ''}${auto}`);
+      const paid = res.payment ? ` · ${rands(res.payment.amount_cents)} ${posMethodShort(res.payment.method)} · receipt ${res.payment.receipt_no ?? res.payment.id}` : '';
+      toast.success(`Checked in · ${res.work_order?.ref ?? 'work order'}${res.created ? ' created' : ''}${auto}${paid}`);
       setCheckinOpen(false);
       setBay('');
       void qc.invalidateQueries({ queryKey: ['bookings'] });
       void qc.invalidateQueries({ queryKey: ['booking', bookingId] });
       void qc.invalidateQueries({ queryKey: ['work-orders'] });
+      if (res.payment) {
+        void qc.invalidateQueries({ queryKey: ['payments'] });
+        void qc.invalidateQueries({ queryKey: ['activity'] });
+      }
     },
     onError: (e) => toast.error(e),
   });
-  const b = q.data;
   const canCancel = can(role, 'booking:cancel') && b && ['pending', 'confirmed'].includes(b.status);
   // The work order exists from confirmation; the button stays until the car is actually checked in on it.
   const canCheckin = can(role, 'work_order:checkin') && b && ['pending', 'confirmed'].includes(b.status) && !b.work_order?.checked_in_at;
-  // Counter payment (cash / card terminal) for anything still unpaid — cash-on-collection bookings, or a card booking whose customer pays at the desk instead.
-  const canRecordPayment = can(role, 'payment:record') && b && ['confirmed', 'in_service', 'completed'].includes(b.status) && b.total_cents > 0 && b.payment?.status !== 'successful';
+  // Counter payment (cash / card terminal / EFT) for anything still unpaid — cash-on-collection bookings, a walk-in, or a `pending` card booking whose customer pays at the desk instead.
+  const canRecordPayment = can(role, 'payment:record') && b && ['pending', 'confirmed', 'in_service', 'completed'].includes(b.status) && unpaid;
   // Hand-over: the booking's work order is verified and the keys have not been released — opens the Work board drawer with the OTP form.
   const canHandover = can(role, 'work_order:handover') && b?.work_order?.status === 'verified' && !b.work_order.collected_at;
   // "Supervisor verification" stage: the technician steps are done (timeline's current step is the supervisor one, or
@@ -184,12 +195,12 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               </Button>
             )}
             {canRecordPayment && (
-              <Button variant={canCheckin || canVerify ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
+              <Button variant={canCheckin || canVerify ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget({ kind: 'booking', id: b.id, ref: b.ref, amount_cents: b.total_cents, customer_name: b.customer.full_name, stage: b.status === 'completed' ? 'collection' : b.status === 'in_service' ? 'checkin' : undefined })} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="booking-record-payment">
                 Record payment · {rands(b.total_cents)}
               </Button>
             )}
             {canCheckin && (
-              <Button variant="contained" color="secondary" fullWidth onClick={() => setCheckinOpen(true)} startIcon={<MSymbol name="login" size={20} />} data-testid="booking-confirm-checkin">
+              <Button variant="contained" color="secondary" fullWidth onClick={openCheckin} startIcon={<MSymbol name="login" size={20} />} data-testid="booking-confirm-checkin">
                 Confirm check-in
               </Button>
             )}
@@ -229,7 +240,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               {/* Cash-on-collection bookings keep the cash chip: "Cash due R x" → "Paid · cash" once recorded. */}
               <Row label="Payment" value={b.payment_method === 'cash' && b.payment?.status !== 'failed' ? <CashChip booking={b} size="medium" /> : b.payment ? <StatusChip status={b.payment.status} /> : <StatusChip tone="neutral" label="Not started" />} />
               {b.payment?.method ? (
-                <Row label="Method" value={b.payment.method === 'cash' ? (b.payment_method === 'cash' ? 'Cash on collection (counter)' : 'Cash (counter)') : 'Card terminal'} />
+                <Row label="Method" value={`${b.payment.method === 'cash' ? (b.payment_method === 'cash' ? 'Cash on collection (counter)' : 'Cash (counter)') : b.payment.method === 'eft' ? 'EFT (counter)' : 'Card terminal'}${b.payment.stage && b.payment.stage !== 'booking' ? ` · at ${b.payment.stage === 'checkin' ? 'check-in' : 'collection'}` : ''}`} />
               ) : b.payment_method ? (
                 <Row label="Method" value={{ cash: 'Cash on collection', card: 'Card (online)', eft: 'Instant EFT' }[b.payment_method]} />
               ) : null}
@@ -266,7 +277,7 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
           <Typography variant="body2" color="text.secondary">
             Confirms that <span className="mono">{b?.vehicle.registration_no}</span> is on site: the booking moves to in service and its work order{b?.work_order ? ` ${b.work_order.ref}` : ''} is checked in — assigned automatically when auto-assignment is on, otherwise by a supervisor.
           </Typography>
-          <TextField label="Bay (optional)" placeholder="e.g. Bay 2" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !checkin.isPending) { e.preventDefault(); checkin.mutate(); } }} />
+          <TextField label="Bay (optional)" placeholder="e.g. Bay 2" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !checkin.isPending && pay.ready) { e.preventDefault(); checkin.mutate(); } }} />
           <Box>
             <Typography component="span" id="booking-checkin-priority" variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Priority</Typography>
             <ToggleButtonGroup
@@ -281,10 +292,13 @@ export default function BookingDrawer({ bookingId, onClose }: { bookingId: strin
               <ToggleButton value={3}>P3</ToggleButton>
             </ToggleButtonGroup>
           </Box>
+          {canTakePayment && b && <CounterPaymentFields state={pay} amountCents={b.total_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={checkin.isPending} hint={b.payment_method === 'cash' ? 'Cash on collection — the customer can also pay at hand-over.' : `${b.ref} is unpaid — record the counter payment with the check-in, or later with Record payment.`} />}
         </DialogContent>
         <DialogActions sx={{ p: 2.5, pt: 0 }}>
           <Button onClick={() => setCheckinOpen(false)}>Not yet</Button>
-          <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={checkin.isPending} onClick={() => checkin.mutate()}>Confirm check-in</Button>
+          <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={checkin.isPending || !pay.ready} onClick={() => checkin.mutate()} data-testid="booking-checkin-confirm">
+            {canTakePayment && pay.take && b ? `Check in & record ${rands(b.total_cents)}` : 'Confirm check-in'}
+          </Button>
         </DialogActions>
       </Dialog>
       <Dialog open={verifyOpen} onClose={closeVerify} aria-labelledby="booking-verify-title" fullWidth maxWidth="xs">

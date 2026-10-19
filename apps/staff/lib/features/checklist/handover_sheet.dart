@@ -6,6 +6,7 @@ import 'package:sparkling_core/sparkling_core.dart';
 import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../widgets/async_view.dart';
+import '../../widgets/counter_payment_fields.dart';
 import '../../widgets/feedback.dart';
 
 /// Opens the vehicle hand-over sheet for a verified work order: the customer
@@ -13,12 +14,15 @@ import '../../widgets/feedback.dart';
 /// keys are released (`POST /work-orders/:id/pickup/verify`).
 ///
 /// A **cash on collection** booking ([booking] with `isCashDue`) first shows
-/// "Cash due · R x" with **Record cash payment** (`POST /payments/record`,
-/// method `cash`, full amount) and only then the OTP step; a 409
-/// `payment_due` from the verify (when the caller had no booking expansion)
-/// surfaces the same banner and button. A **quotation** work order whose
-/// quote is still unpaid ([quotation] with `isPaymentDue`) starts with the
-/// same step as "Quote · R x due" (`POST /payments/record { quotation_id }`).
+/// "Cash due · R x" with **Record … payment** (`POST /payments/record`, full
+/// amount, method cash / card terminal / EFT) and only then the OTP step; a
+/// 409 `payment_due` from the verify (when the caller had no booking
+/// expansion) surfaces the same banner and button. A **quotation** work order
+/// whose quote is still unpaid ([quotation] with `isPaymentDue`) starts with
+/// the same step as "Quote · R x due" (`POST /payments/record { quotation_id
+/// }`). Any other unpaid booking (card booking never paid online) shows the
+/// step as "Payment due · R x" with the choice to take the payment now or
+/// verify the OTP without it.
 ///
 /// Returns the [PickupVerifyResult] when the keys were released, otherwise
 /// `null` (dismissed).
@@ -47,21 +51,27 @@ Future<PickupVerifyResult?> showHandoverSheet(
   );
 }
 
-/// `POST /payments/record { method: 'cash', amount_cents }` for the full
-/// booking total ([bookingId]) or the quoted total ([quotationId]).
+/// `POST /payments/record { method, reference?, amount_cents, stage }` for
+/// the full booking total ([bookingId]) or the quoted total ([quotationId]).
+/// Defaults to cash on collection.
 Future<Payment> recordCounterPayment(
   BuildContext context, {
   String? bookingId,
   String? quotationId,
   required int amountCents,
   required String idempotencyKey,
+  PaymentMethodKind method = PaymentMethodKind.cash,
+  String? reference,
+  PaymentStage stage = PaymentStage.collection,
 }) => context.repositories.staff.recordPayment(
   RecordPaymentInput(
     bookingId: quotationId == null ? bookingId : null,
     quotationId: quotationId,
-    method: PaymentMethodKind.cash,
+    method: method,
+    reference: reference,
     amountCents: amountCents,
     idempotencyKey: idempotencyKey,
+    stage: stage,
   ),
 );
 
@@ -93,13 +103,25 @@ class RecordCashSheet extends StatefulWidget {
 
 class _RecordCashSheetState extends State<RecordCashSheet> {
   bool _recording = false;
+  PaymentMethodKind _method = PaymentMethodKind.cash;
+  final _reference = TextEditingController();
 
   /// One idempotency key per sheet so a retried record never double-charges.
   String? _opId;
 
+  @override
+  void dispose() {
+    _reference.dispose();
+    super.dispose();
+  }
+
   Future<void> _record() async {
     if (_recording) return;
     final q = widget.quotation;
+    if (_method.requiresReference && _reference.text.trim().isEmpty) {
+      StaffSnack.show(context, 'Enter the EFT reference first.');
+      return;
+    }
     setState(() => _recording = true);
     try {
       final payment = await recordCounterPayment(
@@ -107,6 +129,11 @@ class _RecordCashSheetState extends State<RecordCashSheet> {
         quotationId: q.id,
         amountCents: q.amountDueCents,
         idempotencyKey: _opId ??= SparklingApi.newOpId(),
+        method: _method,
+        reference: _reference.text,
+        stage: q.workOrder?.isCheckedIn ?? false
+            ? PaymentStage.collection
+            : PaymentStage.checkin,
       );
       if (!mounted) return;
       StaffHaptics.success(context);
@@ -190,6 +217,9 @@ class _RecordCashSheetState extends State<RecordCashSheet> {
                 quotation: true,
                 recording: _recording,
                 onRecord: _record,
+                method: _method,
+                onMethodChanged: (m) => setState(() => _method = m),
+                reference: _reference,
               ),
             ],
           ),
@@ -199,18 +229,25 @@ class _RecordCashSheetState extends State<RecordCashSheet> {
   }
 }
 
-/// The cash step shared by the hand-over sheet and [RecordCashSheet]:
-/// "Cash due · R x" (cash-on-collection booking) or "Quote · R x due"
-/// (accepted quotation) banner, the **Record cash payment** button and the
-/// audit note.
+/// The payment step shared by the hand-over sheet and [RecordCashSheet]:
+/// "Cash due · R x" (cash-on-collection booking), "Quote · R x due"
+/// (accepted quotation) or "Payment due · R x" (any other unpaid booking)
+/// banner, the method / reference fields (cash by default, card terminal,
+/// EFT), the **Record … payment** button and the audit note. [onSkip] (unpaid
+/// non-cash booking) lets staff go on to the OTP without taking the payment.
 class CashDueStep extends StatelessWidget {
   const CashDueStep({
     super.key,
     required this.amountCents,
     required this.onRecord,
     this.quotation = false,
+    this.cash = true,
     this.message,
     this.recording = false,
+    this.method = PaymentMethodKind.cash,
+    this.onMethodChanged,
+    this.reference,
+    this.onSkip,
   });
 
   final int amountCents;
@@ -218,14 +255,44 @@ class CashDueStep extends StatelessWidget {
   /// The amount settles an accepted quotation rather than a booking.
   final bool quotation;
 
+  /// The booking chose cash on collection (the payment blocks the release).
+  final bool cash;
+
   /// Server message to show instead of the default explanation.
   final String? message;
   final bool recording;
   final VoidCallback onRecord;
 
+  /// Selected counter method; the fields are shown when [onMethodChanged]
+  /// and [reference] are provided.
+  final PaymentMethodKind method;
+  final ValueChanged<PaymentMethodKind>? onMethodChanged;
+  final TextEditingController? reference;
+
+  /// Continue to the OTP without a payment (non-blocking balances only).
+  final VoidCallback? onSkip;
+
   @override
   Widget build(BuildContext context) {
     final amount = Money.formatZar(amountCents);
+    final title = quotation
+        ? 'Quote · $amount due'
+        : cash
+        ? 'Cash due · $amount'
+        : 'Payment due · $amount';
+    final text =
+        message ??
+        (quotation
+            ? 'This job was quoted at $amount and is settled at the counter. '
+                  'Take the payment and record it — a receipt is issued and '
+                  'the customer is notified.'
+            : cash
+            ? 'This booking is paid at the counter. Take the payment and '
+                  'record it — the collection OTP is only accepted once the '
+                  'payment is on file.'
+            : 'This booking has not been paid. Take the payment now, or '
+                  'release the keys and settle it later.');
+    final methodWord = method.label.toLowerCase();
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -235,27 +302,38 @@ class CashDueStep extends StatelessWidget {
           tone: InfoTone.warning,
           icon: Symbols.payments_rounded,
           bordered: true,
-          title: quotation ? 'Quote · $amount due' : 'Cash due · $amount',
-          text:
-              message ??
-              (quotation
-                  ? 'This job was quoted at $amount and is settled at the '
-                        'counter. Take the cash and record it — a receipt is '
-                        'issued and the customer is notified.'
-                  : 'This booking is paid in cash at the counter. Take the '
-                        'cash and record it — the collection OTP is only '
-                        'accepted once the payment is on file.'),
+          title: title,
+          text: text,
         ),
+        if (onMethodChanged != null && reference != null) ...[
+          const SizedBox(height: 14),
+          CounterPaymentFields(
+            method: method,
+            onMethodChanged: onMethodChanged!,
+            reference: reference!,
+            enabled: !recording,
+            keyPrefix: 'handover-payment',
+          ),
+        ],
         const SizedBox(height: 16),
         PillButton(
           key: const ValueKey('handover-record-cash'),
-          label: 'Record cash payment · $amount',
+          label: 'Record $methodWord payment · $amount',
           icon: Symbols.point_of_sale_rounded,
           expand: true,
           minHeight: 56,
           loading: recording,
           onPressed: recording ? null : onRecord,
         ),
+        if (onSkip != null) ...[
+          const SizedBox(height: 6),
+          TextButton(
+            key: const ValueKey('handover-skip-payment'),
+            onPressed: recording ? null : onSkip,
+            style: TextButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+            child: const Text('Verify the OTP without taking payment'),
+          ),
+        ],
         const SizedBox(height: 8),
         const AuditNote(
           icon: Symbols.receipt_long_rounded,
@@ -302,9 +380,14 @@ class HandoverSheet extends StatefulWidget {
 
 enum _Phase { input, busy, released, locked }
 
-/// Cash still to be recorded before the OTP is accepted — for the booking
-/// (cash on collection) or the quotation (auto-body job).
-typedef _CashDue = ({String? bookingId, String? quotationId, int amountCents});
+/// Payment still to be recorded — for the booking (cash on collection, or any
+/// unpaid booking when [blocking] is false) or the quotation (auto-body job).
+typedef _CashDue = ({
+  String? bookingId,
+  String? quotationId,
+  int amountCents,
+  bool blocking,
+});
 
 class _HandoverSheetState extends State<HandoverSheet> {
   final _controller = TextEditingController();
@@ -320,6 +403,8 @@ class _HandoverSheetState extends State<HandoverSheet> {
   _CashDue? _cashDue;
   bool _recording = false;
   String? _cashRecorded;
+  PaymentMethodKind _method = PaymentMethodKind.cash;
+  final _reference = TextEditingController();
 
   /// One idempotency key per sheet so a retried record never double-charges.
   String? _cashOpId;
@@ -335,12 +420,27 @@ class _HandoverSheetState extends State<HandoverSheet> {
     final b = widget.booking;
     final q = widget.quotation;
     if (b != null && b.isCashDue) {
-      _cashDue = (bookingId: b.id, quotationId: null, amountCents: b.totalCents);
+      _cashDue = (
+        bookingId: b.id,
+        quotationId: null,
+        amountCents: b.totalCents,
+        blocking: true,
+      );
+    } else if (b != null && b.isUnpaid) {
+      // Card booking never paid online: offer to take it, never block.
+      _cashDue = (
+        bookingId: b.id,
+        quotationId: null,
+        amountCents: b.totalCents,
+        blocking: false,
+      );
+      if (!b.isCashOnCollection) _method = PaymentMethodKind.cardTerminal;
     } else if (q != null && q.isPaymentDue) {
       _cashDue = (
         bookingId: null,
         quotationId: q.id,
         amountCents: q.amountDueCents,
+        blocking: true,
       );
     }
     _controller.addListener(() {
@@ -356,6 +456,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
   void dispose() {
     _cooldown?.cancel();
     _controller.dispose();
+    _reference.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -399,6 +500,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
             quotationId: null,
             amountCents:
                 e.paymentDueCents ?? widget.booking?.totalCents ?? 0,
+            blocking: true,
           );
           _paymentDueMessage = e.message;
         });
@@ -433,17 +535,21 @@ class _HandoverSheetState extends State<HandoverSheet> {
 
   String? _paymentDueMessage;
 
-  /// `POST /payments/record { method: 'cash', amount_cents }` for the full
-  /// booking total (or the quoted total of a quotation work order), then on
-  /// to the OTP step.
+  /// `POST /payments/record { method, reference?, amount_cents, stage:
+  /// 'collection' }` for the full booking total (or the quoted total of a
+  /// quotation work order), then on to the OTP step.
   Future<void> _recordCash() async {
     final due = _cashDue;
     if (due == null || _recording) return;
     if (due.bookingId == null && due.quotationId == null) {
       StaffSnack.show(
         context,
-        'Record the cash under Payments first, then verify the OTP.',
+        'Record the payment under Payments first, then verify the OTP.',
       );
+      return;
+    }
+    if (_method.requiresReference && _reference.text.trim().isEmpty) {
+      StaffSnack.show(context, 'Enter the EFT reference first.');
       return;
     }
     setState(() => _recording = true);
@@ -454,15 +560,18 @@ class _HandoverSheetState extends State<HandoverSheet> {
         quotationId: due.quotationId,
         amountCents: due.amountCents,
         idempotencyKey: _cashOpId ??= SparklingApi.newOpId(),
+        method: _method,
+        reference: _reference.text,
       );
       if (!mounted) return;
       StaffHaptics.success(context);
+      final method = PaymentMethodKind.fromDb(payment.method).label.toLowerCase();
       setState(() {
         _cashDue = null;
         _paymentDueMessage = null;
         _cashRecorded = payment.receiptNo == null
-            ? '${Money.formatZar(payment.amountCents)} cash recorded'
-            : '${Money.formatZar(payment.amountCents)} cash recorded · ${payment.receiptNo}';
+            ? '${Money.formatZar(payment.amountCents)} $method recorded'
+            : '${Money.formatZar(payment.amountCents)} $method recorded · ${payment.receiptNo}';
       });
       _focus.requestFocus();
     } on ApiException catch (e) {
@@ -472,7 +581,7 @@ class _HandoverSheetState extends State<HandoverSheet> {
         setState(() {
           _cashDue = null;
           _paymentDueMessage = null;
-          _cashRecorded = 'Cash already recorded';
+          _cashRecorded = 'Payment already recorded';
         });
       } else {
         StaffHaptics.error(context);
@@ -591,6 +700,20 @@ class _HandoverSheetState extends State<HandoverSheet> {
                             icon: Symbols.payments_rounded,
                             dense: true,
                           ),
+                        ] else if (widget.booking case final b?
+                            when b.isUnpaid) ...[
+                          const SizedBox(height: 6),
+                          StatusChip(
+                            key: const ValueKey('handover-unpaid-chip'),
+                            label: _cashRecorded != null
+                                ? 'Paid at collection'
+                                : 'Unpaid · ${Money.formatZar(b.totalCents)}',
+                            tone: _cashRecorded != null
+                                ? StatusChipTone.success
+                                : StatusChipTone.warning,
+                            icon: Symbols.payments_rounded,
+                            dense: true,
+                          ),
                         ] else if (widget.quotation case final q?
                             when q.isPaymentDue || q.isPaid) ...[
                           const SizedBox(height: 6),
@@ -642,9 +765,19 @@ class _HandoverSheetState extends State<HandoverSheet> {
                 CashDueStep(
                   amountCents: _cashDue!.amountCents,
                   quotation: _cashDue!.quotationId != null,
+                  cash: _cashDue!.blocking,
                   message: _paymentDueMessage,
                   recording: _recording,
                   onRecord: _recordCash,
+                  method: _method,
+                  onMethodChanged: (m) => setState(() => _method = m),
+                  reference: _reference,
+                  onSkip: _cashDue!.blocking
+                      ? null
+                      : () => setState(() {
+                          _cashDue = null;
+                          _focus.requestFocus();
+                        }),
                 ),
               ] else ...[
                 if (_cashRecorded != null) ...[

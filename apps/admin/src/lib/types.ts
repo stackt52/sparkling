@@ -353,7 +353,7 @@ export interface Booking {
   customer: { id: string; full_name: string; email: string | null; phone: string | null };
   /** Present as soon as the booking is confirmed (card bookings: once the online payment succeeds). */
   work_order: WorkOrderSummary | null;
-  payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number; method?: PosPaymentMethod | null; provider?: string | null } | null;
+  payment: { id: string; status: PaymentStatus; receipt_no: string | null; amount_cents: number; method?: PosPaymentMethod | null; provider?: string | null; stage?: PaymentStage | null } | null;
   /**
    * Chosen at booking time. A `cash` booking is created `confirmed` with no online payment; `payment` stays null
    * until staff record the cash / card-terminal payment (`POST /payments/record`), and collection is refused (409
@@ -593,6 +593,8 @@ export interface WorkOrder {
   checked_in_by_name: string | null;
   /** Booking the work order belongs to (`null` for quote-based orders) — the id `POST /payments/record` needs when collection is refused with `payment_due`. */
   booking_id?: string | null;
+  /** Quotation the work order was raised from (`null` for booking-based orders) — the `quotation_id` a counter payment targets. */
+  quotation_id?: string | null;
   /**
    * Vehicle hand-over. A `verified` work order issues a 5-digit collection OTP to the customer (push / WhatsApp); staff
    * enter it with `POST /work-orders/:id/pickup/verify`, which stamps `pickup_otp_verified_at` and `collected_at`.
@@ -600,13 +602,56 @@ export interface WorkOrder {
    */
   collected_at?: string | null;
   pickup_otp_verified_at?: string | null;
+  /**
+   * Counter payment state (migration 0022): the booking / quotation total still owed — 0 once a successful payment is on
+   * file, nothing is due or the order is cancelled — so the dashboard can offer "Record payment" at check-in and hand-over.
+   */
+  amount_due_cents: number;
+  /** How the customer chose to pay at booking time (`null` for quotation-backed orders). */
+  payment_method: BookingPaymentMethod | null;
+  /** The successful payment (online or counter), `null` while unpaid. */
+  payment: WorkOrderPayment | null;
 }
 
-/** `POST /work-orders/:id/pickup/verify { otp }` → 200 (the keys are released). */
+/** `GET /admin/work-orders` → `payment`: the successful payment of the booking / quotation behind the order. */
+export interface WorkOrderPayment {
+  id: string;
+  status: PaymentStatus;
+  amount_cents: number;
+  method: PosPaymentMethod | null;
+  provider: string;
+  receipt_no: string | null;
+  stage: PaymentStage | null;
+  verified_at: string | null;
+}
+
+/**
+ * Counter payment taken together with a check-in or hand-over (`payment` on `POST /bookings/:id/checkin`,
+ * `POST /work-orders/:id/checkin` and `POST /work-orders/:id/pickup/verify`): recorded first with the same rules as
+ * `POST /payments/record` (stage `checkin` / `collection`); a refused payment fails the whole call.
+ */
+export interface CounterPaymentInput {
+  method: PosPaymentMethod;
+  reference?: string | null;
+  amount_cents: number;
+  idempotency_key: string;
+}
+
+/** `POST /work-orders/:id/checkin` → `{ work_order, task, already, payment }` — the re-read board card plus the payment recorded with it (`null` when none was sent). */
+export interface WorkOrderCheckinResult {
+  work_order: WorkOrder;
+  payment: PosPayment | null;
+  /** True when the car was already checked in (idempotent replay; a payment sent with it is still recorded). */
+  already: boolean;
+}
+
+/** `POST /work-orders/:id/pickup/verify { otp, payment? }` → 200 (the keys are released). */
 export interface PickupVerifyResult {
   work_order: WorkOrder;
   collected_at: string;
   collected: true;
+  /** The collection-stage counter payment recorded in the same call, `null` when none was sent. */
+  payment: PosPayment | null;
 }
 
 /** One delivery attempt of the re-sent `pickup_otp` notification (push + WhatsApp when the customer opted in). */
@@ -632,6 +677,8 @@ export interface BookingCheckinResult {
   booking: Booking;
   work_order: WorkOrderSummary | null;
   created?: boolean;
+  /** The check-in-stage counter payment recorded in the same call, `null` when none was sent. */
+  payment: PosPayment | null;
 }
 
 /* ---------- walk-in (staff on behalf of a customer) ---------- */
@@ -707,12 +754,17 @@ export interface WalkInBookingResult {
   task?: { id: string; status: WorkStatus } | null;
 }
 
-export type PosPaymentMethod = 'cash' | 'card_terminal';
+/** Counter payment methods: cash, the card terminal, or an EFT the customer shows (its transfer `reference` is required). */
+export type PosPaymentMethod = 'cash' | 'card_terminal' | 'eft';
+
+/** When a payment was taken (migration 0022): at booking time, at check-in, or at collection / hand-over. */
+export type PaymentStage = 'booking' | 'checkin' | 'collection';
 
 /**
  * `POST /payments/record` — exactly one of `booking_id` / `quotation_id` (400 otherwise). `amount_cents` must equal
- * `bookings.total_cents` / `quotations.amount_cents` (400); an already paid target answers 409. The API replays the
- * same `idempotency_key` with 200 `duplicate: true`; the dashboard generates `pos-<uuid>` when the caller has none.
+ * `bookings.total_cents` / `quotations.amount_cents` (400); an already paid target answers 409; `eft` needs a
+ * non-empty `reference` (400). The API replays the same `idempotency_key` with 200 `duplicate: true`; the dashboard
+ * generates `pos-<uuid>` when the caller has none. `stage` is inferred from the booking status when omitted.
  */
 export interface RecordPaymentInput {
   booking_id?: string | null;
@@ -721,6 +773,7 @@ export interface RecordPaymentInput {
   reference?: string | null;
   amount_cents: number;
   idempotency_key?: string;
+  stage?: PaymentStage;
 }
 
 /** `payments` row created by `POST /payments/record` (provider `pos`). */
@@ -737,6 +790,10 @@ export interface PosPayment {
   provider_ref: string | null;
   verified_at: string | null;
   created_at: string;
+  /** Where in the job the payment was taken (migration 0022). */
+  stage?: PaymentStage | null;
+  /** Staff user who attested the counter payment. */
+  recorded_by?: string | null;
 }
 
 /** `GET /availability` row (wraps `get_available_slots`). */

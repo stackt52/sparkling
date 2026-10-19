@@ -47,6 +47,14 @@ export interface AdminWorkOrder {
   /** Keys released to the customer (collection OTP verified). */
   collected_at: string | null;
   pickup_otp_verified_at: string | null;
+  /**
+   * Payment state of the booking / quotation behind the work order: the amount still owed (0 once a
+   * successful payment is on file or nothing is due), how the customer chose to pay (bookings), and
+   * the successful payment when there is one. Drives "Record payment" at check-in / hand-over.
+   */
+  amount_due_cents: number;
+  payment_method: string | null;
+  payment: { id: string; status: string; amount_cents: number; method: string | null; provider: string; receipt_no: string | null; stage: string | null; verified_at: string | null } | null;
   eta_at: string | null;
   due_at: string | null;
   started_at: string | null;
@@ -72,14 +80,20 @@ async function lookup<T extends Row>(table: string, columns: string, column: str
   return unwrap<T[]>(await getSupabase().from(table).select(columns).in(column, ids), table);
 }
 
+/** Successful payments for the given bookings / quotations (one per target). */
+async function lookupPayments(column: 'booking_id' | 'quotation_id', ids: string[]): Promise<Row[]> {
+  if (ids.length === 0) return [];
+  return unwrap<Row[]>(await getSupabase().from('payments').select('id, booking_id, quotation_id, status, amount_cents, method, provider, receipt_no, stage, verified_at').in(column, ids).eq('status', 'successful'), 'payments');
+}
+
 /** Expands raw `work_orders` rows into the admin card shape (order preserved). */
 export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWorkOrder[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const [outlets, bookings, quotations, vehicles, services, tasks, events, results, templates] = await Promise.all([
     lookup<Row>('outlets', 'id, name', 'id', uniq(rows.map((r) => r.outlet_id))),
-    lookup<Row>('bookings', 'id, ref', 'id', uniq(rows.map((r) => r.booking_id))),
-    lookup<Row>('quotations', 'id, ref', 'id', uniq(rows.map((r) => r.quotation_id))),
+    lookup<Row>('bookings', 'id, ref, total_cents, payment_method', 'id', uniq(rows.map((r) => r.booking_id))),
+    lookup<Row>('quotations', 'id, ref, amount_cents', 'id', uniq(rows.map((r) => r.quotation_id))),
     lookup<Row>('vehicles', 'id, registration_no, make, model', 'id', uniq(rows.map((r) => r.vehicle_id))),
     lookup<Row>('services', 'id, name, category', 'id', uniq(rows.map((r) => r.service_id))),
     lookup<Task>('tasks', '*', 'work_order_id', ids),
@@ -87,7 +101,13 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
     lookup<Row>('checklist_step_results', 'work_order_id, step_key, status', 'work_order_id', ids),
     lookup<Row>('checklist_templates', 'id, steps', 'id', uniq(rows.map((r) => r.checklist_template_id))),
   ]);
-  const profiles = await lookup<Row>('profiles', 'id, full_name', 'id', uniq([...rows.map((r) => r.customer_id), ...rows.map((r) => r.assignee_id), ...rows.map((r) => r.checked_in_by), ...events.map((e) => e.actor_id as string | null)]));
+  const [profiles, bookingPayments, quotationPayments] = await Promise.all([
+    lookup<Row>('profiles', 'id, full_name', 'id', uniq([...rows.map((r) => r.customer_id), ...rows.map((r) => r.assignee_id), ...rows.map((r) => r.checked_in_by), ...events.map((e) => e.actor_id as string | null)])),
+    lookupPayments('booking_id', uniq(rows.map((r) => r.booking_id))),
+    lookupPayments('quotation_id', uniq(rows.map((r) => r.quotation_id))),
+  ]);
+  const paymentByBooking = new Map(bookingPayments.map((p) => [p.booking_id as string, p]));
+  const paymentByQuotation = new Map(quotationPayments.map((p) => [p.quotation_id as string, p]));
   const byId = <T extends Row>(xs: T[]) => new Map(xs.map((x) => [x.id as string, x]));
   const outletById = byId(outlets);
   const bookingById = byId(bookings);
@@ -130,6 +150,10 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
     const vehicle = vehicleById.get(w.vehicle_id);
     const service = serviceById.get(w.service_id);
     const priority = Math.min(3, Math.max(1, Number(w.priority) || 2)) as 1 | 2 | 3;
+    const booking = w.booking_id ? bookingById.get(w.booking_id) : undefined;
+    const quotation = w.quotation_id ? quotationById.get(w.quotation_id) : undefined;
+    const paymentRow = (w.booking_id ? paymentByBooking.get(w.booking_id) : undefined) ?? (!w.booking_id && w.quotation_id ? paymentByQuotation.get(w.quotation_id) : undefined) ?? null;
+    const total = Number(booking?.total_cents ?? quotation?.amount_cents ?? 0) || 0;
     return {
       id: w.id,
       ref: w.ref,
@@ -151,6 +175,11 @@ export async function expandAdminWorkOrders(rows: WorkOrder[]): Promise<AdminWor
       checked_in_by_name: w.checked_in_by ? (nameOf.get(w.checked_in_by) ?? null) : null,
       collected_at: w.collected_at ?? null,
       pickup_otp_verified_at: w.pickup_otp_verified_at ?? null,
+      amount_due_cents: paymentRow || w.status === 'cancelled' ? 0 : total,
+      payment_method: (booking?.payment_method as string | null | undefined) ?? null,
+      payment: paymentRow
+        ? { id: paymentRow.id as string, status: paymentRow.status as string, amount_cents: Number(paymentRow.amount_cents) || 0, method: (paymentRow.method as string | null) ?? null, provider: paymentRow.provider as string, receipt_no: (paymentRow.receipt_no as string | null) ?? null, stage: (paymentRow.stage as string | null) ?? null, verified_at: (paymentRow.verified_at as string | null) ?? null }
+        : null,
       eta_at: w.eta_at ?? null,
       due_at: w.due_at ?? null,
       started_at: w.started_at ?? null,

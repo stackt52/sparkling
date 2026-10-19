@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { PICKUP_OTP_PATTERN } from '../lib/otp.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
-import { clientOpId, parseBody, uuid } from '../lib/validate.js';
+import { clientOpId, counterPayment, parseBody, uuid } from '../lib/validate.js';
 import { assertOwnerOrOutletStaff, requireProfile, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
@@ -85,6 +85,8 @@ workOrdersRouter.post(
 
 const pickupVerifySchema = z.object({
   otp: z.union([z.string(), z.number()]).transform((v) => String(v).trim()).pipe(z.string().regex(PICKUP_OTP_PATTERN, 'OTP is 5 digits')),
+  /** Counter payment taken at hand-over (stage `collection`) — recorded before the OTP is checked. */
+  payment: counterPayment.nullable().optional(),
 });
 
 /** Staff at the outlet confirm the OTP the customer presents; marks the vehicle collected. */
@@ -94,7 +96,7 @@ workOrdersRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(pickupVerifySchema, req.body);
-    const out = await verifyPickup(req.ctx, id, body.otp);
+    const out = await verifyPickup(req.ctx, id, body.otp, { payment: body.payment ? { method: body.payment.method, reference: body.payment.reference ?? null, amountCents: body.payment.amount_cents, idempotencyKey: body.payment.idempotency_key } : null });
     res.json({ ...out, collected: true });
   }),
 );
@@ -110,17 +112,21 @@ workOrdersRouter.post(
   }),
 );
 
-const checkinSchema = z.object({ bay: z.string().trim().max(32).nullable().optional() });
+const checkinSchema = z.object({
+  bay: z.string().trim().max(32).nullable().optional(),
+  /** Counter payment taken at check-in (stage `checkin`) for the booking / quotation. */
+  payment: counterPayment.nullable().optional(),
+});
 
-/** Staff / admin confirm the vehicle is on site (required before the work order can be assigned). */
+/** Staff / admin confirm the vehicle is on site (required before the work order can be assigned), optionally taking payment. */
 workOrdersRouter.post(
   '/work-orders/:id/checkin',
   requireStaff,
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const body = parseBody(checkinSchema, req.body ?? {});
-    const out = await checkInWorkOrder(req.ctx, id, { bay: body.bay });
-    res.status(out.already ? 200 : 201).json({ work_order: redactPickupOtp(req.auth!, out.work_order), task: out.task, already: out.already });
+    const out = await checkInWorkOrder(req.ctx, id, { bay: body.bay, payment: body.payment ? { method: body.payment.method, reference: body.payment.reference ?? null, amountCents: body.payment.amount_cents, idempotencyKey: body.payment.idempotency_key } : null });
+    res.status(out.already ? 200 : 201).json({ work_order: redactPickupOtp(req.auth!, out.work_order), task: out.task, already: out.already, payment: out.payment });
   }),
 );
 

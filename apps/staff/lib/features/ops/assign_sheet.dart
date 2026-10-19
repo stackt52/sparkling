@@ -4,6 +4,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../widgets/async_view.dart';
 import '../../widgets/avatar_tile.dart';
+import '../../widgets/counter_payment_fields.dart';
 import '../../widgets/feedback.dart';
 
 /// Outcome of the assign sheet.
@@ -20,7 +21,9 @@ class AssignChoice {
 /// Work orders whose vehicle has not been checked in yet cannot be assigned
 /// (`POST /tasks/:id/assign` → 409 `not_checked_in`): the sheet disables
 /// **Assign** and offers **Confirm check-in** (optional bay), which calls
-/// `POST /work-orders/:id/checkin` and unlocks assignment in place.
+/// `POST /work-orders/:id/checkin` and unlocks assignment in place. An unpaid
+/// booking adds **Take payment now** (cash / card terminal / EFT) so the
+/// payment travels with the check-in (`payment`, stage `checkin`).
 Future<AssignChoice?> showAssignSheet(
   BuildContext context, {
   required Task task,
@@ -49,15 +52,30 @@ class _AssignSheetState extends State<_AssignSheet> {
   StaffMember? _selected;
   final _reason = TextEditingController();
   final _bay = TextEditingController();
+  final _paymentReference = TextEditingController();
 
   /// The task as last seen — replaced by the server copy after a check-in.
   late Task _task = widget.task;
   bool _checkingIn = false;
   String? _checkInError;
 
+  /// "Take payment now" at check-in (unpaid booking only).
+  bool _takePayment = false;
+  PaymentMethodKind _paymentMethod = PaymentMethodKind.cardTerminal;
+
+  /// One idempotency key per sheet so a retried check-in never double-records.
+  String? _paymentOpId;
+
+  /// Receipt line of the payment recorded with the check-in.
+  String? _paymentRecorded;
+
   /// Set once this sheet confirmed the check-in (drives the success banner).
   DateTime? _checkedInHere;
   String? _autoAssignedTo;
+
+  /// Amount still owed on the booking behind the work order (0 when paid,
+  /// quotation-backed or unknown).
+  int get _amountDue => _task.workOrder?.amountDueCents ?? 0;
 
   /// Unknown card (no `work_order` expansion) → let the server decide.
   bool get _checkedIn => _task.workOrder?.isCheckedIn ?? true;
@@ -79,10 +97,24 @@ class _AssignSheetState extends State<_AssignSheet> {
   void dispose() {
     _reason.dispose();
     _bay.dispose();
+    _paymentReference.dispose();
     super.dispose();
   }
 
   Future<void> _confirmCheckIn() async {
+    CounterPaymentInput? payment;
+    if (_takePayment && _amountDue > 0) {
+      payment = CounterPaymentFields.inputFor(
+        method: _paymentMethod,
+        reference: _paymentReference,
+        amountCents: _amountDue,
+        idempotencyKey: _paymentOpId ??= SparklingApi.newOpId(),
+      );
+      if (payment == null) {
+        setState(() => _checkInError = 'Enter the EFT reference first.');
+        return;
+      }
+    }
     setState(() {
       _checkingIn = true;
       _checkInError = null;
@@ -92,6 +124,7 @@ class _AssignSheetState extends State<_AssignSheet> {
       final result = await context.repositories.staff.checkInWorkOrder(
         _task.workOrderId,
         bay: bay.isEmpty ? null : bay,
+        payment: payment,
       );
       if (!mounted) return;
       final wo = result.workOrder;
@@ -108,10 +141,12 @@ class _AssignSheetState extends State<_AssignSheet> {
           workOrder: card,
         );
         _checkingIn = false;
+        _paymentRecorded = result.payment == null
+            ? null
+            : counterPaymentLabel(result.payment!);
         _checkedInHere = wo.checkedInAt ?? DateTime.now();
         final assignee = _task.assigneeId;
-        _autoAssignedTo =
-            assignee == null || assignee == widget.task.assigneeId
+        _autoAssignedTo = assignee == null || assignee == widget.task.assigneeId
             ? null
             : (_task.assigneeName ??
                   widget.team
@@ -205,6 +240,19 @@ class _AssignSheetState extends State<_AssignSheet> {
                         prefixIcon: Icon(Symbols.garage_rounded),
                       ),
                     ),
+                    if (_amountDue > 0) ...[
+                      const SizedBox(height: 12),
+                      TakePaymentToggle(
+                        amountCents: _amountDue,
+                        value: _takePayment,
+                        enabled: !_checkingIn,
+                        onChanged: (v) => setState(() => _takePayment = v),
+                        method: _paymentMethod,
+                        onMethodChanged: (m) =>
+                            setState(() => _paymentMethod = m),
+                        reference: _paymentReference,
+                      ),
+                    ],
                     if (_checkInError != null) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -217,7 +265,9 @@ class _AssignSheetState extends State<_AssignSheet> {
                     const SizedBox(height: 10),
                     PillButton(
                       key: const ValueKey('confirm-check-in'),
-                      label: 'Confirm check-in',
+                      label: _takePayment && _amountDue > 0
+                          ? 'Check in & record ${Money.formatZar(_amountDue)}'
+                          : 'Confirm check-in',
                       icon: Symbols.login_rounded,
                       variant: PillButtonVariant.tonal,
                       expand: true,
@@ -231,11 +281,16 @@ class _AssignSheetState extends State<_AssignSheet> {
                       key: const ValueKey('checked-in-banner'),
                       tone: InfoTone.success,
                       icon: Symbols.check_circle_rounded,
-                      title: 'Checked in ${SparklingDates.hhmm(_checkedInHere!)}',
-                      text: _autoAssignedTo == null
-                          ? 'The vehicle is on site — pick who takes it.'
-                          : 'Auto-assigned to $_autoAssignedTo. Pick someone '
-                                'else below to reassign, or cancel to keep it.',
+                      title:
+                          'Checked in ${SparklingDates.hhmm(_checkedInHere!)}',
+                      text: [
+                        if (_paymentRecorded != null)
+                          'Payment recorded: $_paymentRecorded.',
+                        _autoAssignedTo == null
+                            ? 'The vehicle is on site — pick who takes it.'
+                            : 'Auto-assigned to $_autoAssignedTo. Pick someone '
+                                  'else below to reassign, or cancel to keep it.',
+                      ].join(' '),
                     ),
                     const SizedBox(height: 18),
                   ],
@@ -264,8 +319,7 @@ class _AssignSheetState extends State<_AssignSheet> {
                   ),
                   const SizedBox(height: 8),
                   const AuditNote(
-                    text:
-                        'Assignment is audited — actor, time and reason are recorded.',
+                    text: 'Assignment is audited — actor, time and reason are recorded.',
                   ),
                 ],
               ),

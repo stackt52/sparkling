@@ -6,6 +6,7 @@ import 'package:sparkling_ui/sparkling_ui.dart';
 
 import '../../app/app_scope.dart';
 import '../../widgets/common.dart';
+import '../bookings/pay_now_sheet.dart';
 import 'pickup_otp_card.dart';
 
 /// Live service tracking timeline (1h) with offline degradation (1l).
@@ -174,6 +175,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
                               if (b.vatCents > 0)
                                 'Total includes VAT ${Money.formatZar(b.vatCents)}.',
                             ].join(' '),
+                          ),
+                        ],
+                        if (b.canPayNow) ...[
+                          const SizedBox(height: 10),
+                          InfoBanner(
+                            key: const ValueKey('pay-now-banner'),
+                            tone: InfoTone.warning,
+                            icon: Symbols.payments_rounded,
+                            title: 'Payment due · ${Money.formatZar(b.totalCents)}',
+                            text: b.isCashOnCollection
+                                ? 'Pay at the counter when you collect, or settle it now from the app.'
+                                : 'Settle the booking now, or pay at the counter when you collect.',
+                            actionLabel: 'Pay now',
+                            onAction: () async {
+                              final payment = await showPayNowSheet(context, b);
+                              if (payment != null && context.mounted) {
+                                showSnack(
+                                  context,
+                                  payment.receiptNo == null
+                                      ? 'Paid ${Money.formatZar(payment.amountCents)}.'
+                                      : 'Paid ${Money.formatZar(payment.amountCents)} · receipt ${payment.receiptNo}.',
+                                );
+                              }
+                            },
                           ),
                         ],
                         if (b.isReadyForCollection) ...[

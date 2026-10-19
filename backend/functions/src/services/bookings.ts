@@ -6,14 +6,15 @@ import { canTransitionBooking } from '../domain/stateMachines.js';
 import { DatabaseError, getSupabase, PG_UNIQUE_VIOLATION, unwrap } from '../lib/supabase.js';
 import { assertOutlet, assertOwner, assertOwnerOrOutletStaff, isStaff } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
-import type { Booking, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
+import type { Booking, Payment, RequestContext, Task, Vehicle, VehicleSize, WorkOrder } from '../types.js';
 import { audit } from './audit.js';
 import { flagEnabled } from './flags.js';
 import { assertSlotAvailable, findWalkInSlot } from './availability.js';
 import { listOutletOffers, priceLabel, resolveOfferPrice, resolveVehicleSize } from './catalogue.js';
 import { loadContext, redeemForBooking, releaseForBooking } from './memberships.js';
 import { priceService } from './pricing.js';
-import { checkInWorkOrder, createWorkOrderWithTask } from './workflow.js';
+import { checkInWorkOrder, createWorkOrderWithTask, type CheckInPayment } from './workflow.js';
+import { recordPosPayment } from './payments.js';
 
 export interface CreateBookingInput {
   vehicleId: string;
@@ -215,12 +216,32 @@ export async function ensureWorkOrderForBooking(
   });
 }
 
-export async function checkInBooking(ctx: RequestContext, id: string, opts: { bay?: string | null; priority?: number }): Promise<{ booking: Booking; work_order: WorkOrder; task: Task; created: boolean }> {
+export interface CheckInBookingResult {
+  booking: Booking;
+  work_order: WorkOrder;
+  task: Task;
+  created: boolean;
+  /** Counter payment recorded as part of this check-in (null when none was sent). */
+  payment: Payment | null;
+}
+
+/**
+ * Staff / admin check-in of a booking: confirms a pending one, moves it to `in_service` and marks
+ * its work order checked in. An optional `payment` (cash / card terminal / EFT) is recorded first
+ * at stage `checkin` — a pending (unpaid card) booking paid at the desk is confirmed by the payment.
+ */
+export async function checkInBooking(ctx: RequestContext, id: string, opts: { bay?: string | null; priority?: number; payment?: CheckInPayment | null }): Promise<CheckInBookingResult> {
   const db = getSupabase();
   const booking = await getBookingOrThrow(id);
   assertOutlet(ctx.auth, booking.outlet_id);
+  if (booking.status === 'cancelled') throw ApiError.invalidTransition(booking.status, 'in_service', 'booking');
   const service = unwrap<import('../types.js').Service>(await db.from('services').select('*').eq('id', booking.service_id).single(), 'service');
+  let payment: Payment | null = null;
   let current = booking;
+  if (opts.payment) {
+    payment = (await recordPosPayment(ctx, { ...opts.payment, bookingId: booking.id, stage: 'checkin' })).payment;
+    current = await getBookingOrThrow(id); // a pending booking is confirmed by the payment
+  }
   if (current.status === 'pending' && canTransitionBooking(current.status, 'confirmed')) {
     // Walk-in check-in of an unpaid booking confirms it first.
     current = unwrap<Booking>(await db.from('bookings').update({ status: 'confirmed' }).eq('id', id).select('*').single(), 'confirm');
@@ -238,8 +259,8 @@ export async function checkInBooking(ctx: RequestContext, id: string, opts: { ba
     }
     const checked = await checkInWorkOrder(ctx, existing.id, { bay: opts.bay ?? existing.bay ?? null });
     const task = checked.task ?? unwrap<Task>(await db.from('tasks').select('*').eq('work_order_id', existing.id).order('seq').limit(1).single(), 'task');
-    await audit(ctx, { action: 'booking.checkin', entity_type: 'booking', entity_id: current.id, outlet_id: current.outlet_id, after: { work_order_id: existing.id, bay: opts.bay ?? existing.bay ?? null, priority: opts.priority ?? existing.priority, already_checked_in: checked.already } });
-    return { booking: current, work_order: checked.work_order, task, created: false };
+    await audit(ctx, { action: 'booking.checkin', entity_type: 'booking', entity_id: current.id, outlet_id: current.outlet_id, after: { work_order_id: existing.id, bay: opts.bay ?? existing.bay ?? null, priority: opts.priority ?? existing.priority, already_checked_in: checked.already, payment_id: payment?.id ?? null } });
+    return { booking: current, work_order: checked.work_order, task, created: false, payment };
   }
   const eta = new Date(new Date(current.slot_start).getTime() + service.duration_minutes * 60_000).toISOString();
   const created = await createWorkOrderWithTask(ctx, {
@@ -258,6 +279,6 @@ export async function checkInBooking(ctx: RequestContext, id: string, opts: { ba
     await db.from('work_orders').update({ bay: opts.bay ?? created.work_order.bay, priority: opts.priority ?? created.work_order.priority }).eq('id', created.work_order.id);
     created.work_order.bay = opts.bay ?? created.work_order.bay;
   }
-  await audit(ctx, { action: 'booking.checkin', entity_type: 'booking', entity_id: id, outlet_id: current.outlet_id, after: { work_order_id: created.work_order.id, bay: opts.bay ?? null } });
-  return { booking: current, ...created };
+  await audit(ctx, { action: 'booking.checkin', entity_type: 'booking', entity_id: id, outlet_id: current.outlet_id, after: { work_order_id: created.work_order.id, bay: opts.bay ?? null, payment_id: payment?.id ?? null } });
+  return { booking: current, ...created, payment };
 }

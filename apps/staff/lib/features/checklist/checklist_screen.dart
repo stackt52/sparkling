@@ -440,6 +440,16 @@ class _ChecklistViewState extends State<ChecklistView> {
                       icon: Symbols.payments_rounded,
                       dense: true,
                     ),
+                  ] else if (wo.isPaymentDue || (card?.isPaymentDue ?? false)) ...[
+                    const SizedBox(height: 6),
+                    StatusChip(
+                      key: const ValueKey('payment-due-chip'),
+                      label:
+                          'Unpaid · ${Money.formatZar((wo.booking ?? card!.booking!).totalCents)}',
+                      tone: StatusChipTone.warning,
+                      icon: Symbols.payments_rounded,
+                      dense: true,
+                    ),
                   ],
                   // Quotation work order: the quoted total is settled at the
                   // counter — "Quote · R x due" until recorded.
@@ -544,6 +554,12 @@ class _ChecklistViewState extends State<ChecklistView> {
                     ? card!.booking!.totalCents
                     : (_quote?.isPaymentDue ?? false)
                     ? _quote!.amountDueCents
+                    : null,
+                paymentDueCents: wo.isPaymentDue && !wo.isCashOnCollection
+                    ? wo.amountDueCents
+                    : (card?.isPaymentDue ?? false) &&
+                          !(card?.isCashOnCollection ?? false)
+                    ? card!.amountDueCents
                     : null,
                 busy: _busy,
                 onHandover: () => _handover(detail),
@@ -730,6 +746,7 @@ class _HandoverCard extends StatelessWidget {
     required this.collectedAt,
     required this.onHandover,
     this.cashDueCents,
+    this.paymentDueCents,
     this.busy = false,
   });
 
@@ -739,6 +756,10 @@ class _HandoverCard extends StatelessWidget {
   /// Cash on collection still to be recorded (amber line + first step of
   /// the hand-over sheet).
   final int? cashDueCents;
+
+  /// Any other unpaid booking (card booking never paid online): the sheet
+  /// offers to take the payment but never blocks the release.
+  final int? paymentDueCents;
   final bool busy;
 
   @override
@@ -812,6 +833,36 @@ class _HandoverCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Cash due · ${Money.formatZar(cashDueCents!)} — take the cash and record it before the OTP.',
+                      style: SparklingTypography.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: x.onWarningContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (paymentDueCents != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('handover-payment-due-line'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: x.warningContainer,
+                borderRadius: BorderRadius.circular(SparklingShapes.tile),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Symbols.payments_rounded,
+                    size: 20,
+                    color: x.onWarningContainer,
+                    fill: 1,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Unpaid · ${Money.formatZar(paymentDueCents!)} — take the payment at hand-over (cash, card or EFT) or the customer pays in the app.',
                       style: SparklingTypography.bodyMedium.copyWith(
                         fontWeight: FontWeight.w600,
                         color: x.onWarningContainer,

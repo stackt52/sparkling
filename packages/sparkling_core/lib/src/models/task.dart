@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import 'booking.dart';
 import 'enums.dart';
 import 'json.dart';
+import 'payment.dart';
 import 'work_order.dart';
 
 /// `progress{steps_done, step_count}` inside the task card.
@@ -82,6 +83,13 @@ class WorkOrderCard extends Equatable {
 
   bool get isCashOnCollection => booking?.isCashOnCollection ?? false;
   bool get isCashDue => booking?.isCashDue ?? false;
+
+  /// The booking behind this work order is still unpaid (any method).
+  bool get isPaymentDue => booking?.isUnpaid ?? false;
+
+  /// What a counter payment for the booking must amount to (0 when paid or
+  /// not booking-backed).
+  int get amountDueCents => isPaymentDue ? booking!.totalCents : 0;
 
   bool get isCollected => collectedAt != null;
 
@@ -216,6 +224,7 @@ class Task extends Equatable {
     this.completedAt,
     this.elapsedSeconds = 0,
     this.clientOpId,
+    this.verificationRequestedAt,
     this.createdAt,
     this.updatedAt,
     this.workOrder,
@@ -236,11 +245,24 @@ class Task extends Equatable {
   final DateTime? completedAt;
   final int elapsedSeconds;
   final String? clientOpId;
+
+  /// When the checklist reached its supervisor step (or the task was
+  /// completed) and the outlet supervisors were asked to sign off; cleared
+  /// on rework (STF-033).
+  final DateTime? verificationRequestedAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final WorkOrderCard? workOrder;
 
   bool get isBlocked => status == WorkStatus.blocked;
+
+  /// Waiting for a supervisor's sign-off — shown under the supervisor's
+  /// "Mine" tab even though the task is assigned to the technician.
+  bool get awaitingVerification =>
+      verificationRequestedAt != null &&
+      (status == WorkStatus.completed ||
+          status == WorkStatus.inProgress ||
+          status == WorkStatus.blocked);
   bool get isOverdue =>
       dueAt != null && status.isOpen && dueAt!.isBefore(DateTime.now());
   String get ref => workOrder?.ref ?? id;
@@ -276,6 +298,7 @@ class Task extends Equatable {
     completedAt: dtOrNull(json['completed_at']),
     elapsedSeconds: intOf(json['elapsed_seconds']),
     clientOpId: strOrNull(json['client_op_id']),
+    verificationRequestedAt: dtOrNull(json['verification_requested_at']),
     createdAt: dtOrNull(json['created_at']),
     updatedAt: dtOrNull(json['updated_at']),
     workOrder: json['work_order'] is Map
@@ -299,6 +322,7 @@ class Task extends Equatable {
     'completed_at': iso(completedAt),
     'elapsed_seconds': elapsedSeconds,
     'client_op_id': clientOpId,
+    'verification_requested_at': iso(verificationRequestedAt),
     'created_at': iso(createdAt),
     'updated_at': iso(updatedAt),
     'work_order': workOrder?.toJson(),
@@ -313,6 +337,8 @@ class Task extends Equatable {
     DateTime? startedAt,
     DateTime? completedAt,
     int? elapsedSeconds,
+    DateTime? verificationRequestedAt,
+    bool clearVerificationRequested = false,
     DateTime? updatedAt,
     WorkOrderCard? workOrder,
     bool clearBlockedReason = false,
@@ -334,6 +360,9 @@ class Task extends Equatable {
     completedAt: completedAt ?? this.completedAt,
     elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
     clientOpId: clientOpId,
+    verificationRequestedAt: clearVerificationRequested
+        ? null
+        : (verificationRequestedAt ?? this.verificationRequestedAt),
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     workOrder: workOrder ?? this.workOrder,
@@ -350,6 +379,7 @@ class Task extends Equatable {
     startedAt,
     completedAt,
     elapsedSeconds,
+    verificationRequestedAt,
     workOrder,
     updatedAt,
   ];
@@ -394,26 +424,35 @@ class WorkOrderCheckInResult extends Equatable {
     required this.workOrder,
     this.task,
     this.already = false,
+    this.payment,
   });
 
   final WorkOrder workOrder;
   final Task? task;
   final bool already;
 
+  /// Counter payment recorded with this check-in (stage `checkin`), when the
+  /// call carried one.
+  final Payment? payment;
+
   factory WorkOrderCheckInResult.fromJson(Json json) => WorkOrderCheckInResult(
     workOrder: WorkOrder.fromJson(asJson(json['work_order'])),
     task: json['task'] is Map ? Task.fromJson(asJson(json['task'])) : null,
     already: boolOf(json['already']),
+    payment: json['payment'] is Map
+        ? Payment.fromJson(asJson(json['payment']))
+        : null,
   );
 
   Json toJson() => compact({
     'work_order': workOrder.toJson(),
     'task': task?.toJson(),
     'already': already,
+    'payment': payment?.toJson(),
   });
 
   @override
-  List<Object?> get props => [workOrder, task, already];
+  List<Object?> get props => [workOrder, task, already, payment];
 }
 
 /// `GET /work-orders/:id` → `{ work_order, template{steps[]}, results[], events[], task }`.

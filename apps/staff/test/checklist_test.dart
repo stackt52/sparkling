@@ -91,7 +91,9 @@ void main() {
 
     await tester.tap(find.textContaining('Queue ·'));
     await settle(tester);
-    await tester.tap(find.text('Continue checklist').first);
+    // The timeline reached the supervisor step: the card offers sign-off.
+    expect(find.textContaining('Awaiting sign-off'), findsOneWidget);
+    await tester.tap(find.text('Review & sign off').first);
     await settle(tester);
 
     expect(find.text('6/7'), findsOneWidget);

@@ -482,6 +482,8 @@ const wo = (id: string, ref: string, outlet_id: string, booking_ref: string | nu
     assignee_id: assignee, assignee_name: profileName(assignee), eta_at: eta === null ? null : rel(eta), due_at: due === null ? null : rel(due), started_at: started === null ? null : rel(started),
     blocked_reason: blocked, steps_done: stepsDone, step_count: t.steps.length, task_id: id.replace('30000000', '40000000'), events: [], updated_at: rel(-1),
     checked_in_at: checkedIn === null ? null : rel(checkedIn), checked_in_by_name: checkedIn === null ? null : outlet_id === OUTLET_GLV ? 'Thandi Khumalo' : 'Johan Botha',
+    // Payment state is computed per read by `DemoApi.woRow` from the booking / quotation and its payments.
+    amount_due_cents: 0, payment_method: null, payment: null,
   };
 };
 

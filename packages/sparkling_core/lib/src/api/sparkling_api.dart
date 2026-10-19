@@ -415,17 +415,32 @@ class SparklingApi {
     map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
-  /// `POST /bookings/:id/checkin` (staff) — creates the work order + task.
+  /// `POST /bookings/:id/checkin` (staff / admin) — confirms the car on the
+  /// booking's work order, status `in_service`. An optional [payment]
+  /// (cash / card terminal / EFT) is recorded first at stage `checkin`; the
+  /// returned [Booking] then carries it as `payment`.
   Future<Booking> checkinBooking(
     String id, {
     String? bay,
     int? priority,
+    CounterPaymentInput? payment,
     String? idempotencyKey,
   }) => post(
     '/bookings/$id/checkin',
-    body: j.compact({'bay': bay, 'priority': priority}),
+    body: j.compact({
+      'bay': bay,
+      'priority': priority,
+      'payment': payment?.toJson(),
+    }),
     idempotencyKey: idempotencyKey,
-    map: (d) => Booking.fromJson(_entity(d, 'booking')),
+    map: (d) {
+      final m = _obj(d);
+      final booking = _entity(d, 'booking');
+      final paid = m['payment'];
+      return Booking.fromJson(
+        paid is Map ? {...booking, 'payment': paid} : booking,
+      );
+    },
   );
 
   // ---------------------------------------------------------------------------
@@ -717,11 +732,25 @@ class SparklingApi {
   // Staff — tasks & checklists
   // ---------------------------------------------------------------------------
 
-  Future<List<Task>> tasks({required TaskScope scope, String? outletId}) => get(
-    '/tasks',
-    query: {'scope': scope.name, 'outlet_id': outletId},
-    map: (d) => _list(d).map(Task.fromJson).toList(),
-  );
+  /// `GET /tasks` — [period] limits Queue (due or raised) and Done
+  /// (completed) to a local-time range; the server ignores it for `mine`.
+  Future<List<Task>> tasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) {
+    final range = period.range();
+    return get(
+      '/tasks',
+      query: {
+        'scope': scope.name,
+        'outlet_id': outletId,
+        'from': range?.from.toUtc().toIso8601String(),
+        'to': range?.to.toUtc().toIso8601String(),
+      },
+      map: (d) => _list(d).map(Task.fromJson).toList(),
+    );
+  }
 
   Future<WorkOrderDetail> workOrder(String id) =>
       get('/work-orders/$id', map: (d) => WorkOrderDetail.fromJson(_obj(d)));
@@ -747,17 +776,20 @@ class SparklingApi {
     map: (d) => Task.fromJson(_entity(d, 'task')),
   );
 
-  /// `POST /work-orders/:id/checkin { bay? }` — confirms the vehicle is on
-  /// site (any staff of the outlet). 201 `{ work_order, task, already:false }`
-  /// or 200 + `already: true` when it was checked in before. Runs
+  /// `POST /work-orders/:id/checkin { bay?, payment? }` — confirms the vehicle
+  /// is on site (any staff of the outlet). 201 `{ work_order, task,
+  /// already:false, payment }` or 200 + `already: true` when it was checked
+  /// in before. An optional [payment] (cash / card terminal / EFT) for the
+  /// booking / quotation is recorded first (stage `checkin`). Runs
   /// auto-assignment server-side when the `auto_assignment` flag is on.
   Future<WorkOrderCheckInResult> checkInWorkOrder(
     String id, {
     String? bay,
+    CounterPaymentInput? payment,
     String? idempotencyKey,
   }) => post(
     '/work-orders/$id/checkin',
-    body: j.compact({'bay': bay}),
+    body: j.compact({'bay': bay, 'payment': payment?.toJson()}),
     idempotencyKey: idempotencyKey,
     map: (d) => WorkOrderCheckInResult.fromJson(_obj(d)),
   );
@@ -778,15 +810,21 @@ class SparklingApi {
     }),
   );
 
-  /// `POST /work-orders/:id/pickup/verify { otp }` (staff) — releases the
-  /// keys. 409 `invalid_otp` with `details.attempts_left`, 429 `rate_limited`
-  /// after five wrong codes.
-  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
-      post(
-        '/work-orders/$workOrderId/pickup/verify',
-        body: {'otp': otp},
-        map: (d) => PickupVerifyResult.fromJson(_obj(d)),
-      );
+  /// `POST /work-orders/:id/pickup/verify { otp, payment? }` (staff) —
+  /// releases the keys. An optional [payment] (cash / card terminal / EFT)
+  /// settles the booking / quotation first (stage `collection`); a
+  /// cash-on-collection balance still refuses the release until paid (409
+  /// `payment_due`). 409 `invalid_otp` with `details.attempts_left`, 429
+  /// `rate_limited` after five wrong codes.
+  Future<PickupVerifyResult> verifyPickupOtp(
+    String workOrderId,
+    String otp, {
+    CounterPaymentInput? payment,
+  }) => post(
+    '/work-orders/$workOrderId/pickup/verify',
+    body: j.compact({'otp': otp, 'payment': payment?.toJson()}),
+    map: (d) => PickupVerifyResult.fromJson(_obj(d)),
+  );
 
   /// `POST /work-orders/:id/pickup/resend` (staff) → `{ sent: true }`;
   /// 429 `rate_limited` when re-sent too quickly.
@@ -951,8 +989,9 @@ class SparklingApi {
     map: (d) => Booking.fromJson(_entity(d, 'booking')),
   );
 
-  /// `POST /payments/record` — cash / card-terminal attestation; idempotent
-  /// on `idempotency_key`; amount must equal the booking total.
+  /// `POST /payments/record` — cash / card-terminal / EFT attestation at
+  /// check-in or collection (staff or admin); idempotent on
+  /// `idempotency_key`; amount must equal the booking / quotation total.
   Future<Payment> recordPayment(RecordPaymentInput input) => post(
     '/payments/record',
     body: input.toJson(),

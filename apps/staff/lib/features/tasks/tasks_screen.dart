@@ -18,9 +18,19 @@ import '../checklist/checklist_screen.dart';
 import '../checklist/handover_sheet.dart';
 import 'task_card.dart';
 
+/// "today" / "this week" / "this month" for empty-state copy.
+String _periodLabel(TaskPeriod p) => switch (p) {
+  TaskPeriod.today => 'today',
+  TaskPeriod.week => 'this week',
+  TaskPeriod.month => 'this month',
+  TaskPeriod.all => '',
+};
+
 /// "My tasks" (2a/2g): outlet header + sync chip, Mine/Queue/Done segments
-/// with live counts, task cards and the quick-action FAB menu. Realtime through
-/// `staff.watchTasks`; two-pane with the checklist on tablets (UX-005).
+/// with live counts, task cards and the quick-action FAB menu. Queue and Done
+/// default to today's work with a Today / Week / Month / All period picker
+/// (Mine always shows everything open). Realtime through `staff.watchTasks`;
+/// two-pane with the checklist on tablets (UX-005).
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
 
@@ -30,6 +40,7 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   TaskScope _scope = TaskScope.mine;
+  TaskPeriod _period = TaskPeriod.today;
   final Map<TaskScope, List<Task>> _tasks = {};
   final Map<TaskScope, StreamSubscription<List<Task>>> _subs = {};
   Object? _error;
@@ -43,18 +54,25 @@ class _TasksScreenState extends State<TasksScreen> {
     _outlet ??= context.repositories.catalogue.outlet(context.session.outletId);
   }
 
-  void _subscribe() {
+  /// Scopes the period picker applies to; Mine always lists everything open.
+  static const _periodScopes = {TaskScope.queue, TaskScope.done};
+
+  void _subscribe({Set<TaskScope>? scopes}) {
     final staff = context.repositories.staff;
     final outletId = context.session.outletId;
-    for (final s in _subs.values) {
-      s.cancel();
+    final targets = scopes ?? TaskScope.values.toSet();
+    for (final scope in targets) {
+      _subs.remove(scope)?.cancel();
+      _tasks.remove(scope);
     }
-    _subs.clear();
-    _tasks.clear();
     _error = null;
-    for (final scope in TaskScope.values) {
+    for (final scope in targets) {
       _subs[scope] = staff
-          .watchTasks(scope: scope, outletId: outletId)
+          .watchTasks(
+            scope: scope,
+            outletId: outletId,
+            period: _periodScopes.contains(scope) ? _period : TaskPeriod.all,
+          )
           .listen(
             (list) {
               if (!mounted) return;
@@ -69,6 +87,12 @@ class _TasksScreenState extends State<TasksScreen> {
             },
           );
     }
+  }
+
+  void _setPeriod(TaskPeriod period) {
+    if (period == _period) return;
+    setState(() => _period = period);
+    _subscribe(scopes: _periodScopes);
   }
 
   final _fabMenu = FabMenuController();
@@ -129,6 +153,7 @@ class _TasksScreenState extends State<TasksScreen> {
   @override
   Widget build(BuildContext context) {
     final list = _tasks[_scope];
+    final canSupervise = context.session.canSupervise;
     final snapshot = _error != null && list == null
         ? AsyncSnapshot<List<Task>>.withError(ConnectionState.active, _error!)
         : list == null
@@ -181,7 +206,12 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
               const LiveOfflineBanner(),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  0,
+                  20,
+                  _periodScopes.contains(_scope) ? 10 : 16,
+                ),
                 child: SegmentedPills<TaskScope>(
                   selected: _scope,
                   onChanged: (s) => setState(() => _scope = s),
@@ -204,6 +234,24 @@ class _TasksScreenState extends State<TasksScreen> {
                   ],
                 ),
               ),
+              // Period picker for Queue / Done (today by default).
+              if (_periodScopes.contains(_scope))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  child: SegmentedPills<TaskPeriod>(
+                    key: const ValueKey('task-period-pills'),
+                    grouped: true,
+                    height: 44,
+                    selected: _period,
+                    onChanged: _setPeriod,
+                    segments: const [
+                      PillSegment(value: TaskPeriod.today, label: 'Today'),
+                      PillSegment(value: TaskPeriod.week, label: 'Week'),
+                      PillSegment(value: TaskPeriod.month, label: 'Month'),
+                      PillSegment(value: TaskPeriod.all, label: 'All'),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: AsyncView<List<Task>>(
                   snapshot: snapshot,
@@ -212,13 +260,29 @@ class _TasksScreenState extends State<TasksScreen> {
                   empty: EmptyState(
                     icon: Symbols.checklist_rounded,
                     title: switch (_scope) {
-                      TaskScope.mine => 'No tasks assigned to you',
-                      TaskScope.queue => 'The queue is empty',
-                      TaskScope.done => 'Nothing completed yet today',
+                      TaskScope.mine =>
+                        canSupervise
+                            ? 'Nothing needs you right now'
+                            : 'No tasks assigned to you',
+                      TaskScope.queue =>
+                        _period == TaskPeriod.all
+                            ? 'The queue is empty'
+                            : 'No work queued ${_periodLabel(_period)}',
+                      TaskScope.done =>
+                        _period == TaskPeriod.all
+                            ? 'Nothing completed yet'
+                            : 'Nothing completed ${_periodLabel(_period)}',
                     },
-                    text: _scope == TaskScope.mine
-                        ? 'Pick one up from the queue or scan a disc to check a vehicle in.'
-                        : null,
+                    text: switch (_scope) {
+                      TaskScope.mine =>
+                        canSupervise
+                            ? 'Your own tasks and sign-off requests from the bay team land here.'
+                            : 'Pick one up from the queue or scan a disc to check a vehicle in.',
+                      _ =>
+                        _period == TaskPeriod.all
+                            ? null
+                            : 'Pick another period to see earlier or later work.',
+                    },
                   ),
                   builder: (context, tasks) => ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 160),
@@ -239,6 +303,11 @@ class _TasksScreenState extends State<TasksScreen> {
                             : null,
                         onHandover: t.workOrder?.awaitingCollection ?? false
                             ? () => _handover(t)
+                            : null,
+                        // Supervisors: the checklist reached its sign-off
+                        // step — open it at the supervisor card (STF-033).
+                        onVerify: canSupervise && t.awaitingVerification
+                            ? () => _open(t)
                             : null,
                       );
                     },

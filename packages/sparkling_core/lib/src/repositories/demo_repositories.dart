@@ -296,8 +296,13 @@ class DemoStaffRepository implements StaffRepository {
       _later(() => store.setAvailability(status));
 
   @override
-  Future<List<Task>> tasks({required TaskScope scope, String? outletId}) =>
-      _later(() => store.taskList(scope: scope, outletId: outletId));
+  Future<List<Task>> tasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) => _later(
+    () => store.taskList(scope: scope, outletId: outletId, period: period),
+  );
   @override
   Future<WorkOrderDetail> workOrder(String id) =>
       _later(() => store.workOrderDetail(id));
@@ -328,20 +333,32 @@ class DemoStaffRepository implements StaffRepository {
     String bookingId, {
     String? bay,
     int? priority,
+    CounterPaymentInput? payment,
   }) => _later(
-    () => store.checkinBooking(bookingId, bay: bay, priority: priority),
+    () => store.checkinBooking(
+      bookingId,
+      bay: bay,
+      priority: priority,
+      payment: payment,
+    ),
   );
   @override
   Future<WorkOrderCheckInResult> checkInWorkOrder(
     String workOrderId, {
     String? bay,
-  }) => _later(() => store.checkInWorkOrder(workOrderId, bay: bay));
+    CounterPaymentInput? payment,
+  }) => _later(
+    () => store.checkInWorkOrder(workOrderId, bay: bay, payment: payment),
+  );
   @override
-  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp) =>
-      _later(
-        () => store.verifyPickupOtp(workOrderId, otp),
-        delay: const Duration(milliseconds: 400),
-      );
+  Future<PickupVerifyResult> verifyPickupOtp(
+    String workOrderId,
+    String otp, {
+    CounterPaymentInput? payment,
+  }) => _later(
+    () => store.verifyPickupOtp(workOrderId, otp, payment: payment),
+    delay: const Duration(milliseconds: 400),
+  );
   @override
   Future<void> resendPickupOtp(String workOrderId) =>
       _later(() => store.resendPickupOtp(workOrderId));
@@ -473,12 +490,15 @@ class DemoStaffRepository implements StaffRepository {
   static const _taskTables = {'tasks', 'work_orders', 'checklist_step_results'};
 
   @override
-  Stream<List<Task>> watchTasks({required TaskScope scope, String? outletId}) =>
-      _watch(
-        store,
-        _taskTables,
-        () => store.taskList(scope: scope, outletId: outletId),
-      );
+  Stream<List<Task>> watchTasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) => _watch(
+    store,
+    _taskTables,
+    () => store.taskList(scope: scope, outletId: outletId, period: period),
+  );
   @override
   Stream<WorkOrderDetail> watchWorkOrder(String id) =>
       _watch(store, _taskTables, () => store.workOrderDetail(id));

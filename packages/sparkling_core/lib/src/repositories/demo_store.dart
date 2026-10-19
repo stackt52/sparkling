@@ -3126,6 +3126,8 @@ class DemoStore {
               status: pay.first.status,
               amountCents: pay.first.amountCents,
               receiptNo: pay.first.receiptNo,
+              method: pay.first.method,
+              verifiedAt: pay.first.verifiedAt,
             ),
     );
   }
@@ -3346,9 +3348,74 @@ class DemoStore {
     return expandBooking(bookings[i], detail: true);
   }
 
-  Booking checkinBooking(String id, {String? bay, int? priority}) {
+  /// `POST /bookings/:id/checkin { bay?, priority?, payment? }` — an optional
+  /// counter payment is recorded first (stage `checkin`; a pending booking is
+  /// confirmed by it), then the car is checked in.
+  Booking checkinBooking(
+    String id, {
+    String? bay,
+    int? priority,
+    CounterPaymentInput? payment,
+  }) {
     _requireRole(role.isStaff);
+    final b = _requireBooking(id);
+    if (b.status == BookingStatus.cancelled) {
+      throw ApiException(
+        code: 'invalid_transition',
+        message: 'A cancelled booking cannot be checked in.',
+        statusCode: 409,
+      );
+    }
+    if (payment != null) {
+      recordPayment(
+        payment.toRecord(bookingId: id, stage: PaymentStage.checkin),
+      );
+    }
     return _checkin(id, bay: bay, priority: priority);
+  }
+
+  /// Stage of a counter payment for [b] when the caller gave none — mirrors
+  /// the API: `pending` / `confirmed` → booking, `in_service` → check-in,
+  /// `completed` → collection.
+  static PaymentStage stageForBooking(Booking b) => switch (b.status) {
+    BookingStatus.completed => PaymentStage.collection,
+    BookingStatus.inService => PaymentStage.checkin,
+    _ => PaymentStage.booking,
+  };
+
+  /// Stage of a quotation payment, from its work order.
+  PaymentStage _stageForQuotation(String quotationId) {
+    final wo = workOrders
+        .where((w) => w.quotationId == quotationId)
+        .firstOrNull;
+    if (wo == null || !wo.isCheckedIn) return PaymentStage.booking;
+    if (wo.status == WorkStatus.completed || wo.status == WorkStatus.verified) {
+      return PaymentStage.collection;
+    }
+    return PaymentStage.checkin;
+  }
+
+  /// Records the counter payment a check-in / hand-over call carries against
+  /// the work order's booking (or, for an auto-body job, its quotation).
+  Payment _recordWorkOrderPayment(
+    WorkOrder wo,
+    CounterPaymentInput payment,
+    PaymentStage stage,
+  ) {
+    if (wo.bookingId == null && wo.quotationId == null) {
+      throw ApiException(
+        code: 'conflict',
+        message: 'This work order has no booking or quotation to pay.',
+        statusCode: 409,
+      );
+    }
+    return recordPayment(
+      payment.toRecord(
+        bookingId: wo.bookingId,
+        quotationId: wo.bookingId == null ? wo.quotationId : null,
+        stage: stage,
+      ),
+    );
   }
 
   /// `POST /bookings` from the staff app with `walk_in: true` (STF-010/012):
@@ -3470,14 +3537,27 @@ class DemoStore {
     return _checkin(b.id, bay: checkin.bay, priority: checkin.priority);
   }
 
-  /// `POST /payments/record` — staff-attested cash / card-terminal payment
-  /// for a booking (`booking_id`) or an accepted quotation (`quotation_id`).
+  /// `POST /payments/record` — staff / admin attested cash / card-terminal /
+  /// EFT payment for a booking (`booking_id`) or an accepted quotation
+  /// (`quotation_id`), at check-in or on collection (`stage`, inferred from
+  /// the booking when omitted).
   Payment recordPayment(RecordPaymentInput input) {
     _requireRole(role.isStaff);
     final existing = payments
         .where((p) => p.idempotencyKey == input.idempotencyKey)
         .firstOrNull;
     if (existing != null) return existing;
+    if (input.method.requiresReference &&
+        (input.reference?.trim().isEmpty ?? true)) {
+      throw ApiException(
+        code: 'validation_error',
+        message: 'An EFT payment needs the transfer reference.',
+        statusCode: 400,
+        details: const [
+          {'path': 'reference', 'message': 'Required for eft'},
+        ],
+      );
+    }
     if (input.isForQuotation) return _recordQuotationPayment(input);
     // Queued behind an offline walk-in: resolve the booking by its op id.
     final byOp = input.bookingClientOpId == null
@@ -3510,6 +3590,7 @@ class DemoStore {
       );
     }
     final receiptNo = 'RCP-${_receiptSeq++}';
+    final stage = input.stage ?? stageForBooking(b);
     final p = Payment(
       id: _newId('6'),
       bookingId: b.id,
@@ -3524,11 +3605,13 @@ class DemoStore {
       verifiedAt: now,
       createdAt: now,
       updatedAt: now,
+      stage: stage,
       receipt: {
         'receipt_no': receiptNo,
         'amount_cents': b.totalCents,
         'method': input.method.db,
         'reference': input.reference,
+        'stage': stage.db,
         'recorded_by': nameOf(uid),
         'paid_at': j.iso(now),
       },
@@ -3605,6 +3688,7 @@ class DemoStore {
       );
     }
     final receiptNo = 'RCP-${_receiptSeq++}';
+    final stage = input.stage ?? _stageForQuotation(q.id);
     final p = Payment(
       id: _newId('6'),
       quotationId: q.id,
@@ -3619,11 +3703,13 @@ class DemoStore {
       verifiedAt: now,
       createdAt: now,
       updatedAt: now,
+      stage: stage,
       receipt: {
         'receipt_no': receiptNo,
         'amount_cents': total,
         'method': input.method.db,
         'reference': input.reference,
+        'stage': stage.db,
         'quotation_id': q.id,
         'quotation_ref': q.ref,
         'recorded_by': nameOf(uid),
@@ -4538,6 +4624,7 @@ class DemoStore {
       id: _newId('6'),
       bookingId: bookingId,
       customerId: uid,
+      stage: stageForBooking(b),
       providerRef: 'pi_sbx_${b.ref.split('-').last}',
       methodId:
           methodId ??
@@ -4849,15 +4936,35 @@ class DemoStore {
     );
   }
 
-  List<Task> taskList({required TaskScope scope, String? outletId}) {
+  /// [period] mirrors `GET /tasks?from&to`: Queue keeps work due or raised in
+  /// the period, Done work completed in it; Mine ignores it.
+  List<Task> taskList({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) {
     _requireRole(role.isStaff);
     final outlet = outletId ?? (staffOutlets[uid]?.firstOrNull);
     Iterable<Task> list = tasks.where(
       (t) => outlet == null || t.outletId == outlet,
     );
+    final at = now;
+    if (scope == TaskScope.queue) {
+      list = list.where(
+        (t) =>
+            period.contains(t.dueAt, at: at) ||
+            period.contains(t.createdAt, at: at),
+      );
+    } else if (scope == TaskScope.done) {
+      list = list.where((t) => period.contains(t.completedAt, at: at));
+    }
     list = switch (scope) {
+      // Supervisors also own the sign-offs: tasks whose checklist reached the
+      // supervisor step join their list although the technician holds them.
       TaskScope.mine => list.where(
-        (t) => t.assigneeId == uid && t.status.isOpen,
+        (t) =>
+            (t.assigneeId == uid && t.status.isOpen) ||
+            (role.canSupervise && t.awaitingVerification),
       ),
       TaskScope.queue => list.where(
         (t) =>
@@ -4955,6 +5062,11 @@ class DemoStore {
           : null,
       completedAt: input.to == WorkStatus.completed ? now : null,
       elapsedSeconds: elapsed,
+      // Rework after completion: the sign-off request lapses until the task
+      // is completed again.
+      clearVerificationRequested:
+          input.to == WorkStatus.inProgress &&
+          task.status == WorkStatus.completed,
       updatedAt: now,
     );
     if (input.to == WorkStatus.inProgress && updated.assigneeId == null) {
@@ -4990,6 +5102,11 @@ class DemoStore {
         createdAt: now,
       ),
     );
+
+    if (input.to == WorkStatus.completed) {
+      // Completed work always needs a supervisor's sign-off.
+      _requestSupervisorVerification(taskId, stepKey: null);
+    }
 
     if (input.to == WorkStatus.verified) {
       // Side effects: booking → completed, loyalty earn, staff points, notification.
@@ -5085,7 +5202,16 @@ class DemoStore {
   /// before), records a `checked_in` event and, when the `auto_assignment`
   /// flag is on and the task is still unassigned, assigns it to the least
   /// loaded available team member with a matching skill.
-  WorkOrderCheckInResult checkInWorkOrder(String id, {String? bay}) {
+  ///
+  /// An optional [payment] (cash / card terminal / EFT) for the booking /
+  /// quotation is recorded first (stage `checkin`) — a refused payment leaves
+  /// the check-in untouched; a repeated check-in (`already`) still records
+  /// a payment that is sent.
+  WorkOrderCheckInResult checkInWorkOrder(
+    String id, {
+    String? bay,
+    CounterPaymentInput? payment,
+  }) {
     _requireRole(role.isStaff, 'Only staff can check a vehicle in.');
     final wo = _requireWorkOrder(id);
     final myOutlets = staffOutlets[uid] ?? const <String>[];
@@ -5093,15 +5219,6 @@ class DemoStore {
       role.canSupervise || myOutlets.contains(wo.outletId),
       'You can only check vehicles in at your own outlet.',
     );
-    Task? task() =>
-        tasks.where((t) => t.workOrderId == id).map(expandTask).firstOrNull;
-    if (wo.isCheckedIn) {
-      return WorkOrderCheckInResult(
-        workOrder: workOrderDetail(id).workOrder,
-        task: task(),
-        already: true,
-      );
-    }
     if (wo.status.isDone) {
       throw ApiException(
         code: 'invalid_transition',
@@ -5109,10 +5226,24 @@ class DemoStore {
         statusCode: 409,
       );
     }
+    final recorded = payment == null
+        ? null
+        : _recordWorkOrderPayment(wo, payment, PaymentStage.checkin);
+    Task? task() =>
+        tasks.where((t) => t.workOrderId == id).map(expandTask).firstOrNull;
+    if (wo.isCheckedIn) {
+      return WorkOrderCheckInResult(
+        workOrder: workOrderDetail(id).workOrder,
+        task: task(),
+        already: true,
+        payment: recorded,
+      );
+    }
     _stampCheckIn(wo, bay: bay);
     return WorkOrderCheckInResult(
       workOrder: workOrderDetail(id).workOrder,
       task: task(),
+      payment: recorded,
     );
   }
 
@@ -5326,6 +5457,13 @@ class DemoStore {
         '${vehicleById(wo.vehicleId)?.displayName ?? 'Your vehicle'}: ${step.title} complete.',
         {'type': 'booking', 'id': wo.bookingId ?? wo.id},
       );
+      // The timeline moved on to the supervisor step: ask the outlet
+      // supervisors to sign off (STF-033).
+      final next = workOrderDetail(workOrderId).currentStep;
+      final task = tasks.where((t) => t.workOrderId == workOrderId).firstOrNull;
+      if (task != null && (next?.isSupervisorVerify ?? false)) {
+        _requestSupervisorVerification(task.id, stepKey: next!.key);
+      }
     }
     _notify('checklist_step_results', workOrderId);
     _notify('work_orders', workOrderId);
@@ -5357,8 +5495,15 @@ class DemoStore {
     );
   }
 
-  /// `POST /work-orders/:id/pickup/verify` — staff only.
-  PickupVerifyResult verifyPickupOtp(String workOrderId, String otp) {
+  /// `POST /work-orders/:id/pickup/verify { otp, payment? }` — staff only.
+  /// An optional [payment] settles the booking / quotation first (stage
+  /// `collection`); a cash-on-collection balance still refuses the release
+  /// until it is paid.
+  PickupVerifyResult verifyPickupOtp(
+    String workOrderId,
+    String otp, {
+    CounterPaymentInput? payment,
+  }) {
     _requireRole(role.isStaff);
     final wi = workOrders.indexWhere((w) => w.id == workOrderId);
     final wo = _requireWorkOrder(workOrderId);
@@ -5377,6 +5522,9 @@ class DemoStore {
         statusCode: 409,
       );
     }
+    final recorded = payment == null
+        ? null
+        : _recordWorkOrderPayment(wo, payment, PaymentStage.collection);
     final cashBooking = _workOrderBooking(wo.bookingId);
     if (cashBooking != null && cashBooking.isCashDue) {
       throw ApiException(
@@ -5464,7 +5612,11 @@ class DemoStore {
           'Thank you for choosing Sparkling!',
       {'type': 'booking', 'id': wo.bookingId ?? wo.id},
     );
-    return PickupVerifyResult(verified: true, collectedAt: at);
+    return PickupVerifyResult(
+      verified: true,
+      collectedAt: at,
+      payment: recorded,
+    );
   }
 
   /// `POST /work-orders/:id/pickup/resend` — staff only, 60 s cooldown.
@@ -5863,6 +6015,79 @@ class DemoStore {
   // ---------------------------------------------------------------------------
   // Notifications
   // ---------------------------------------------------------------------------
+
+  /// Active supervisors linked to [outletId] (managers when it has none) —
+  /// the people who sign off work there.
+  List<String> outletSupervisors(String outletId) {
+    final linked = staffOutlets.entries
+        .where((e) => e.value.contains(outletId))
+        .map((e) => profiles[e.key])
+        .whereType<Profile>()
+        .where((p) => p.isActive)
+        .toList();
+    final supervisors = linked
+        .where((p) => p.role == UserRole.supervisor)
+        .map((p) => p.id)
+        .toList();
+    if (supervisors.isNotEmpty) return supervisors;
+    return linked
+        .where((p) => p.role == UserRole.manager)
+        .map((p) => p.id)
+        .toList();
+  }
+
+  /// Flags the task as awaiting supervisor sign-off (it joins every outlet
+  /// supervisor's "Mine" tab) and pushes them `task_verify_requested`.
+  /// Idempotent until rework clears the flag; the actor is never pushed
+  /// about their own step.
+  void _requestSupervisorVerification(String taskId, {String? stepKey}) {
+    final ti = tasks.indexWhere((t) => t.id == taskId);
+    if (ti < 0) return;
+    final task = tasks[ti];
+    const live = {
+      WorkStatus.inProgress,
+      WorkStatus.blocked,
+      WorkStatus.completed,
+    };
+    if (task.verificationRequestedAt != null || !live.contains(task.status)) {
+      return;
+    }
+    final wo = workOrders.where((w) => w.id == task.workOrderId).firstOrNull;
+    if (wo == null) return;
+    tasks[ti] = task.copyWith(verificationRequestedAt: now, updatedAt: now);
+    taskEvents.add(
+      TaskEvent(
+        id: _newId('8'),
+        taskId: taskId,
+        workOrderId: wo.id,
+        actorId: uid,
+        actorName: nameOf(uid),
+        event: 'verification_requested',
+        fromStatus: task.status.db,
+        toStatus: task.status.db,
+        metadata: {'step_key': stepKey},
+        createdAt: now,
+      ),
+    );
+    final service = serviceById(wo.serviceId);
+    for (final supervisorId in outletSupervisors(wo.outletId)) {
+      if (supervisorId == uid) continue;
+      _pushNotification(
+        supervisorId,
+        'task_verify_requested',
+        'Verification needed',
+        '${wo.ref} · ${service?.name ?? 'Service'} · bay ${wo.bay ?? '—'} is ready for your sign-off.',
+        {
+          'type': 'task',
+          'task_id': taskId,
+          'work_order_id': wo.id,
+          'booking_id': wo.bookingId,
+          'outlet_id': wo.outletId,
+        },
+      );
+    }
+    _notify('tasks', taskId);
+  }
 
   void _pushNotification(
     String recipientId,

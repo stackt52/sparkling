@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { decodeCursor, pageResult, parseSort } from '../lib/refs.js';
-import { clientOpId, isoDateTime, pagination, parseBody, parseQuery, uuid, vehicleSize } from '../lib/validate.js';
+import { clientOpId, counterPayment, isoDateTime, pagination, parseBody, parseQuery, uuid, vehicleSize } from '../lib/validate.js';
 import { assertOwnerOrOutletStaff, canSeeOutlet, isStaff, requireProfile, requireStaff, seesAllOutlets } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
 import { bookingLimiter } from '../middleware/rateLimit.js';
@@ -128,6 +128,8 @@ bookingsRouter.get(
 );
 
 const checkinSchema = z.object({ bay: z.string().trim().max(32).nullable().optional(), priority: z.number().int().min(1).max(3).optional() });
+/** `POST /bookings/:id/checkin` — the walk-in `checkin` fields plus an optional counter payment (stage `checkin`). */
+const bookingCheckinSchema = checkinSchema.extend({ payment: counterPayment.nullable().optional() });
 
 const createSchema = z.object({
   vehicle_id: uuid,
@@ -209,8 +211,8 @@ bookingsRouter.post(
   requireStaff,
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
-    const body = parseBody(checkinSchema, req.body);
-    const result = await checkInBooking(req.ctx, id, body);
+    const body = parseBody(bookingCheckinSchema, req.body);
+    const result = await checkInBooking(req.ctx, id, { bay: body.bay, priority: body.priority, payment: body.payment ? { method: body.payment.method, reference: body.payment.reference ?? null, amountCents: body.payment.amount_cents, idempotencyKey: body.payment.idempotency_key } : null });
     res.status(result.created ? 201 : 200).json(result);
   }),
 );

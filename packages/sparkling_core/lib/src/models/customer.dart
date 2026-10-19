@@ -377,7 +377,11 @@ class WalkInBookingInput {
 /// In-person payment methods a staff member can attest (`POST /payments/record`).
 enum PaymentMethodKind implements SparklingEnum {
   cash('cash'),
-  cardTerminal('card_terminal');
+  cardTerminal('card_terminal'),
+
+  /// Bank transfer confirmed at the counter — the transfer reference is
+  /// required (`reference`).
+  eft('eft');
 
   const PaymentMethodKind(this.db);
   @override
@@ -389,7 +393,71 @@ enum PaymentMethodKind implements SparklingEnum {
   String get label => switch (this) {
     cash => 'Cash',
     cardTerminal => 'Card terminal',
+    eft => 'EFT',
   };
+
+  /// Whether the API refuses the payment without a `reference`.
+  bool get requiresReference => this == eft;
+
+  /// Hint for the reference field ("till 2", "terminal slip", "EFT ref").
+  String get referenceHint => switch (this) {
+    cash => 'Till / note (optional)',
+    cardTerminal => 'Terminal slip / auth code (optional)',
+    eft => 'EFT reference (required)',
+  };
+}
+
+/// A counter payment carried by a check-in or hand-over call
+/// (`POST /work-orders/:id/checkin`, `POST /bookings/:id/checkin`,
+/// `POST /work-orders/:id/pickup/verify` → `payment`): the same fields as
+/// `POST /payments/record` without the target, which is the call's booking or
+/// quotation. The API records it first (stage `checkin` / `collection`); a
+/// refused payment fails the whole call and nothing changes.
+class CounterPaymentInput {
+  const CounterPaymentInput({
+    required this.method,
+    required this.amountCents,
+    required this.idempotencyKey,
+    this.reference,
+  });
+
+  final PaymentMethodKind method;
+  final int amountCents;
+
+  /// Minted once per form so a retried call never double-records.
+  final String idempotencyKey;
+
+  /// Till / terminal slip / EFT reference (required for [PaymentMethodKind.eft]).
+  final String? reference;
+
+  String? get trimmedReference =>
+      (reference?.trim().isEmpty ?? true) ? null : reference!.trim();
+
+  /// `true` when [method] needs a reference and none was given.
+  bool get isMissingReference =>
+      method.requiresReference && trimmedReference == null;
+
+  Json toJson() => compact({
+    'method': method.db,
+    'reference': trimmedReference,
+    'amount_cents': amountCents,
+    'idempotency_key': idempotencyKey,
+  });
+
+  /// The standalone `POST /payments/record` body for the same payment.
+  RecordPaymentInput toRecord({
+    String? bookingId,
+    String? quotationId,
+    PaymentStage? stage,
+  }) => RecordPaymentInput(
+    bookingId: bookingId,
+    quotationId: quotationId,
+    method: method,
+    amountCents: amountCents,
+    idempotencyKey: idempotencyKey,
+    reference: trimmedReference,
+    stage: stage,
+  );
 }
 
 /// Body for `POST /payments/record` — a counter payment for a booking
@@ -405,6 +473,7 @@ class RecordPaymentInput {
     required this.idempotencyKey,
     this.reference,
     this.bookingClientOpId,
+    this.stage,
   }) : assert(
          (bookingId != null) != (quotationId != null),
          'Exactly one of bookingId / quotationId is required',
@@ -418,8 +487,13 @@ class RecordPaymentInput {
   final int amountCents;
   final String idempotencyKey;
 
-  /// Terminal slip / till reference (optional).
+  /// Terminal slip / till / EFT reference (required for
+  /// [PaymentMethodKind.eft]).
   final String? reference;
+
+  /// When the payment is taken (`checkin` / `collection`); the API infers it
+  /// from the booking when omitted.
+  final PaymentStage? stage;
 
   /// Set when the payment is queued offline behind a queued walk-in booking
   /// whose server id is not known yet: `booking_client_op_id` lets
@@ -440,6 +514,7 @@ class RecordPaymentInput {
         idempotencyKey: idempotencyKey,
         reference: reference,
         bookingClientOpId: bookingClientOpId ?? this.bookingClientOpId,
+        stage: stage,
       );
 
   Json toJson() => compact({
@@ -450,6 +525,7 @@ class RecordPaymentInput {
     'reference': (reference?.trim().isEmpty ?? true) ? null : reference!.trim(),
     'amount_cents': amountCents,
     'idempotency_key': idempotencyKey,
+    'stage': stage?.db,
   });
 
   factory RecordPaymentInput.fromJson(Json json) => RecordPaymentInput(
@@ -463,5 +539,6 @@ class RecordPaymentInput {
     idempotencyKey:
         strOrNull(json['idempotency_key']) ?? str(json['client_op_id']),
     reference: strOrNull(json['reference']),
+    stage: PaymentStage.fromDb(strOrNull(json['stage'])),
   );
 }

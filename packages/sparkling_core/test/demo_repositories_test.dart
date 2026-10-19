@@ -588,6 +588,177 @@ void main() {
       expect(lb.badges, hasLength(6));
     });
 
+    test('reaching the supervisor step flags the task for Johan and pushes him',
+        () async {
+      await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final task = (await repos.staff.tasks(scope: TaskScope.mine)).single;
+      expect(task.awaitingVerification, isFalse);
+
+      // Johan (supervisor, Menlyn) does not hold Pieter's task yet.
+      await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(
+        (await repos.staff.tasks(scope: TaskScope.mine)).map((t) => t.id),
+        isNot(contains(task.id)),
+      );
+      final johanBefore = store.myNotifications().length;
+
+      // Pieter finishes the last technician steps: the timeline moves on to
+      // the supervisor step.
+      await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repos.staff.submitStep(
+        task.workOrderId,
+        'windows',
+        const StepResultInput(status: StepStatus.done, clientOpId: 'op-v1'),
+      );
+      expect(
+        store.tasks.firstWhere((t) => t.id == task.id).verificationRequestedAt,
+        isNull,
+      );
+      await repos.staff.submitStep(
+        task.workOrderId,
+        'tyre_pressure',
+        const StepResultInput(
+          status: StepStatus.done,
+          clientOpId: 'op-v2',
+          value: 2.1,
+        ),
+      );
+      final flagged = store.tasks.firstWhere((t) => t.id == task.id);
+      expect(flagged.verificationRequestedAt, isNotNull);
+      expect(flagged.awaitingVerification, isTrue);
+      expect(flagged.status, WorkStatus.inProgress);
+      expect(
+        store.taskEvents.where(
+          (e) => e.taskId == task.id && e.event == 'verification_requested',
+        ),
+        hasLength(1),
+      );
+      // Pieter is not a supervisor: no push for him.
+      expect(
+        store.myNotifications().where(
+          (n) => n.templateKey == 'task_verify_requested',
+        ),
+        isEmpty,
+      );
+
+      // Johan: the task is on his Mine tab and he was pushed at once.
+      await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final johanMine = await repos.staff.tasks(scope: TaskScope.mine);
+      final onMine = johanMine.firstWhere((t) => t.id == task.id);
+      expect(onMine.awaitingVerification, isTrue);
+      expect(onMine.assigneeId, 'seed_pieter');
+      final pushes = store
+          .myNotifications()
+          .where((n) => n.templateKey == 'task_verify_requested')
+          .toList();
+      expect(store.myNotifications().length, johanBefore + 1);
+      expect(pushes.single.body, contains('WO-${DateTime.now().year}-4821'));
+      expect(pushes.single.payload['work_order_id'], task.workOrderId);
+
+      // Completing the task does not ask twice; verifying drops it from Mine.
+      await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repos.staff.transitionTask(
+        flagged,
+        const TaskTransitionInput(
+          to: WorkStatus.completed,
+          clientOpId: 'op-v3',
+        ),
+      );
+      await repos.auth.signInWithEmail('johan@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(
+        store.myNotifications().where(
+          (n) => n.templateKey == 'task_verify_requested',
+        ),
+        hasLength(1),
+      );
+      await repos.staff.submitStep(
+        task.workOrderId,
+        'supervisor',
+        const StepResultInput(
+          status: StepStatus.done,
+          clientOpId: 'op-v4',
+          value: true,
+        ),
+      );
+      await repos.staff.transitionTask(
+        store.tasks.firstWhere((t) => t.id == task.id),
+        const TaskTransitionInput(to: WorkStatus.verified, clientOpId: 'op-v5'),
+      );
+      expect(
+        (await repos.staff.tasks(scope: TaskScope.mine)).map((t) => t.id),
+        isNot(contains(task.id)),
+      );
+    });
+
+    test('Queue and Done filter by period; Mine ignores it', () async {
+      await repos.auth.signInWithEmail('pieter@sparkling.co.za', 'x');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final year = DateTime.now().year;
+
+      final queueAll = await repos.staff.tasks(scope: TaskScope.queue);
+      final queueToday = await repos.staff.tasks(
+        scope: TaskScope.queue,
+        period: TaskPeriod.today,
+      );
+      // Today's seeds are all due or raised today, so nothing drops out…
+      expect(
+        queueToday.map((t) => t.id),
+        containsAll(queueAll.map((t) => t.id)),
+      );
+      // …including the quotation conversion due tomorrow but raised today.
+      expect(
+        queueToday.map((t) => t.workOrder?.ref),
+        contains('WO-$year-4819'),
+      );
+
+      // A task scheduled and raised last week only shows for wider periods.
+      final old = queueAll.first.toJson();
+      old['id'] = 'task-last-week';
+      old['status'] = 'queued';
+      old['due_at'] = store.now
+          .subtract(const Duration(days: 8))
+          .toIso8601String();
+      old['created_at'] = store.now
+          .subtract(const Duration(days: 9))
+          .toIso8601String();
+      store.tasks.add(Task.fromJson(old));
+      Future<Iterable<String>> queueIds(TaskPeriod p) async =>
+          (await repos.staff.tasks(scope: TaskScope.queue, period: p))
+              .map((t) => t.id);
+      expect(await queueIds(TaskPeriod.today), isNot(contains('task-last-week')));
+      expect(await queueIds(TaskPeriod.week), isNot(contains('task-last-week')));
+      expect(await queueIds(TaskPeriod.all), contains('task-last-week'));
+
+      // Done: today's verified work vs everything.
+      final doneToday = await repos.staff.tasks(
+        scope: TaskScope.done,
+        period: TaskPeriod.today,
+      );
+      expect(doneToday, isNotEmpty);
+      expect(
+        doneToday.every(
+          (t) => TaskPeriod.today.contains(t.completedAt, at: store.now),
+        ),
+        isTrue,
+      );
+      final doneAll = await repos.staff.tasks(scope: TaskScope.done);
+      expect(doneAll.length, greaterThanOrEqualTo(doneToday.length));
+
+      // Mine: the period never applies.
+      final mine = await repos.staff.tasks(scope: TaskScope.mine);
+      final mineToday = await repos.staff.tasks(
+        scope: TaskScope.mine,
+        period: TaskPeriod.today,
+      );
+      expect(mineToday.map((t) => t.id), orderedEquals(mine.map((t) => t.id)));
+    });
+
     test('check-in creates a work order and task; quotation convert', () async {
       // Customer accepts the quoted QT-0041 first → its work order is on the
       // board at once (WO-4825), awaiting check-in; the quote stays accepted.

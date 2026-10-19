@@ -7,18 +7,16 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import MSymbol from '@/components/MSymbol';
 import Toast from '@/components/ui/Toast';
+import { POS_METHOD_LABEL, PosMethodToggle, counterPaymentReady, referenceLabel, referencePlaceholder } from '@/components/payments/CounterPaymentFields';
 import { useApi } from '@/lib/auth/AuthProvider';
 import { uuid } from '@/lib/api';
 import { useToast } from '@/lib/hooks';
 import { rands } from '@/lib/format';
-import { tk } from '@/theme/tokens';
-import type { PosPayment, PosPaymentMethod } from '@/lib/types';
+import type { PaymentStage, PosPayment, PosPaymentMethod } from '@/lib/types';
 
 /** What is being paid: a booking (`booking_id`) or an accepted quotation (`quotation_id`); the amount is fixed to its total. */
 export interface RecordPaymentTarget {
@@ -27,25 +25,28 @@ export interface RecordPaymentTarget {
   ref: string;
   amount_cents: number;
   customer_name?: string | null;
+  /** Where in the job the payment is taken (`checkin` / `collection`); the API infers it from the booking status when omitted. */
+  stage?: PaymentStage;
 }
 
-export const POS_METHOD_LABEL: Record<PosPaymentMethod, string> = { cash: 'Cash', card_terminal: 'Card terminal' };
+export { POS_METHOD_LABEL };
 
 /**
- * "Record payment" — counter attestation of a cash / card-terminal payment (`POST /payments/record`). The amount is
- * shown read-only (the API refuses anything but the booking / quotation total); the idempotency key is minted once
- * per open dialog so a retried click cannot double-record. `onRecorded` receives the payment for the caller's toast
- * ("Recorded · receipt RCP-…") and cache invalidation.
+ * "Record payment" — counter attestation of a cash / card-terminal / EFT payment (`POST /payments/record`). The amount
+ * is shown read-only (the API refuses anything but the booking / quotation total); an EFT needs its transfer reference;
+ * the idempotency key is minted once per open dialog so a retried click cannot double-record. `stage` (or
+ * `target.stage`) tags the payment as taken at check-in / collection. `onRecorded` receives the payment for the
+ * caller's toast ("Recorded · receipt RCP-…") and cache invalidation.
  */
-export default function RecordPaymentDialog({ target, onClose, onRecorded }: { target: RecordPaymentTarget | null; onClose: () => void; onRecorded: (payment: PosPayment) => void }) {
+export default function RecordPaymentDialog({ target, stage, onClose, onRecorded }: { target: RecordPaymentTarget | null; stage?: PaymentStage; onClose: () => void; onRecorded: (payment: PosPayment) => void }) {
   return (
     <Dialog open={Boolean(target)} onClose={onClose} aria-labelledby="record-payment-title" fullWidth maxWidth="xs">
-      {target && <RecordPaymentForm target={target} onClose={onClose} onRecorded={onRecorded} />}
+      {target && <RecordPaymentForm target={target} stage={stage ?? target.stage} onClose={onClose} onRecorded={onRecorded} />}
     </Dialog>
   );
 }
 
-function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaymentTarget; onClose: () => void; onRecorded: (payment: PosPayment) => void }) {
+function RecordPaymentForm({ target, stage, onClose, onRecorded }: { target: RecordPaymentTarget; stage?: PaymentStage; onClose: () => void; onRecorded: (payment: PosPayment) => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -53,6 +54,7 @@ function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaym
   const [reference, setReference] = React.useState('');
   // One key per dialog instance: a retry after a network error replays as the same payment (200 `duplicate: true`).
   const [key] = React.useState(() => `pos-${uuid()}`);
+  const ready = counterPaymentReady(method, reference);
   const m = useMutation({
     mutationFn: () =>
       api.recordPayment({
@@ -61,6 +63,7 @@ function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaym
         reference: reference.trim() || null,
         amount_cents: target.amount_cents,
         idempotency_key: key,
+        ...(stage ? { stage } : {}),
       }),
     onSuccess: (payment) => {
       void qc.invalidateQueries({ queryKey: ['bookings'] });
@@ -75,7 +78,7 @@ function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaym
     },
     onError: (e) => toast.error(e),
   });
-  const submit = () => { if (!m.isPending) m.mutate(); };
+  const submit = () => { if (!m.isPending && ready) m.mutate(); };
   return (
     <>
       <DialogTitle id="record-payment-title">Record payment · {target.ref}</DialogTitle>
@@ -85,16 +88,7 @@ function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaym
         </Typography>
         <Box>
           <Typography component="span" id="record-payment-method" variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Method</Typography>
-          <ToggleButtonGroup
-            exclusive
-            value={method}
-            onChange={(_e, v: PosPaymentMethod | null) => { if (v) setMethod(v); }}
-            aria-labelledby="record-payment-method"
-            sx={{ bgcolor: tk.surfaceContainerHigh, borderRadius: 999, p: 0.5, gap: 0.5, '& .MuiToggleButton-root': { border: 0, borderRadius: '999px !important', px: 1.75, py: 0.6, fontWeight: 600, color: tk.onSurfaceVariant, gap: 0.75, '&.Mui-selected': { bgcolor: tk.secondary, color: tk.onSecondary, '&:hover': { bgcolor: tk.secondary } } } }}
-          >
-            <ToggleButton value="cash" data-testid="record-payment-cash"><MSymbol name="payments" size={18} filled />Cash</ToggleButton>
-            <ToggleButton value="card_terminal" data-testid="record-payment-card"><MSymbol name="credit_card" size={18} filled />Card terminal</ToggleButton>
-          </ToggleButtonGroup>
+          <PosMethodToggle value={method} onChange={setMethod} labelledBy="record-payment-method" testIdPrefix="record-payment" />
         </Box>
         <TextField
           label="Amount"
@@ -104,19 +98,21 @@ function RecordPaymentForm({ target, onClose, onRecorded }: { target: RecordPaym
           helperText={`Fixed to the ${target.kind} total`}
         />
         <TextField
-          label={method === 'cash' ? 'Reference (optional)' : 'Terminal slip / auth code (optional)'}
-          placeholder={method === 'cash' ? 'e.g. till 2' : 'e.g. 048213'}
+          label={referenceLabel(method)}
+          placeholder={referencePlaceholder(method)}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
           size="small"
           autoFocus
-          slotProps={{ htmlInput: { maxLength: 64 } }}
+          required={method === 'eft'}
+          helperText={method === 'eft' ? 'The transfer reference the customer shows — required for EFT' : undefined}
+          slotProps={{ htmlInput: { maxLength: 64, 'data-testid': 'record-payment-reference' } }}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
         />
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="secondary" startIcon={<MSymbol name="point_of_sale" size={18} />} disabled={m.isPending} onClick={submit} data-testid="record-payment-confirm">
+        <Button variant="contained" color="secondary" startIcon={<MSymbol name="point_of_sale" size={18} />} disabled={m.isPending || !ready} onClick={submit} data-testid="record-payment-confirm">
           Record {rands(target.amount_cents)} · {POS_METHOD_LABEL[method].toLowerCase()}
         </Button>
       </DialogActions>

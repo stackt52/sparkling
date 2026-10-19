@@ -652,10 +652,14 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
       api.setAvailability(status);
 
   @override
-  Future<List<Task>> tasks({required TaskScope scope, String? outletId}) =>
+  Future<List<Task>> tasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) =>
       cached(
-        'tasks:${scope.name}:${outletId ?? ''}',
-        () => api.tasks(scope: scope, outletId: outletId),
+        'tasks:${scope.name}:${outletId ?? ''}:${period.name}',
+        () => api.tasks(scope: scope, outletId: outletId, period: period),
         encode: (l) => l.map((t) => t.toJson()).toList(),
         decode: (d) => (d as List)
             .map((m) => Task.fromJson(Map<String, dynamic>.from(m as Map)))
@@ -771,25 +775,34 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
     String bookingId, {
     String? bay,
     int? priority,
-  }) => api.checkinBooking(
-    bookingId,
-    bay: bay,
-    priority: priority,
-    idempotencyKey: SparklingApi.newOpId(),
-  );
+    CounterPaymentInput? payment,
+  }) async {
+    final booking = await api.checkinBooking(
+      bookingId,
+      bay: bay,
+      priority: priority,
+      payment: payment,
+      idempotencyKey: SparklingApi.newOpId(),
+    );
+    if (payment != null) _ApiRepositoryBase.notifyLocal('payments');
+    return booking;
+  }
 
   @override
   Future<WorkOrderCheckInResult> checkInWorkOrder(
     String workOrderId, {
     String? bay,
+    CounterPaymentInput? payment,
   }) async {
     final result = await api.checkInWorkOrder(
       workOrderId,
       bay: bay,
+      payment: payment,
       idempotencyKey: SparklingApi.newOpId(),
     );
     _ApiRepositoryBase.notifyLocal('work_orders');
     _ApiRepositoryBase.notifyLocal('tasks');
+    if (result.payment != null) _ApiRepositoryBase.notifyLocal('payments');
     // The cached detail carries the old `checked_in_at`; drop it so the next
     // open reflects the check-in even before realtime catches up.
     await cache?.remove('work_order:$workOrderId');
@@ -799,11 +812,13 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   @override
   Future<PickupVerifyResult> verifyPickupOtp(
     String workOrderId,
-    String otp,
-  ) async {
-    final out = await api.verifyPickupOtp(workOrderId, otp);
+    String otp, {
+    CounterPaymentInput? payment,
+  }) async {
+    final out = await api.verifyPickupOtp(workOrderId, otp, payment: payment);
     _ApiRepositoryBase.notifyLocal('work_orders', id: workOrderId);
     _ApiRepositoryBase.notifyLocal('tasks');
+    if (out.payment != null) _ApiRepositoryBase.notifyLocal('payments');
     return out;
   }
 
@@ -1098,11 +1113,18 @@ class ApiStaffRepository extends _ApiRepositoryBase implements StaffRepository {
   }
 
   @override
-  Stream<List<Task>> watchTasks({required TaskScope scope, String? outletId}) {
+  Stream<List<Task>> watchTasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  }) {
     final rt = realtime;
     Stream<RealtimeChange>? trigger;
     if (rt != null && outletId != null) trigger = rt.outletActivity(outletId);
-    return refetchOn(trigger, () => tasks(scope: scope, outletId: outletId));
+    return refetchOn(
+      trigger,
+      () => tasks(scope: scope, outletId: outletId, period: period),
+    );
   }
 
   @override

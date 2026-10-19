@@ -208,6 +208,33 @@ enum PaymentStatus implements SparklingEnum {
   bool get isVerified => this == successful;
 }
 
+/// When a payment was captured (`payments.stage`, migration 0022): online at
+/// booking time, or at the counter when the car is checked in / collected.
+enum PaymentStage implements SparklingEnum {
+  booking('booking'),
+  checkin('checkin'),
+  collection('collection');
+
+  const PaymentStage(this.db);
+  @override
+  final String db;
+
+  /// `null` for an unknown / missing literal (payments before 0022).
+  static PaymentStage? fromDb(String? v) {
+    if (v == null) return null;
+    for (final e in values) {
+      if (e.db == v) return e;
+    }
+    return null;
+  }
+
+  String get label => switch (this) {
+    booking => 'At booking',
+    checkin => 'At check-in',
+    collection => 'On collection',
+  };
+}
+
 /// How the customer intends to pay a booking (`bookings.payment_method`).
 ///
 /// `cash` = **cash on collection**: the booking is confirmed without an online
@@ -400,6 +427,52 @@ enum AvailabilityStatus implements SparklingEnum {
 
 /// `GET /tasks?scope=`
 enum TaskScope { mine, queue, done }
+
+/// Period filter for the Queue / Done task tabs (`GET /tasks?from&to`):
+/// `queue` → work due or raised in the period, `done` → work completed in
+/// it. [all] sends no range.
+enum TaskPeriod {
+  today('Today'),
+  week('This week'),
+  month('This month'),
+  all('All');
+
+  const TaskPeriod(this.label);
+  final String label;
+
+  /// Half-open local range `[from, to)` for the period containing [at]
+  /// (defaults to now); weeks start on Monday. Null for [all].
+  ({DateTime from, DateTime to})? range([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    switch (this) {
+      case today:
+        return (from: day, to: DateTime(day.year, day.month, day.day + 1));
+      case week:
+        final start = DateTime(day.year, day.month, day.day - (day.weekday - 1));
+        return (
+          from: start,
+          to: DateTime(start.year, start.month, start.day + 7),
+        );
+      case month:
+        return (
+          from: DateTime(now.year, now.month),
+          to: DateTime(now.year, now.month + 1),
+        );
+      case all:
+        return null;
+    }
+  }
+
+  /// Whether [moment] falls in this period (null moments never do, except
+  /// for [all]).
+  bool contains(DateTime? moment, {DateTime? at}) {
+    final r = range(at);
+    if (r == null) return true;
+    if (moment == null) return false;
+    return !moment.isBefore(r.from) && moment.isBefore(r.to);
+  }
+}
 
 /// `GET /staff/leaderboard?period=`
 enum LeaderboardPeriod { week, month }

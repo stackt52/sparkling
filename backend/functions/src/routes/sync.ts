@@ -93,10 +93,11 @@ const payloadSchemas: Record<SyncKind, z.ZodTypeAny> = {
     .object({
       booking_id: z.string().min(1).max(128).optional(),
       booking_client_op_id: clientOpId.optional(),
-      method: z.enum(['cash', 'card_terminal']),
+      method: z.enum(['cash', 'card_terminal', 'eft']),
       reference: z.string().max(120).nullable().optional(),
       amount_cents: z.number().int().min(0),
       idempotency_key: z.string().min(8).max(128),
+      stage: z.enum(['booking', 'checkin', 'collection']).optional(),
     })
     .refine((v) => v.booking_id || v.booking_client_op_id, { message: 'booking_id or booking_client_op_id is required' }),
   // Counter enrolment queued offline (docs/MEMBERSHIPS.md); same payload as POST /staff/customers/:id/membership.
@@ -185,7 +186,7 @@ export async function applyOperation(ctx: RequestContext, op: z.infer<typeof opS
       }
       case 'payment.record': {
         const bookingId = await resolveBookingId(p);
-        const r = await recordPosPayment(ctx, { bookingId, method: p.method, reference: p.reference ?? null, amountCents: p.amount_cents, idempotencyKey: p.idempotency_key });
+        const r = await recordPosPayment(ctx, { bookingId, method: p.method, reference: p.reference ?? null, amountCents: p.amount_cents, idempotencyKey: p.idempotency_key, stage: p.stage ?? null });
         result = r;
         break;
       }

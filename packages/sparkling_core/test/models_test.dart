@@ -507,4 +507,101 @@ void main() {
       expect(p.copyWith(fullName: 'T').mustChangePassword, isFalse);
     });
   });
+
+  group('Task (supervisor sign-off, STF-033)', () {
+    const payload = {
+      'id': '40000000-0000-4000-8000-000000000001',
+      'work_order_id': '30000000-0000-4000-8000-000000000001',
+      'outlet_id': 'a0000000-0000-4000-8000-000000000001',
+      'title': 'Express · HR 88 TS GP',
+      'status': 'in_progress',
+      'assignee_id': 'seed_pieter',
+      'priority': 2,
+      'elapsed_seconds': 60,
+      'verification_requested_at': '2026-10-19T07:00:00Z',
+    };
+
+    test('round-trips verification_requested_at and derives awaitingVerification',
+        () {
+      final t = Task.fromJson(payload);
+      expect(t.verificationRequestedAt, DateTime.utc(2026, 10, 19, 7));
+      expect(t.awaitingVerification, isTrue);
+      expect(
+        t.toJson()['verification_requested_at'],
+        '2026-10-19T07:00:00.000Z',
+      );
+      expect(Task.fromJson(t.toJson()), equals(t));
+      // Completed work still awaits sign-off; verified work does not.
+      expect(
+        t.copyWith(status: WorkStatus.completed).awaitingVerification,
+        isTrue,
+      );
+      expect(
+        t.copyWith(status: WorkStatus.verified).awaitingVerification,
+        isFalse,
+      );
+      expect(
+        t.copyWith(status: WorkStatus.cancelled).awaitingVerification,
+        isFalse,
+      );
+    });
+
+    test('absent or cleared flag means nothing is pending', () {
+      final t = Task.fromJson(
+        {...payload}..remove('verification_requested_at'),
+      );
+      expect(t.verificationRequestedAt, isNull);
+      expect(t.awaitingVerification, isFalse);
+      final flagged = t.copyWith(verificationRequestedAt: DateTime.utc(2026));
+      expect(flagged.awaitingVerification, isTrue);
+      expect(flagged, isNot(equals(t)));
+      expect(
+        flagged
+            .copyWith(clearVerificationRequested: true)
+            .verificationRequestedAt,
+        isNull,
+      );
+    });
+  });
+
+  group('TaskPeriod', () {
+    final wed = DateTime(2026, 10, 21, 14, 5); // Wednesday
+
+    test('today / week (Monday start) / month are half-open local ranges', () {
+      final today = TaskPeriod.today.range(wed)!;
+      expect(today.from, DateTime(2026, 10, 21));
+      expect(today.to, DateTime(2026, 10, 22));
+      final week = TaskPeriod.week.range(wed)!;
+      expect(week.from, DateTime(2026, 10, 19));
+      expect(week.to, DateTime(2026, 10, 26));
+      final month = TaskPeriod.month.range(wed)!;
+      expect(month.from, DateTime(2026, 10));
+      expect(month.to, DateTime(2026, 11));
+      expect(TaskPeriod.all.range(wed), isNull);
+      // Year roll-over.
+      expect(TaskPeriod.month.range(DateTime(2026, 12, 3))!.to, DateTime(2027));
+    });
+
+    test('contains: boundaries, nulls and the all period', () {
+      expect(TaskPeriod.today.contains(DateTime(2026, 10, 21), at: wed), isTrue);
+      expect(
+        TaskPeriod.today.contains(DateTime(2026, 10, 21, 23, 59), at: wed),
+        isTrue,
+      );
+      expect(
+        TaskPeriod.today.contains(DateTime(2026, 10, 22), at: wed),
+        isFalse,
+      );
+      expect(TaskPeriod.today.contains(null, at: wed), isFalse);
+      expect(TaskPeriod.all.contains(null, at: wed), isTrue);
+      expect(
+        TaskPeriod.week.contains(DateTime(2026, 10, 25, 9), at: wed),
+        isTrue,
+      );
+      expect(
+        TaskPeriod.week.contains(DateTime(2026, 10, 18, 9), at: wed),
+        isFalse,
+      );
+    });
+  });
 }

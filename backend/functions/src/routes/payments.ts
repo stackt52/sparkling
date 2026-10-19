@@ -9,7 +9,7 @@ import { paymentLimiter, webhookLimiter } from '../middleware/rateLimit.js';
 import { audit } from '../services/audit.js';
 import { flagEnabled } from '../services/flags.js';
 import { getBookingOrThrow } from '../services/bookings.js';
-import { getPaymentProvider, handleProviderEvent, recordPosPayment, sandboxConfirm } from '../services/payments.js';
+import { getPaymentProvider, handleProviderEvent, recordPosPayment, sandboxConfirm, stageForIntent } from '../services/payments.js';
 import type { Payment } from '../types.js';
 
 /** Unauthenticated webhook router (mounted before auth). */
@@ -116,7 +116,7 @@ paymentsRouter.post(
     const initiated = unwrap<Payment>(
       await db
         .from('payments')
-        .insert({ booking_id: booking.id, customer_id: uid, provider: provider.name, method_id: body.method_id ?? null, amount_cents: booking.total_cents, currency: 'ZAR', status: 'initiated', idempotency_key: key })
+        .insert({ booking_id: booking.id, customer_id: uid, provider: provider.name, method_id: body.method_id ?? null, amount_cents: booking.total_cents, currency: 'ZAR', status: 'initiated', idempotency_key: key, stage: stageForIntent(booking) })
         .select('*')
         .single(),
       'create payment',
@@ -126,7 +126,7 @@ paymentsRouter.post(
       await db.from('payments').update({ status: 'pending', provider_ref: intent.provider_ref }).eq('id', initiated.id).select('*').single(),
       'payment pending',
     );
-    await audit(req.ctx, { action: 'payment.intent', entity_type: 'payment', entity_id: payment.id, outlet_id: booking.outlet_id, after: { amount_cents: payment.amount_cents } });
+    await audit(req.ctx, { action: 'payment.intent', entity_type: 'payment', entity_id: payment.id, outlet_id: booking.outlet_id, after: { amount_cents: payment.amount_cents, stage: payment.stage ?? stageForIntent(booking) } });
     res.status(201).json({ payment, client_secret: intent.client_secret ?? null, redirect_url: intent.redirect_url ?? null });
   }),
 );
@@ -149,17 +149,27 @@ paymentsRouter.post(
   }),
 );
 
-const recordSchema = z.object({
-  booking_id: uuid.optional(),
-  /** Alternative target: an accepted quotation (auto-body job). */
-  quotation_id: uuid.optional(),
-  method: z.enum(['cash', 'card_terminal']),
-  reference: z.string().trim().max(64).nullable().optional(),
-  amount_cents: z.number().int().min(0),
-  idempotency_key: z.string().min(6).max(128),
-}).refine((b) => !!b.booking_id !== !!b.quotation_id, { message: 'Provide exactly one of booking_id or quotation_id', path: ['booking_id'] });
+const recordSchema = z
+  .object({
+    booking_id: uuid.optional(),
+    /** Alternative target: an accepted quotation (auto-body job). */
+    quotation_id: uuid.optional(),
+    method: z.enum(['cash', 'card_terminal', 'eft']),
+    /** Till / terminal slip / EFT reference (required for `eft`). */
+    reference: z.string().trim().max(64).nullable().optional(),
+    amount_cents: z.number().int().min(0),
+    idempotency_key: z.string().min(6).max(128),
+    /** When it is being taken; inferred from the booking / work order when omitted. */
+    stage: z.enum(['booking', 'checkin', 'collection']).optional(),
+  })
+  .refine((b) => !!b.booking_id !== !!b.quotation_id, { message: 'Provide exactly one of booking_id or quotation_id', path: ['booking_id'] })
+  .refine((b) => b.method !== 'eft' || !!b.reference?.trim(), { message: 'An EFT payment needs the transfer reference', path: ['reference'] });
 
-/** STF-012: staff-attested in-person payment (audited; no provider webhook). */
+/**
+ * STF-012: in-person payment attested by outlet staff or a dashboard user (manager / admin /
+ * director / finance), at check-in or on collection — cash, card terminal or EFT reference.
+ * Audited (`payment.record` with the actor and stage); no provider webhook.
+ */
 paymentsRouter.post(
   '/payments/record',
   requireStaff,
@@ -173,6 +183,7 @@ paymentsRouter.post(
       reference: body.reference ?? null,
       amountCents: body.amount_cents,
       idempotencyKey: body.idempotency_key,
+      stage: body.stage ?? null,
     });
     res.status(duplicate ? 200 : 201).json({ payment, duplicate });
   }),

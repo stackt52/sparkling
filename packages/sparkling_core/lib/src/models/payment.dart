@@ -129,6 +129,7 @@ class Payment extends Equatable {
     this.updatedAt,
     this.receipt,
     this.pendingSync = false,
+    this.stage,
   });
 
   final String id;
@@ -155,6 +156,10 @@ class Payment extends Equatable {
   final DateTime? verifiedAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  /// When it was captured: online at booking, or at the counter on check-in
+  /// / collection (`payments.stage`, migration 0022).
+  final PaymentStage? stage;
 
   /// Receipt payload when included (`GET /payments/:id`).
   final Json? receipt;
@@ -186,6 +191,7 @@ class Payment extends Equatable {
     updatedAt: dtOrNull(json['updated_at']),
     receipt: asJsonOrNull(json['receipt']),
     pendingSync: boolOf(json['pending_sync']),
+    stage: PaymentStage.fromDb(strOrNull(json['stage'])),
   );
 
   Json toJson() => compact({
@@ -209,6 +215,7 @@ class Payment extends Equatable {
     'updated_at': iso(updatedAt),
     'receipt': receipt,
     'pending_sync': pendingSync ? true : null,
+    'stage': stage?.db,
   });
 
   Payment copyWith({
@@ -239,6 +246,7 @@ class Payment extends Equatable {
     updatedAt: updatedAt ?? this.updatedAt,
     receipt: receipt ?? this.receipt,
     pendingSync: pendingSync,
+    stage: stage,
   );
 
   @override

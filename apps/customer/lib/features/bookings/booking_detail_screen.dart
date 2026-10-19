@@ -7,8 +7,12 @@ import '../../app/app_scope.dart';
 import '../../app/router.dart';
 import '../../widgets/common.dart';
 import '../tracking/pickup_otp_card.dart';
+import 'pay_now_sheet.dart';
 
 /// Booking detail: summary, payment, points, track / reschedule / cancel.
+/// An unpaid booking that is live (confirmed, checked in or ready for
+/// collection) offers **Pay now** — the same provider flow as "Review &
+/// pay", so the balance can be settled from the app once the car is in.
 class BookingDetailScreen extends StatefulWidget {
   const BookingDetailScreen({super.key, required this.bookingId, this.initial});
 
@@ -45,6 +49,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _payNow(Booking b) async {
+    final payment = await showPayNowSheet(context, b);
+    if (payment == null || !mounted) return;
+    showSnack(
+      context,
+      payment.receiptNo == null
+          ? 'Paid ${Money.formatZar(payment.amountCents)}.'
+          : 'Paid ${Money.formatZar(payment.amountCents)} · receipt ${payment.receiptNo}.',
+    );
   }
 
   Future<void> _reschedule(Booking b) async {
@@ -270,12 +285,26 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         ),
                       ],
                       const SizedBox(height: 20),
+                      if (b.canPayNow) ...[
+                        PillButton(
+                          key: const ValueKey('pay-now'),
+                          label: 'Pay now · ${Money.formatZar(b.totalCents)}',
+                          icon: Symbols.payments_rounded,
+                          expand: true,
+                          minHeight: 56,
+                          onPressed: _busy ? null : () => _payNow(b),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       if (showTrack)
                         PillButton(
                           label: b.isInService
                               ? 'Track service'
                               : 'View timeline',
                           icon: Symbols.timeline_rounded,
+                          variant: b.canPayNow
+                              ? PillButtonVariant.tonal
+                              : PillButtonVariant.filled,
                           expand: true,
                           onPressed: () => context.push(Routes.track(b.id)),
                         ),
@@ -438,11 +467,25 @@ class _PriceCard extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: StatusChip(
                 label: paid
-                    ? b.isCashOnCollection
+                    ? b.isCashOnCollection || b.payment!.method == 'cash'
                           ? 'Paid · cash${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
+                          : b.payment!.methodLabel != null &&
+                                b.payment!.method != 'card'
+                          ? 'Paid · ${b.payment!.methodLabel}${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
                           : 'Payment verified${b.payment!.receiptNo == null ? '' : ' · ${b.payment!.receiptNo}'}'
                     : 'Payment ${b.payment!.status.label.toLowerCase()}',
                 tone: paid ? StatusChipTone.success : StatusChipTone.warning,
+                dense: true,
+              ),
+            ),
+          ] else if (b.isPaymentDue) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: StatusChip(
+                key: const ValueKey('payment-due-chip'),
+                label: 'Payment due',
+                tone: StatusChipTone.warning,
                 dense: true,
               ),
             ),

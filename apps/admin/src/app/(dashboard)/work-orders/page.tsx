@@ -24,14 +24,16 @@ import Toast from '@/components/ui/Toast';
 import MSymbol from '@/components/MSymbol';
 import { LoadingRows } from '@/components/ui/States';
 import HandoverPanel from '@/components/work/HandoverPanel';
+import CounterPaymentFields, { posMethodShort, useCounterPayment } from '@/components/payments/CounterPaymentFields';
+import RecordPaymentDialog, { type RecordPaymentTarget } from '@/components/payments/RecordPaymentDialog';
 import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { conflictDetail } from '@/lib/api';
 import { useFilters } from '@/lib/filters';
 import { useLive, useNow, useToast } from '@/lib/hooks';
 import { can } from '@/lib/rbac';
 import { fonts, tk } from '@/theme/tokens';
-import { fmtDateTime, fmtTime, initials, statusLabel } from '@/lib/format';
-import type { WorkOrder, WorkStatus } from '@/lib/types';
+import { fmtDateTime, fmtTime, initials, rands, statusLabel } from '@/lib/format';
+import type { PaymentStage, WorkOrder, WorkStatus } from '@/lib/types';
 
 const COLUMNS: WorkStatus[] = ['queued', 'assigned', 'in_progress', 'blocked', 'completed', 'verified'];
 const priorityTone = { 1: 'error', 2: 'gold', 3: 'neutral' } as const;
@@ -123,9 +125,23 @@ function CollectedChip({ at, size = 'small' }: { at: string; size?: 'small' | 'm
   );
 }
 
+/** Counter payments at the Work board: `collection` once the job is verified / completed, `checkin` before that. */
+function paymentStageFor(w: WorkOrder): PaymentStage {
+  return ['verified', 'completed'].includes(w.status) ? 'collection' : 'checkin';
+}
+
+/** The `RecordPaymentDialog` target for a work order's booking (or, for an auto-body job, its quotation). */
+function paymentTargetFor(w: WorkOrder): RecordPaymentTarget | null {
+  if (w.booking_id) return { kind: 'booking', id: w.booking_id, ref: w.booking_ref ?? w.ref, amount_cents: w.amount_due_cents, customer_name: w.customer_name, stage: paymentStageFor(w) };
+  if (w.quotation_id) return { kind: 'quotation', id: w.quotation_id, ref: w.quotation_ref ?? w.ref, amount_cents: w.amount_due_cents, customer_name: w.customer_name, stage: paymentStageFor(w) };
+  return null;
+}
+
 /**
- * "Confirm check-in" — the explicit "car is on site" step (`POST /work-orders/:id/checkin`). The bay is optional.
- * After success the board is refreshed; the toast names the auto-assigned technician when the flag handed it out.
+ * "Confirm check-in" — the explicit "car is on site" step (`POST /work-orders/:id/checkin`). The bay is optional. When
+ * the booking / quotation is still unpaid, "Take payment now" records the counter payment (stage `checkin`) in the same
+ * call. After success the board is refreshed; the toast names the auto-assigned technician when the flag handed it out
+ * and the receipt when a payment was taken.
  */
 function CheckinDialog({ w, onClose, onDone }: { w: WorkOrder | null; onClose: () => void; onDone: (message: string) => void }) {
   return (
@@ -138,11 +154,15 @@ function CheckinDialog({ w, onClose, onDone }: { w: WorkOrder | null; onClose: (
 /** `onDone` carries the success message to the page's toast — the dialog (and its own toast) unmounts on close. */
 function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void; onDone: (message: string) => void }) {
   const api = useApi();
+  const { role } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
   const [bay, setBay] = React.useState(w.bay ?? '');
+  // Counter payment with the check-in: offered while the booking / quotation is unpaid; the key is minted once per open dialog.
+  const canPay = can(role, 'payment:record') && w.amount_due_cents > 0 && (Boolean(w.booking_id) || Boolean(w.quotation_id));
+  const pay = useCounterPayment(w.amount_due_cents);
   const m = useMutation({
-    mutationFn: () => api.checkinWorkOrder(w.id, { bay: bay.trim() || null }),
+    mutationFn: () => api.checkinWorkOrder(w.id, { bay: bay.trim() || null, ...(canPay && pay.body ? { payment: pay.body } : {}) }),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['work-orders'] });
       void qc.invalidateQueries({ queryKey: ['bookings'] });
@@ -150,12 +170,19 @@ function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void
       // A quote-based order's check-in marks its quotation `converted`.
       void qc.invalidateQueries({ queryKey: ['quotations'] });
       void qc.invalidateQueries({ queryKey: ['quotation'] });
+      if (res.payment) {
+        void qc.invalidateQueries({ queryKey: ['payments'] });
+        void qc.invalidateQueries({ queryKey: ['activity'] });
+      }
       onClose();
       const converted = w.quotation_ref ? ` · ${w.quotation_ref} converted` : '';
-      onDone(res.assignee_name && !w.assignee_name ? `Checked in · auto-assigned to ${res.assignee_name}${converted}` : `Checked in${converted}`);
+      const paid = res.payment ? ` · ${rands(res.payment.amount_cents)} ${posMethodShort(res.payment.method)} · receipt ${res.payment.receipt_no ?? res.payment.id}` : '';
+      const wo = res.work_order;
+      onDone(wo.assignee_name && !w.assignee_name ? `Checked in · auto-assigned to ${wo.assignee_name}${converted}${paid}` : `Checked in${converted}${paid}`);
     },
     onError: (e) => toast.error(e),
   });
+  const submit = () => { if (!m.isPending && pay.ready) m.mutate(); };
   return (
     <>
       <DialogTitle id="checkin-title">Confirm check-in · {w.ref}</DialogTitle>
@@ -163,11 +190,14 @@ function CheckinForm({ w, onClose, onDone }: { w: WorkOrder; onClose: () => void
         <Typography variant="body2" color="text.secondary">
           Confirms that <b>{w.vehicle.registration_no}</b> is on site. The work order can then be assigned — automatically when auto-assignment is on, otherwise by a supervisor.
         </Typography>
-        <TextField label="Bay (optional)" placeholder="e.g. Body 1" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && !m.isPending) { e.preventDefault(); m.mutate(); } }} />
+        <TextField label="Bay (optional)" placeholder="e.g. Body 1" value={bay} onChange={(e) => setBay(e.target.value)} size="small" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} />
+        {canPay && <CounterPaymentFields state={pay} amountCents={w.amount_due_cents} switchTestId="checkin-take-payment" testIdPrefix="checkin-payment" disabled={m.isPending} hint={`${w.booking_ref ?? w.quotation_ref ?? w.ref} is unpaid — record the counter payment with the check-in, or later from the drawer.`} />}
       </DialogContent>
       <DialogActions sx={{ p: 2.5, pt: 0 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={m.isPending} onClick={() => m.mutate()}>Confirm check-in</Button>
+        <Button variant="contained" color="secondary" startIcon={<MSymbol name="login" size={18} />} disabled={m.isPending || !pay.ready} onClick={submit} data-testid="checkin-confirm">
+          {canPay && pay.take ? `Check in & record ${rands(w.amount_due_cents)}` : 'Confirm check-in'}
+        </Button>
       </DialogActions>
       <Toast toast={toast.toast} onClose={toast.close} />
     </>
@@ -244,6 +274,7 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
   const toast = useToast();
   const [reasonFor, setReasonFor] = React.useState<WorkStatus | null>(null);
   const [reason, setReason] = React.useState('');
+  const [payTarget, setPayTarget] = React.useState<RecordPaymentTarget | null>(null);
   const m = useMutation({
     mutationFn: (body: { to: WorkStatus; reason?: string }) => api.transitionTask(w!.task_id!, body),
     onSuccess: (res) => { toast.success(`${res.ref} → ${statusLabel(res.status)}`); void qc.invalidateQueries({ queryKey: ['work-orders'] }); setReasonFor(null); setReason(''); },
@@ -257,9 +288,11 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
   const canCheckin = can(role, 'work_order:checkin') && Boolean(w) && !checkedIn && !['verified', 'cancelled'].includes(w!.status);
   // Hand-over: a verified order whose keys have not been released yet (`work_order:handover` — the check-in roles).
   const canHandover = can(role, 'work_order:handover') && w?.status === 'verified' && !collected;
+  // Counter payment of the unpaid booking / quotation behind the order (stage `checkin`, or `collection` once verified / completed).
+  const canPay = can(role, 'payment:record') && Boolean(w) && w!.amount_due_cents > 0 && w!.status !== 'cancelled' && Boolean(paymentTargetFor(w!));
   const transitions = w ? NEXT[w.status] ?? [] : [];
   // Once collected the job is closed — no more assignment / transitions.
-  const hasFooter = Boolean(w) && !collected && (canAssign || canCheckin || (canAct && transitions.length > 0) || Boolean(reasonFor));
+  const hasFooter = Boolean(w) && ((!collected && (canAssign || canCheckin || (canAct && transitions.length > 0) || Boolean(reasonFor))) || canPay);
   return (
     <DetailDrawer
       open={Boolean(w)}
@@ -286,6 +319,11 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {canCheckin && (
             <Button variant="contained" color="secondary" fullWidth onClick={onCheckin} startIcon={<MSymbol name="login" size={20} />} data-testid="confirm-checkin">Confirm check-in</Button>
+          )}
+          {canPay && (
+            <Button variant={canCheckin || canHandover ? 'outlined' : 'contained'} color="secondary" fullWidth onClick={() => setPayTarget(paymentTargetFor(w))} startIcon={<MSymbol name="point_of_sale" size={20} />} data-testid="wo-record-payment">
+              Record payment · {rands(w.amount_due_cents)}
+            </Button>
           )}
           {canAssign && (
             <Tooltip title={checkedIn ? '' : 'Check the car in first'} placement="left">
@@ -320,6 +358,12 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
           <Tile sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 0.5 }}>
             <Typography variant="body2">{w.outlet.name}{w.bay ? ` · ${w.bay}` : ''} · {w.customer_name}</Typography>
             <Typography variant="body2">{w.booking_ref ? `Booking ${w.booking_ref}` : w.quotation_ref ? `Quotation ${w.quotation_ref}` : ''}</Typography>
+            {/* Counter / online payment state: paid (success) or the amount still due (warning) — what Record payment / hand-over settle. */}
+            {w.payment?.status === 'successful' ? (
+              <StatusChip tone="success" label={`Paid · ${w.payment.method ? posMethodShort(w.payment.method) : w.payment_method === 'eft' ? 'EFT' : 'card'} · ${w.payment.receipt_no ?? '—'}`} icon={<MSymbol name="payments" filled size={16} />} sx={{ alignSelf: 'flex-start', mt: 0.5, '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="wo-payment-state" />
+            ) : w.amount_due_cents > 0 && w.status !== 'cancelled' ? (
+              <StatusChip tone="warning" label={`${rands(w.amount_due_cents, { decimals: true })} due${w.payment_method === 'cash' ? ' · cash on collection' : ''}`} icon={<MSymbol name="payments" filled size={16} />} sx={{ alignSelf: 'flex-start', mt: 0.5, '& .MuiChip-icon': { color: 'inherit', ml: 0.75, mr: -0.25 } }} data-testid="wo-payment-state" />
+            ) : null}
             <Typography variant="body2">Assignee: <b>{w.assignee_name ?? 'unassigned'}</b>{w.eta_at ? ` · ETA ${fmtTime(w.eta_at)}` : ''}{w.due_at ? ` · due ${fmtTime(w.due_at)}` : ''}</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
               <LevelBar value={w.steps_done} max={w.step_count} tone={w.status === 'blocked' ? 'error' : 'primary'} height={8} label="Checklist progress" />
@@ -328,7 +372,7 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
             {w.blocked_reason && <Typography variant="body2" sx={{ color: tk.error, fontWeight: 600 }}>{w.blocked_reason}</Typography>}
           </Tile>
           {/* Keyed on the work order so a fresh OTP form (attempts, cooldown) opens per card. */}
-          {canHandover && <HandoverPanel key={w.id} w={w} onCollected={(at) => toast.success(`Keys released · collected ${fmtTime(at)}`)} />}
+          {canHandover && <HandoverPanel key={w.id} w={w} onCollected={(at, p) => toast.success(`Keys released · collected ${fmtTime(at)}${p ? ` · ${rands(p.amount_cents)} ${posMethodShort(p.method)} · receipt ${p.receipt_no ?? p.id}` : ''}`)} />}
           <Typography variant="h4" sx={{ mt: 3, mb: 1 }}>Audit trail</Typography>
           <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
             {w.events.length === 0 && <Typography variant="body2" color="text.secondary">No events yet.</Typography>}
@@ -350,6 +394,14 @@ function WoDrawer({ w, onClose, onAssign, onCheckin }: { w: WorkOrder | null; on
           </Box>
         </>
       )}
+      <RecordPaymentDialog
+        target={payTarget}
+        onClose={() => setPayTarget(null)}
+        onRecorded={(p) => {
+          toast.success(`Recorded · receipt ${p.receipt_no ?? p.id}`);
+          void qc.invalidateQueries({ queryKey: ['work-orders'] });
+        }}
+      />
       <Toast toast={toast.toast} onClose={toast.close} />
     </DetailDrawer>
   );

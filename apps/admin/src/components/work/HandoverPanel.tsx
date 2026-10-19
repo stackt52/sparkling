@@ -9,11 +9,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import MSymbol from '@/components/MSymbol';
 import Tile from '@/components/ui/Tile';
 import RecordPaymentDialog, { type RecordPaymentTarget } from '@/components/payments/RecordPaymentDialog';
-import { useApi } from '@/lib/auth/AuthProvider';
+import CounterPaymentFields, { useCounterPayment } from '@/components/payments/CounterPaymentFields';
+import { useApi, useAuth } from '@/lib/auth/AuthProvider';
 import { ApiRequestError } from '@/lib/api';
 import { rands } from '@/lib/format';
+import { can } from '@/lib/rbac';
 import { fonts, tk } from '@/theme/tokens';
-import type { WorkOrder } from '@/lib/types';
+import type { PosPayment, WorkOrder } from '@/lib/types';
 
 export const OTP_LENGTH = 5;
 const EMPTY = (): string[] => Array.from({ length: OTP_LENGTH }, () => '');
@@ -83,13 +85,20 @@ type Feedback = { kind: 'error' | 'locked' | 'info'; text: string };
 /**
  * "Hand over vehicle" for a `verified` work order that has not been collected: the customer reads out the 5-digit
  * collection OTP they received on push / WhatsApp, staff enter it and press **Release keys**
- * (`POST /work-orders/:id/pickup/verify`). Wrong codes show the attempts remaining (5, then the order is locked);
- * an unpaid cash-on-collection booking (409 `payment_due`) surfaces a Record payment shortcut; **Resend OTP** re-sends
- * the same code with the API's cooldown counted down. `onCollected` fires with the `collected_at` stamp.
+ * (`POST /work-orders/:id/pickup/verify`). Wrong codes show the attempts remaining (5, then the order is locked). While
+ * the booking / quotation is unpaid (`amount_due_cents > 0`) the panel offers "Take payment now" — the counter payment
+ * (stage `collection`) is sent with the OTP and recorded before it is checked; an unpaid cash-on-collection booking
+ * verified without one (409 `payment_due`) switches the fields on and keeps the Record payment shortcut. **Resend OTP**
+ * re-sends the same code with the API's cooldown counted down. `onCollected` fires with the `collected_at` stamp and the
+ * payment recorded in the same call, if any.
  */
-export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onCollected: (collectedAt: string) => void }) {
+export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onCollected: (collectedAt: string, payment?: PosPayment | null) => void }) {
   const api = useApi();
+  const { role } = useAuth();
   const qc = useQueryClient();
+  // Counter payment with the hand-over: offered while something is due; cash-on-collection starts switched on since the keys cannot go before it is paid.
+  const canPay = can(role, 'payment:record') && w.amount_due_cents > 0 && (Boolean(w.booking_id) || Boolean(w.quotation_id));
+  const pay = useCounterPayment(w.amount_due_cents, canPay && w.payment_method === 'cash');
   const [digits, setDigits] = React.useState<string[]>(EMPTY);
   const [feedback, setFeedback] = React.useState<Feedback | null>(null);
   const [locked, setLocked] = React.useState(false);
@@ -117,10 +126,14 @@ export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onColl
   };
 
   const verify = useMutation({
-    mutationFn: () => api.verifyPickup(w.id, otp),
+    mutationFn: () => api.verifyPickup(w.id, otp, canPay && pay.body ? pay.body : null),
     onSuccess: (res) => {
       refresh();
-      onCollected(res.collected_at);
+      if (res.payment) {
+        void qc.invalidateQueries({ queryKey: ['payments'] });
+        void qc.invalidateQueries({ queryKey: ['quotations'] });
+      }
+      onCollected(res.collected_at, res.payment);
     },
     onError: (e) => {
       const d = (e instanceof ApiRequestError && e.error.details && !Array.isArray(e.error.details) ? e.error.details : {}) as Record<string, unknown>;
@@ -137,6 +150,7 @@ export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onColl
       if (e instanceof ApiRequestError && e.status === 409) {
         if (d.reason === 'payment_due') {
           setCashDue({ booking_id: String(d.booking_id ?? w.booking_id ?? ''), amount_cents: Number(d.amount_cents ?? 0) });
+          if (canPay) pay.setTake(true);
           setFeedback(null);
           return;
         }
@@ -165,7 +179,7 @@ export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onColl
     },
   });
 
-  const submit = () => { if (complete && !locked && !verify.isPending) verify.mutate(); };
+  const submit = () => { if (complete && !locked && !verify.isPending && pay.ready) verify.mutate(); };
   const first = w.customer_name.split(' ')[0];
 
   return (
@@ -186,16 +200,17 @@ export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onColl
             <MSymbol name="payments" filled size={22} />
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography variant="subtitle2">Cash on collection — {rands(cashDue.amount_cents, { decimals: true })} is due before the keys are released</Typography>
-              <Typography variant="body2">Record the counter payment first, then enter the OTP again.</Typography>
-              <Button size="small" variant="contained" color="secondary" sx={{ mt: 1 }} startIcon={<MSymbol name="point_of_sale" size={18} />} onClick={() => setPayTarget({ kind: 'booking', id: cashDue.booking_id, ref: w.booking_ref ?? w.ref, amount_cents: cashDue.amount_cents, customer_name: w.customer_name })} data-testid="handover-record-payment">
+              <Typography variant="body2">{canPay ? 'Take the payment below together with the OTP, or record it separately first.' : 'Record the counter payment first, then enter the OTP again.'}</Typography>
+              <Button size="small" variant="contained" color="secondary" sx={{ mt: 1 }} startIcon={<MSymbol name="point_of_sale" size={18} />} onClick={() => setPayTarget({ kind: 'booking', id: cashDue.booking_id, ref: w.booking_ref ?? w.ref, amount_cents: cashDue.amount_cents, customer_name: w.customer_name, stage: 'collection' })} data-testid="handover-record-payment">
                 Record payment · {rands(cashDue.amount_cents)}
               </Button>
             </Box>
           </Tile>
         )}
+        {canPay && <CounterPaymentFields state={pay} amountCents={w.amount_due_cents} switchTestId="handover-take-payment" testIdPrefix="handover-payment" disabled={locked || verify.isPending} hint={w.payment_method === 'cash' ? `Cash on collection — ${rands(w.amount_due_cents, { decimals: true })} is due before the keys are released.` : `${w.booking_ref ?? w.quotation_ref ?? w.ref} is unpaid — the payment is recorded with the OTP, before the keys are released.`} />}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
-          <Button variant="contained" color="secondary" startIcon={<MSymbol name="key" filled size={20} />} disabled={!complete || locked || verify.isPending} onClick={submit} data-testid="release-keys">
-            Release keys
+          <Button variant="contained" color="secondary" startIcon={<MSymbol name="key" filled size={20} />} disabled={!complete || locked || verify.isPending || !pay.ready} onClick={submit} data-testid="release-keys">
+            {canPay && pay.take ? `Record ${rands(w.amount_due_cents)} & release keys` : 'Release keys'}
           </Button>
           <Link component="button" type="button" underline="hover" disabled={cooldown > 0 || resend.isPending} onClick={() => resend.mutate()} sx={{ fontWeight: 600, color: cooldown > 0 ? tk.onSurfaceVariant : tk.primary, cursor: cooldown > 0 ? 'default' : 'pointer' }} aria-disabled={cooldown > 0} data-testid="resend-otp">
             {cooldown > 0 ? `Resend OTP in ${cooldown}s` : resend.isPending ? 'Sending…' : 'Resend OTP'}
@@ -207,6 +222,7 @@ export default function HandoverPanel({ w, onCollected }: { w: WorkOrder; onColl
         onClose={() => setPayTarget(null)}
         onRecorded={(p) => {
           setCashDue(null);
+          pay.setTake(false);
           setFeedback({ kind: 'info', text: `Recorded · receipt ${p.receipt_no ?? p.id} — enter the OTP to release the keys` });
           void qc.invalidateQueries({ queryKey: ['bookings'] });
           void qc.invalidateQueries({ queryKey: ['booking'] });

@@ -141,7 +141,13 @@ abstract interface class MembershipRepository {
 /// Staff operations (STF-*): tasks, checklists, ops summary, team,
 /// leaderboard, quotations assessment.
 abstract interface class StaffRepository {
-  Future<List<Task>> tasks({required TaskScope scope, String? outletId});
+  /// [period] applies to [TaskScope.queue] / [TaskScope.done] (the staff
+  /// tabs default to today); `mine` always lists everything open.
+  Future<List<Task>> tasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  });
   Future<WorkOrderDetail> workOrder(String id);
 
   /// Transition validated server-side (STF-023). When offline the operation is
@@ -169,26 +175,39 @@ abstract interface class StaffRepository {
     StepResultInput input,
   );
 
+  /// Checks a booking in (`POST /bookings/:id/checkin`). An optional
+  /// [payment] (cash / card terminal / EFT) is taken at the same time and
+  /// recorded first (stage `checkin`) — the returned booking carries it.
   Future<Booking> checkinBooking(
     String bookingId, {
     String? bay,
     int? priority,
+    CounterPaymentInput? payment,
   });
 
   /// Confirms the vehicle for [workOrderId] is on site (`POST
   /// /work-orders/:id/checkin`), which unlocks assignment. Every confirmed
   /// booking and every accepted quotation has its work order at once,
   /// awaiting check-in; checking a quotation work order in also marks the
-  /// quotation `converted`. Idempotent (`already`). Never queued offline.
+  /// quotation `converted`. Idempotent (`already`). An optional [payment]
+  /// for the booking / quotation is recorded first (stage `checkin`) and
+  /// returned on the result. Never queued offline.
   Future<WorkOrderCheckInResult> checkInWorkOrder(
     String workOrderId, {
     String? bay,
+    CounterPaymentInput? payment,
   });
 
   /// Vehicle hand-over: verifies the customer's 5-digit collection OTP and
-  /// releases the keys. Never queued offline. Throws [ApiException]
-  /// `invalid_otp` (see `attemptsLeft`) or `rate_limited`.
-  Future<PickupVerifyResult> verifyPickupOtp(String workOrderId, String otp);
+  /// releases the keys. An optional [payment] settles the booking /
+  /// quotation first (stage `collection`). Never queued offline. Throws
+  /// [ApiException] `invalid_otp` (see `attemptsLeft`), `rate_limited`, or
+  /// `payment_due` while a cash-on-collection balance is unpaid.
+  Future<PickupVerifyResult> verifyPickupOtp(
+    String workOrderId,
+    String otp, {
+    CounterPaymentInput? payment,
+  });
 
   /// `PUT /staff/me/availability` — the signed-in staff member's availability
   /// (drives the supervisor assign sheet and the admin Staff page).
@@ -224,10 +243,10 @@ abstract interface class StaffRepository {
   /// returned. Throws `conflict` when no bay is free.
   Future<Booking> createWalkInBooking(WalkInBookingInput input);
 
-  /// Records a cash / card-terminal payment for a booking (`booking_id`) or
-  /// an accepted quotation (`quotation_id`, amount = the quoted total).
-  /// Queued offline like [createWalkInBooking]; the receipt number arrives
-  /// on sync.
+  /// Records a cash / card-terminal / EFT payment for a booking
+  /// (`booking_id`) or an accepted quotation (`quotation_id`, amount = the
+  /// quoted total), at check-in or on collection (`stage`). Queued offline
+  /// like [createWalkInBooking]; the receipt number arrives on sync.
   Future<Payment> recordPayment(RecordPaymentInput input);
 
   // ---- Memberships at the counter (docs/MEMBERSHIPS.md) ---------------------
@@ -294,7 +313,11 @@ abstract interface class StaffRepository {
 
   Stream<List<Quotation>> watchQuotations({String? outletId});
 
-  Stream<List<Task>> watchTasks({required TaskScope scope, String? outletId});
+  Stream<List<Task>> watchTasks({
+    required TaskScope scope,
+    String? outletId,
+    TaskPeriod period = TaskPeriod.all,
+  });
   Stream<WorkOrderDetail> watchWorkOrder(String id);
   Stream<OpsSummary> watchOpsSummary({required String outletId});
 }
