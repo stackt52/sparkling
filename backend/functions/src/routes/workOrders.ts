@@ -4,9 +4,9 @@ import { z } from 'zod';
 import { PICKUP_OTP_PATTERN } from '../lib/otp.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { clientOpId, counterPayment, parseBody, uuid } from '../lib/validate.js';
-import { assertOwnerOrOutletStaff, requireProfile, requireStaff } from '../middleware/auth.js';
+import { assertOwnerOrOutletStaff, requireManager, requireProfile, requireStaff } from '../middleware/auth.js';
 import { ApiError, asyncHandler } from '../middleware/errors.js';
-import { redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
+import { issuePickupOtp, redactPickupOtp, resendPickupOtp, verifyPickup } from '../services/pickup.js';
 import { buildTimeline, checkInWorkOrder, loadStepResults, loadTemplateForWorkOrder, progress, recordStep } from '../services/workflow.js';
 import { addStepPhoto, MAX_STEP_PHOTO_BYTES, openStepPhoto, stepPhotoView } from '../services/stepPhotos.js';
 import { parseMultipart } from '../lib/multipart.js';
@@ -108,6 +108,25 @@ workOrdersRouter.post(
   asyncHandler(async (req, res) => {
     const id = uuid.parse(req.params.id);
     const out = await resendPickupOtp(req.ctx, id);
+    res.json(out);
+  }),
+);
+
+const pickupIssueSchema = z.object({
+  /** Why a new code was generated (customer never got it, lost phone, order locked…) — kept on the audit trail. */
+  reason: z.string().trim().max(500).nullable().optional(),
+  /** Send the new code to the customer (push + WhatsApp); default true. False when the admin reads it out instead. */
+  notify: z.boolean().optional(),
+});
+
+/** Manager / admin / director generate a fresh collection OTP (dashboard); the code is returned so it can be read out. */
+workOrdersRouter.post(
+  '/work-orders/:id/pickup/issue',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    const body = parseBody(pickupIssueSchema, req.body);
+    const out = await issuePickupOtp(req.ctx, id, { reason: body.reason ?? null, notify: body.notify });
     res.json(out);
   }),
 );

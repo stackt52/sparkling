@@ -45,6 +45,8 @@ import type {
   Page,
   Payment,
   Period,
+  PickupIssueInput,
+  PickupIssueResult,
   PickupResendResult,
   PickupVerifyResult,
   PosPayment,
@@ -239,6 +241,8 @@ export interface AdminApi {
   verifyPickup(id: string, otp: string, payment?: CounterPaymentInput | null): Promise<PickupVerifyResult>;
   /** Re-sends the same collection OTP (push + WhatsApp); 429 `rate_limited` within a minute of the last send, 409 once collected. */
   resendPickupOtp(id: string): Promise<PickupResendResult>;
+  /** `POST /work-orders/:id/pickup/issue` — manager+: generate a fresh collection OTP (returned) and optionally send it to the customer. */
+  issuePickupOtp(id: string, input?: PickupIssueInput): Promise<PickupIssueResult>;
   team(params: OutletScoped): Promise<TeamMember[]>;
   /* users */
   listUsers(): Promise<StaffUser[]>;
@@ -603,6 +607,10 @@ export class HttpApi implements AdminApi {
   async resendPickupOtp(id: string) {
     const res = await this.request<{ work_order: { id: string }; notification?: PickupResendResult['notification']; retry_after_seconds?: number }>('POST', `/work-orders/${id}/pickup/resend`, {});
     return { work_order: await this.getWorkOrder(id), notification: res.notification ?? [], retry_after_seconds: res.retry_after_seconds ?? 60 };
+  }
+  async issuePickupOtp(id: string, input: PickupIssueInput = {}) {
+    const res = await this.request<{ work_order: { id: string }; otp: string; issued_at: string; notification?: PickupIssueResult['notification']; retry_after_seconds?: number }>('POST', `/work-orders/${id}/pickup/issue`, { reason: input.reason ?? null, ...(input.notify === undefined ? {} : { notify: input.notify }) });
+    return { work_order: await this.getWorkOrder(id), otp: res.otp, issued_at: res.issued_at, notification: res.notification ?? [], retry_after_seconds: res.retry_after_seconds ?? 60 };
   }
   /** Verifying with incomplete required steps needs a supervisor `override.reason` — the drawer's reason doubles as that. */
   async transitionTask(taskId: string, body: { to: WorkStatus; reason?: string }) {

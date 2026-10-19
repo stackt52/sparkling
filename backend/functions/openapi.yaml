@@ -3635,6 +3635,78 @@ paths:
           schema:
             type: string
             format: uuid
+  /work-orders/{id}/pickup/issue:
+    post:
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  work_order:
+                    $ref: '#/components/schemas/WorkOrder'
+                  otp:
+                    type: string
+                    example: '48213'
+                  issued_at:
+                    type: string
+                    format: date-time
+                  notification:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotifyOutcome'
+                  retry_after_seconds:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Not verified yet, or already collected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      tags:
+        - Admin
+      operationId: issuePickupOtp
+      summary: >-
+        Manager / admin / director generate a FRESH collection OTP for a verified, uncollected work order (customer never received it, lost it, or the order is locked after 5 wrong attempts). The old
+        code stops working, the attempt counter restarts, the customer is sent the new code unless notify=false, and the code is returned so it can be read out at the counter. Audited
+        (work_order.pickup_otp_issue).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+                  nullable: true
+                notify:
+                  type: boolean
+                  description: Default true
   /sync/batch:
     post:
       responses:

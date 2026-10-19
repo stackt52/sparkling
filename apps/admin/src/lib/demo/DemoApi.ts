@@ -11,7 +11,9 @@ import {
   type ActivityItem, type AuditEvent, type AvailabilitySlot, type Booking, type BookingCheckinResult, type BookingDetail, type ChecklistTemplate, type CounterPaymentInput, type CreateStaffInput, type CreateStaffResult, type CustomerDetail, type CustomerSummary, type EnrolMembershipInput, type ExceptionItem, type FeatureFlag,
   type IntegrationStatus, type InventoryItem, type Kpis, type LoyaltyConfig, type LoyaltyConfigResponse, type LoyaltyRules, type LoyaltySummary, type LoyaltyTierConfig, type Membership, type MembershipAllowance, type MembershipBenefit,
   type MembershipInvoice, type MembershipPlan, type MembershipPlanInput, type MembershipPricing, type MembershipRow, type MembershipStatus, type MembershipSummary, type NotificationRow, type NotifyChannel, type Outlet, type OutletServiceInput,
-  type OutletServiceOffer, type Page, type Payment, type PaymentStage, type Period, type PickupNotification, type PickupResendResult, type PickupVerifyResult, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
+  type OutletServiceOffer, type Page, type Payment, type PaymentStage, type Period, type PickupNotification, type PickupIssueInput,
+  type PickupIssueResult,
+  type PickupResendResult, type PickupVerifyResult, type PlanEntitlement, type PosPayment, type QuoteLineItem, type Quotation, type QuotationAttachment, type RaiseQuotationInput, type RecordMembershipPaymentResult, type RecordPaymentInput, type RenewalRunResult, type ReportKind,
   type Profile, type ReportSummary, type ResetPasswordResult, type Service, type ServiceComponent, type ServiceInput, type SessionResponse, type ShareQuotationResult, type StaffPerformanceRow, type StaffUser, type TimelineStage, type UserRole, type Vehicle, type VehicleInput,
   type VehicleSize, type WalkInBookingInput, type WalkInBookingResult, type WalkInCustomer, type WalkInCustomerInput, type WalkInPriority, type WorkOrder, type WorkOrderCheckinResult, type WorkStatus,
 } from '../types';
@@ -782,7 +784,7 @@ export class DemoApi implements AdminApi {
     if (body.to === 'blocked') w.blocked_reason = body.reason ?? 'Blocked';
     if (body.to === 'in_progress') { w.blocked_reason = null; w.started_at = w.started_at ?? nowIso(); }
     if (body.to === 'completed') w.steps_done = Math.max(w.steps_done, w.step_count - 1);
-    if (body.to === 'verified') { w.steps_done = w.step_count; const b = this.bookings.find((x) => x.ref === w.booking_ref); if (b) b.status = 'completed'; this.issuePickupOtp(w); }
+    if (body.to === 'verified') { w.steps_done = w.step_count; const b = this.bookings.find((x) => x.ref === w.booking_ref); if (b) b.status = 'completed'; this.issuePickupOtpOnVerify(w); }
     w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'transition', from_status: from, to_status: body.to, reason: body.reason ?? null, created_at: nowIso() });
     w.updated_at = nowIso();
     this.log('task.transition', 'task', taskId, { status: from }, { status: body.to, reason: body.reason }, w.outlet.id);
@@ -813,7 +815,7 @@ export class DemoApi implements AdminApi {
     return String(10000 + Math.floor(Math.random() * 90000));
   }
   /** `verified` issues the 5-digit collection OTP and sends it to the customer (push + WhatsApp `pickup_otp`); the code shows up in Messages, never on the staff work order. */
-  private issuePickupOtp(w: WorkOrder) {
+  private issuePickupOtpOnVerify(w: WorkOrder) {
     if (this.pickup.has(w.id)) return;
     const otp = SEED_PICKUP_OTPS[w.ref] ?? DemoApi.randomOtp();
     this.pickup.set(w.id, { otp, issued_at: nowIso(), failures: 0, last_sent: Date.now() });
@@ -904,6 +906,29 @@ export class DemoApi implements AdminApi {
     this.emit('work_orders');
     this.emit('notifications');
     return { work_order: this.woRow(w), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
+  }
+  /** `POST /work-orders/:id/pickup/issue` — manager / admin / director generate a fresh code (the old one stops working, failures reset), send it unless `notify:false`, and get it back to read out. */
+  async issuePickupOtp(id: string, input: PickupIssueInput = {}): Promise<PickupIssueResult> {
+    await delay(260);
+    this.requireRole('manager', 'admin', 'director');
+    const w = this.workOrders.find((x) => x.id === id || x.ref === id);
+    if (!w) throw new ApiRequestError(404, { code: 'not_found', message: 'Work order not found' });
+    this.requireOutletAccess(w.outlet.id);
+    if (w.collected_at) throw new ApiRequestError(409, { code: 'conflict', message: 'Vehicle has already been collected', details: { collected_at: w.collected_at } });
+    if (w.status !== 'verified') throw new ApiRequestError(409, { code: 'conflict', message: 'A collection OTP can only be issued once the work order is verified', details: { status: w.status } });
+    const previous = this.pickup.get(w.id);
+    const otp = DemoApi.randomOtp();
+    const now = nowIso();
+    const notifyCustomer = input.notify !== false;
+    this.pickup.set(w.id, { otp, issued_at: now, failures: 0, last_sent: notifyCustomer ? Date.now() : 0 });
+    const notification = notifyCustomer ? this.sendPickupOtp(w, otp) : [];
+    w.events.push({ id: nextId('te'), actor_name: this.actor().full_name, event: 'pickup_otp_issued', from_status: w.status, to_status: w.status, reason: input.reason?.trim() || (notification.length ? `New code sent on ${notification.map((n) => n.channel).join(' + ')}` : 'New code read out at the counter'), created_at: now });
+    w.updated_at = now;
+    this.log('work_order.pickup_otp_issue', 'work_order', w.id, null, { reissued: Boolean(previous), previous_attempts: previous?.failures ?? 0, reason: input.reason ?? null, notified: notifyCustomer, channels: notification.map((n) => `${n.channel}:${n.status}`), revealed_to: this.actorId }, w.outlet.id);
+    this.pushActivity({ kind: 'assigned', title: `${w.ref} · new collection code issued`, subtitle: `${w.vehicle.registration_no} · by ${this.actor().full_name}${notifyCustomer ? ' · sent to the customer' : ' · read out at the counter'}`, icon: 'key', tone: 'warning' });
+    this.emit('work_orders');
+    if (notifyCustomer) this.emit('notifications');
+    return { work_order: this.woRow(w), otp, issued_at: now, notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
   }
   async team(p: OutletScoped): Promise<TeamMember[]> {
     await delay(60);

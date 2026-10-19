@@ -33,6 +33,8 @@ export type Capability =
   | 'work_order:checkin'
   /** Vehicle hand-over with the customer's collection OTP (`POST /work-orders/:id/pickup/verify` / `…/resend`) — ops roles. */
   | 'work_order:handover'
+  /** Generate a fresh collection OTP and read it out (`POST /work-orders/:id/pickup/issue`) — manager and up. */
+  | 'work_order:otp_issue'
   /** Counter payment attestation (`POST /payments/record`) for bookings and accepted quotations — staff / manager / admin. */
   | 'payment:record'
   | 'user:manage'
@@ -51,7 +53,7 @@ export type Capability =
 const ADMIN_CAPABILITIES = new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record', 'user:manage',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'work_order:otp_issue', 'payment:record', 'user:manage',
     'loyalty:draft', 'loyalty:publish', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'catalogue:manage', 'service:manage',
     'template:manage', 'flags:manage', 'notification:resend',
   ]);
@@ -62,7 +64,7 @@ const matrix: Record<Exclude<UserRole, 'customer' | 'technician'>, Set<Capabilit
   manager: new Set<Capability>([
     'view:overview', 'view:bookings', 'view:quotations', 'view:work_orders', 'view:staff', 'view:customers',
     'view:loyalty', 'view:inventory', 'view:reports', 'view:config', 'view:audit', 'view:notifications', 'export:csv',
-    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'payment:record',
+    'booking:cancel', 'booking:create', 'quote:write', 'quote:convert', 'task:assign', 'task:transition', 'work_order:checkin', 'work_order:handover', 'work_order:otp_issue', 'payment:record',
     'loyalty:draft', 'memberships:manage', 'inventory:threshold', 'inventory:movement', 'notification:resend',
   ]),
   finance: new Set<Capability>([

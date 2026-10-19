@@ -677,6 +677,24 @@ export interface PickupResendResult {
 }
 
 /**
+ * `POST /work-orders/:id/pickup/issue { reason?, notify? }` → 200 (manager / admin / director): a **fresh** collection OTP for
+ * a verified, uncollected work order. The old code stops working, the attempt counter restarts, the customer gets the new
+ * code (`notify` default true) and — unlike every other staff response — the code itself is returned to be read out.
+ * 409 before `verified` or once collected.
+ */
+export interface PickupIssueResult {
+  work_order: WorkOrder;
+  otp: string;
+  issued_at: string;
+  notification: PickupNotification[];
+  retry_after_seconds: number;
+}
+export interface PickupIssueInput {
+  reason?: string | null;
+  notify?: boolean;
+}
+
+/**
  * `POST /bookings/:id/checkin` → `{ booking, work_order, task, created }` — the dashboard keeps the booking and the
  * work order. `created` is false when the confirmed booking's existing work order was checked in (the usual case).
  */

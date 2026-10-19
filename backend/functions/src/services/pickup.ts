@@ -4,7 +4,7 @@
  * workflow.onVerified, which stores it on the work order), shown to the owning customer in the app / WhatsApp,
  * and presented to outlet staff who verify it here.
  */
-import { canSeePickupOtp, otpMatches, redactPickupOtp } from '../lib/otp.js';
+import { canSeePickupOtp, generatePickupOtp, otpMatches, redactPickupOtp } from '../lib/otp.js';
 import { getSupabase, unwrap } from '../lib/supabase.js';
 import { assertOutlet } from '../middleware/auth.js';
 import { ApiError } from '../middleware/errors.js';
@@ -25,9 +25,11 @@ async function loadForStaff(ctx: RequestContext, workOrderId: string): Promise<W
   return wo;
 }
 
-async function failedAttempts(workOrderId: string): Promise<number> {
-  const rows = unwrap<Array<{ id: string }>>(await getSupabase().from('task_events').select('id').eq('work_order_id', workOrderId).eq('event', 'pickup_otp_failed'), 'otp attempts');
-  return rows.length;
+/** Wrong-OTP attempts against the *current* code: failures before the last (re-)issue no longer count. */
+async function failedAttempts(wo: Pick<WorkOrder, 'id' | 'pickup_otp_issued_at'>): Promise<number> {
+  const rows = unwrap<Array<{ id: string; created_at: string | null }>>(await getSupabase().from('task_events').select('id, created_at').eq('work_order_id', wo.id).eq('event', 'pickup_otp_failed'), 'otp attempts');
+  const since = wo.pickup_otp_issued_at ? new Date(wo.pickup_otp_issued_at).getTime() : 0;
+  return rows.filter((r) => !since || !r.created_at || new Date(r.created_at).getTime() >= since).length;
 }
 
 export interface VerifyPickupResult {
@@ -56,7 +58,7 @@ export async function verifyPickup(ctx: RequestContext, workOrderId: string, otp
 
   const task = await db.from('tasks').select('id').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle();
   const taskId = (task.data as { id: string } | null)?.id ?? null;
-  const attempts = await failedAttempts(wo.id);
+  const attempts = await failedAttempts(wo);
   if (attempts >= PICKUP_OTP_MAX_ATTEMPTS) {
     throw ApiError.conflict('OTP attempts exhausted for this work order', { locked: true, attempts, max_attempts: PICKUP_OTP_MAX_ATTEMPTS });
   }
@@ -154,6 +156,71 @@ export async function resendPickupOtp(ctx: RequestContext, workOrderId: string):
   });
   await audit(ctx, { action: 'work_order.pickup_otp_resend', entity_type: 'work_order', entity_id: wo.id, outlet_id: wo.outlet_id, after: { channels: notification.map((n) => `${n.channel}:${n.status}`) } });
   return { work_order: redactPickupOtp(ctx.auth, wo), notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
+}
+
+export interface IssuePickupResult {
+  work_order: WorkOrder;
+  /** The new 5-digit code — revealed to the dashboard user who generated it so it can be read out to the customer. */
+  otp: string;
+  issued_at: string;
+  notification: Awaited<ReturnType<typeof notify>>;
+  retry_after_seconds: number;
+}
+
+/**
+ * Dashboard (manager / admin / director) generates a **fresh** collection OTP for a verified, uncollected work order:
+ * when the customer never received the code, lost it, or the order is locked after five wrong attempts. The previous
+ * code stops working at once, the attempt counter restarts (failures before this issue no longer count), the code is
+ * sent to the customer again (`pickup_otp` push + WhatsApp) unless `notify` is false, and — unlike every other staff
+ * path — it is returned in the response. Audited as `work_order.pickup_otp_issue` with the reason.
+ */
+export async function issuePickupOtp(ctx: RequestContext, workOrderId: string, opts: { reason?: string | null; notify?: boolean } = {}): Promise<IssuePickupResult> {
+  const db = getSupabase();
+  const wo = await loadForStaff(ctx, workOrderId);
+  if (wo.collected_at) throw ApiError.conflict('Vehicle has already been collected', { collected_at: wo.collected_at });
+  if (wo.status !== 'verified') throw ApiError.conflict('A collection OTP can only be issued once the work order is verified', { status: wo.status });
+
+  const previousAttempts = await failedAttempts(wo);
+  const otp = generatePickupOtp();
+  const issuedAt = new Date().toISOString();
+  const updated = unwrap<WorkOrder>(
+    await db.from('work_orders').update({ pickup_otp: otp, pickup_otp_issued_at: issuedAt, pickup_otp_verified_at: null, pickup_otp_verified_by: null }).eq('id', wo.id).select('*').single(),
+    'issue collection OTP',
+  );
+  const [outlet, task] = await Promise.all([
+    db.from('outlets').select('name').eq('id', wo.outlet_id).maybeSingle(),
+    db.from('tasks').select('id').eq('work_order_id', wo.id).order('seq').limit(1).maybeSingle(),
+  ]);
+  const shouldNotify = opts.notify !== false;
+  const notification = shouldNotify
+    ? await notify({
+        recipientId: wo.customer_id,
+        templateKey: 'pickup_otp',
+        vars: { otp, vehicle: await vehicleLabel(wo.vehicle_id), outlet: (outlet.data as { name: string } | null)?.name ?? '', ref: wo.ref },
+        dedupeKey: `pickup_otp:${wo.id}:${issuedAt}`,
+        payload: { type: 'work_order', work_order_id: wo.id, booking_id: wo.booking_id },
+      })
+    : [];
+  const channels = notification.map((n) => `${n.channel}:${n.status}`);
+  await db.from('task_events').insert({
+    task_id: (task.data as { id: string } | null)?.id ?? null,
+    work_order_id: wo.id,
+    actor_id: ctx.auth.uid,
+    event: 'pickup_otp_issued',
+    from_status: wo.status,
+    to_status: wo.status,
+    reason: opts.reason ?? null,
+    metadata: { reissued: Boolean(wo.pickup_otp), previous_attempts: previousAttempts, notified: shouldNotify, channels },
+    created_at: issuedAt,
+  });
+  await audit(ctx, {
+    action: 'work_order.pickup_otp_issue',
+    entity_type: 'work_order',
+    entity_id: wo.id,
+    outlet_id: wo.outlet_id,
+    after: { reissued: Boolean(wo.pickup_otp), previous_attempts: previousAttempts, reason: opts.reason ?? null, notified: shouldNotify, channels, revealed_to: ctx.auth.uid },
+  });
+  return { work_order: redactPickupOtp(ctx.auth, updated), otp, issued_at: issuedAt, notification, retry_after_seconds: PICKUP_RESEND_INTERVAL_MS / 1000 };
 }
 
 /** Cash-on-collection bookings must have their payment recorded at the counter before the vehicle is released. */
